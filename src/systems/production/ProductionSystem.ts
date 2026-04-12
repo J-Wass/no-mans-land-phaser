@@ -1,0 +1,135 @@
+/**
+ * ProductionSystem — advances city production and research each tick.
+ * Also applies passive resource yields from city and territory buildings.
+ */
+
+import type { GameState } from '@/managers/GameState';
+import type { GameEventBus } from '@/systems/events/GameEventBus';
+import type { GridCoordinates } from '@/types/common';
+import { spawnUnit } from '@/systems/production/unitSpawnFactory';
+import { TerrainType } from '@/systems/grid/Territory';
+import { coordsToKey } from '@/systems/grid/Grid';
+import { ResourceType } from '@/systems/resources/ResourceType';
+import { CityBuildingType } from '@/systems/territory/CityBuilding';
+import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+
+// ── Passive yield intervals (in ticks) ────────────────────────────────────────
+// TICK_RATE = 10 → 5 ticks = 0.5s, 10 ticks = 1s
+const FOOD_INTERVAL     = 5;   // base +2/s per city
+const MATERIAL_INTERVAL = 10;  // base +1/s per city
+const GOLD_INTERVAL     = 10;
+const RESEARCH_INTERVAL = 10;
+
+let unitSerial = 1000;
+
+export class ProductionSystem {
+  public tick(gameState: GameState, eventBus: GameEventBus, currentTick: number): void {
+
+    // ── Passive resource yield — base per city ────────────────────────────────
+    for (const city of gameState.getAllCities()) {
+      const nation = gameState.getNation(city.getOwnerId());
+      if (!nation) continue;
+      const t = nation.getTreasury();
+      if (currentTick % FOOD_INTERVAL     === 0) t.addResource(ResourceType.FOOD,         1);
+      if (currentTick % MATERIAL_INTERVAL === 0) t.addResource(ResourceType.RAW_MATERIAL, 1);
+      if (currentTick % GOLD_INTERVAL     === 0) t.addResource(ResourceType.GOLD,         1);
+      if (currentTick % RESEARCH_INTERVAL === 0) t.addResource(ResourceType.RESEARCH,     1);
+
+      // City building bonuses
+      if (city.hasBuilding(CityBuildingType.FARMS)
+          && currentTick % FOOD_INTERVAL === 0)          t.addResource(ResourceType.FOOD,         1);
+      if (city.hasBuilding(CityBuildingType.WORKSHOP)
+          && currentTick % MATERIAL_INTERVAL === 0)      t.addResource(ResourceType.RAW_MATERIAL, 1);
+      if (city.hasBuilding(CityBuildingType.SCHOOL)
+          && currentTick % RESEARCH_INTERVAL === 0)      t.addResource(ResourceType.RESEARCH,     1);
+      if (city.hasBuilding(CityBuildingType.MARKET)
+          && currentTick % GOLD_INTERVAL === 0)          t.addResource(ResourceType.GOLD,         1);
+    }
+
+    // ── Territory building bonuses (Farms/Workshop on non-city territories) ───
+    for (const nation of gameState.getAllNations()) {
+      const t = nation.getTreasury();
+      for (const territory of gameState.getGrid().getTerritoriesByNation(nation.getId())) {
+        if (territory.hasBuilding(TerritoryBuildingType.FARMS)
+            && currentTick % FOOD_INTERVAL === 0)        t.addResource(ResourceType.FOOD,         1);
+        if (territory.hasBuilding(TerritoryBuildingType.WORKSHOP)
+            && currentTick % MATERIAL_INTERVAL === 0)    t.addResource(ResourceType.RAW_MATERIAL, 1);
+      }
+    }
+
+    // ── City production orders ────────────────────────────────────────────────
+    for (const city of gameState.getAllCities()) {
+      const orderSnapshot = city.getCurrentOrder();
+      if (!orderSnapshot) continue;
+
+      const completed = city.tickProduction();
+      if (!completed) continue;
+
+      if (orderSnapshot.kind === 'unit') {
+        const spawnPos = findSpawnNear(gameState, city.position);
+        if (spawnPos) {
+          const unitId = `unit-city-${++unitSerial}`;
+          const unit   = spawnUnit(orderSnapshot.unitType, unitId, city.getOwnerId(), spawnPos);
+          gameState.addUnit(unit);
+          eventBus.emit('city:unit-spawned', {
+            cityId: city.id, unitId, unitType: orderSnapshot.unitType,
+            position: spawnPos, tick: currentTick,
+          });
+        }
+
+      } else if (orderSnapshot.kind === 'building') {
+        city.addBuilding(orderSnapshot.buildingType);
+        eventBus.emit('city:building-built', {
+          cityId: city.id, building: orderSnapshot.buildingType, tick: currentTick,
+        });
+
+      } else {
+        // resource order
+        const nation = gameState.getNation(city.getOwnerId());
+        nation?.getTreasury().addResource(orderSnapshot.resourceType, orderSnapshot.resourceAmount);
+        eventBus.emit('city:production-complete', {
+          cityId: city.id, order: orderSnapshot, tick: currentTick,
+        });
+      }
+    }
+
+    // ── Research ──────────────────────────────────────────────────────────────
+    for (const nation of gameState.getAllNations()) {
+      const completed = nation.tickResearch();
+      if (completed) {
+        eventBus.emit('nation:research-complete', {
+          nationId: nation.getId(), techId: completed,
+        });
+      }
+    }
+  }
+}
+
+/** Find a passable, unoccupied tile near the city (city tile first, then ring out). */
+function findSpawnNear(gameState: GameState, origin: GridCoordinates): GridCoordinates | null {
+  const grid     = gameState.getGrid();
+  const occupied = new Set(gameState.getAllUnits().map(u => coordsToKey(u.position)));
+
+  const candidates: GridCoordinates[] = [
+    origin,
+    { row: origin.row,     col: origin.col + 1 },
+    { row: origin.row + 1, col: origin.col     },
+    { row: origin.row,     col: origin.col - 1 },
+    { row: origin.row - 1, col: origin.col     },
+    { row: origin.row + 1, col: origin.col + 1 },
+    { row: origin.row - 1, col: origin.col - 1 },
+    { row: origin.row + 1, col: origin.col - 1 },
+    { row: origin.row - 1, col: origin.col + 1 },
+  ];
+
+  for (const c of candidates) {
+    const territory = grid.getTerritory(c);
+    if (!territory) continue;
+    const terrain = territory.getTerrainType();
+    if (terrain === TerrainType.WATER || terrain === TerrainType.MOUNTAIN) continue;
+    if (occupied.has(coordsToKey(c))) continue;
+    return c;
+  }
+  return null;
+}
+
