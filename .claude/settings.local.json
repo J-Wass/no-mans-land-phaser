@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if exist package.json type package.json)",
+      "Bash(mkdir:*)",
+      "Bash(npx vitest list:*)",
+      "Bash(npx vitest run:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
