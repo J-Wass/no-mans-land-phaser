@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import Phaser from 'phaser';
 import { gameConfig } from './config/gameConfig';
 

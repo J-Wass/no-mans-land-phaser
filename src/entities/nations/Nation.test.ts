@@ -15,12 +15,15 @@ describe('Nation', () => {
   it('should initialize with correct data', () => {
     expect(nation1.getName()).toBe('Empire of Rome');
     expect(nation1.getColor()).toBe('#FF0000');
-    expect(nation1.isAI()).toBe(false);
+    expect(nation1.isAIControlled()).toBe(false);
+    expect(nation1.getControlledBy()).toBe(null);
   });
 
   it('should start with empty treasury', () => {
     const treasury = nation1.getTreasury();
     expect(treasury.getAmount(ResourceType.GOLD)).toBe(0);
+    expect(treasury.getAmount(ResourceType.FOOD)).toBe(0);
+    expect(treasury.getAmount(ResourceType.RAW_MATERIAL)).toBe(0);
   });
 
   it('should default to neutral relations', () => {
@@ -37,11 +40,6 @@ describe('Nation', () => {
     expect(nation1.isAlly(nation2.getId())).toBe(true);
   });
 
-  it('should establish trade agreements', () => {
-    nation1.establishTrade(nation2.getId());
-    expect(nation1.hasTradeAgreement(nation2.getId())).toBe(true);
-  });
-
   it('should make peace', () => {
     nation1.declareWar(nation2.getId());
     expect(nation1.isAtWar(nation2.getId())).toBe(true);
@@ -53,7 +51,20 @@ describe('Nation', () => {
   it('should manage treasury', () => {
     const treasury = nation1.getTreasury();
     treasury.addResource(ResourceType.GOLD, 1000);
-
     expect(treasury.getAmount(ResourceType.GOLD)).toBe(1000);
+  });
+
+  it('should support player assignment', () => {
+    nation1.setControlledBy('player-1');
+    expect(nation1.getControlledBy()).toBe('player-1');
+  });
+
+  it('should serialize to JSON', () => {
+    nation1.getTreasury().addResource(ResourceType.FOOD, 50);
+    nation1.declareWar(nation2.getId());
+    const json = nation1.toJSON();
+    expect(json.name).toBe('Empire of Rome');
+    expect(json.treasury[ResourceType.FOOD]).toBe(50);
+    expect(json.relations[nation2.getId()]).toBe(DiplomaticStatus.WAR);
   });
 });

@@ -1,14 +1,15 @@
 /**
- * Resource system - defines all resource types
+ * Resource system - economy resources produced and consumed by cities/nations.
+ * Territory tile deposits (mana, materials) live in TerritoryResourceType.ts.
  */
 
 export enum ResourceType {
-  FIRE_MANA = 'FIRE_MANA',
-  WATER_MANA = 'WATER_MANA',
-  IRON = 'IRON',
-  GOLD = 'GOLD',
-  FOOD = 'FOOD',
-  WOOD = 'WOOD'
+  GOLD         = 'GOLD',         // income from treaties / markets
+  FOOD         = 'FOOD',         // farms + territories; unit upkeep + population growth
+  RAW_MATERIAL = 'RAW_MATERIAL', // workshops + territories; building upkeep
+  HAPPINESS    = 'HAPPINESS',    // avg of cities (public greens); drives pop growth
+  CORRUPTION   = 'CORRUPTION',   // avg of cities (courthouses); slows production
+  RESEARCH     = 'RESEARCH',     // schools; funds tech tree
 }
 
 export interface Resource {
@@ -17,20 +18,21 @@ export interface Resource {
 }
 
 export interface ResourceCost {
-  [ResourceType.FIRE_MANA]?: number;
-  [ResourceType.WATER_MANA]?: number;
-  [ResourceType.IRON]?: number;
-  [ResourceType.GOLD]?: number;
-  [ResourceType.FOOD]?: number;
-  [ResourceType.WOOD]?: number;
+  [ResourceType.GOLD]?:         number;
+  [ResourceType.FOOD]?:         number;
+  [ResourceType.RAW_MATERIAL]?: number;
+  [ResourceType.HAPPINESS]?:    number;
+  [ResourceType.CORRUPTION]?:   number;
+  [ResourceType.RESEARCH]?:     number;
 }
+
+export type ResourceStorageData = Record<ResourceType, number>;
 
 export class ResourceStorage {
   private resources: Map<ResourceType, number>;
 
   constructor() {
     this.resources = new Map();
-    // Initialize all resources to 0
     Object.values(ResourceType).forEach(type => {
       this.resources.set(type, 0);
     });
@@ -77,5 +79,13 @@ export class ResourceStorage {
 
   public getAllResources(): Map<ResourceType, number> {
     return new Map(this.resources);
+  }
+
+  public toJSON(): Record<ResourceType, number> {
+    const result = {} as Record<ResourceType, number>;
+    this.resources.forEach((amount, type) => {
+      result[type] = amount;
+    });
+    return result;
   }
 }

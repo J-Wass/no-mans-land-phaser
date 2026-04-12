@@ -3,25 +3,29 @@
  */
 
 import type { GridCoordinates, EntityId } from '@/types/common';
-import { ResourceType } from '@/systems/resources/ResourceType';
+import type { Serializable } from '@/types/serializable';
+import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
+import type { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 
 export enum TerrainType {
-  PLAINS = 'PLAINS',
-  FOREST = 'FOREST',
+  PLAINS   = 'PLAINS',
+  HILLS    = 'HILLS',
+  FOREST   = 'FOREST',
   MOUNTAIN = 'MOUNTAIN',
-  WATER = 'WATER',
-  DESERT = 'DESERT'
+  WATER    = 'WATER',
+  DESERT   = 'DESERT',
 }
 
 export interface TerritoryData {
-  coordinates: GridCoordinates;
-  terrainType: TerrainType;
-  controlledBy: EntityId | null; // Nation ID
-  cityId: EntityId | null; // City ID if this territory has a city
-  resourceDeposit: ResourceType | null; // Natural resource on this tile
+  coordinates:     GridCoordinates;
+  terrainType:     TerrainType;
+  controlledBy:    EntityId | null;
+  cityId:          EntityId | null;
+  resourceDeposit: TerritoryResourceType | null;
+  buildings:       TerritoryBuildingType[];
 }
 
-export class Territory {
+export class Territory implements Serializable<TerritoryData> {
   private data: TerritoryData;
 
   constructor(coordinates: GridCoordinates, terrainType: TerrainType) {
@@ -30,7 +34,8 @@ export class Territory {
       terrainType,
       controlledBy: null,
       cityId: null,
-      resourceDeposit: null
+      resourceDeposit: null,
+      buildings: [],
     };
   }
 
@@ -40,6 +45,10 @@ export class Territory {
 
   public getTerrainType(): TerrainType {
     return this.data.terrainType;
+  }
+
+  public setTerrainType(terrainType: TerrainType): void {
+    this.data.terrainType = terrainType;
   }
 
   public getControllingNation(): EntityId | null {
@@ -62,11 +71,11 @@ export class Territory {
     return this.data.cityId !== null;
   }
 
-  public getResourceDeposit(): ResourceType | null {
+  public getResourceDeposit(): TerritoryResourceType | null {
     return this.data.resourceDeposit;
   }
 
-  public setResourceDeposit(resource: ResourceType | null): void {
+  public setResourceDeposit(resource: TerritoryResourceType | null): void {
     this.data.resourceDeposit = resource;
   }
 
@@ -74,7 +83,33 @@ export class Territory {
     return this.data.cityId !== null;
   }
 
+  // ── Buildings ────────────────────────────────────────────────────────────────
+
+  public getBuildings(): readonly TerritoryBuildingType[] {
+    return this.data.buildings;
+  }
+
+  public hasBuilding(b: TerritoryBuildingType): boolean {
+    return this.data.buildings.includes(b);
+  }
+
+  public addBuilding(b: TerritoryBuildingType): void {
+    if (!this.hasBuilding(b)) this.data.buildings.push(b);
+  }
+
+  public setBuildings(buildings: TerritoryBuildingType[]): void {
+    this.data.buildings = [...buildings];
+  }
+
   public getData(): Readonly<TerritoryData> {
     return this.data;
+  }
+
+  public toJSON(): TerritoryData {
+    return {
+      ...this.data,
+      coordinates: { ...this.data.coordinates },
+      buildings: [...this.data.buildings],
+    };
   }
 }

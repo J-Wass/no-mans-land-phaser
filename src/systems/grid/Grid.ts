@@ -3,14 +3,27 @@
  */
 
 import { Territory, TerrainType } from './Territory';
+import type { TerritoryData } from './Territory';
 import type { GridCoordinates, EntityId } from '@/types/common';
+
+/** Convert grid coordinates to a stable string key used for Maps/Sets. */
+export function coordsToKey(coords: GridCoordinates): string {
+  return `${coords.row},${coords.col}`;
+}
+import type { Serializable } from '@/types/serializable';
 
 export interface GridConfig {
   rows: number;
   cols: number;
 }
 
-export class Grid {
+export interface GridData {
+  rows: number;
+  cols: number;
+  territories: TerritoryData[];
+}
+
+export class Grid implements Serializable<GridData> {
   private territories: Map<string, Territory>;
   private readonly rows: number;
   private readonly cols: number;
@@ -33,7 +46,7 @@ export class Grid {
   }
 
   private coordsToKey(coords: GridCoordinates): string {
-    return `${coords.row},${coords.col}`;
+    return coordsToKey(coords);
   }
 
   public getTerritory(coords: GridCoordinates): Territory | null {
@@ -88,5 +101,13 @@ export class Grid {
 
   public getAllTerritories(): Territory[] {
     return Array.from(this.territories.values());
+  }
+
+  public toJSON(): GridData {
+    return {
+      rows: this.rows,
+      cols: this.cols,
+      territories: Array.from(this.territories.values()).map(t => t.toJSON()),
+    };
   }
 }

@@ -2,28 +2,38 @@
  * Base Unit class - all unit types extend this
  */
 
-import type { EntityId, GridCoordinates, GameEntity, EntityType } from '@/types/common';
+import { EntityType } from '@/types/common';
+import type { EntityId, GridCoordinates, GameEntity } from '@/types/common';
 import type { ResourceCost } from '@/systems/resources/ResourceType';
+import type { Serializable } from '@/types/serializable';
 
 export enum UnitType {
-  INFANTRY = 'INFANTRY',
-  ARCHER = 'ARCHER',
-  CAVALRY = 'CAVALRY',
-  SIEGE = 'SIEGE'
+  INFANTRY       = 'INFANTRY',
+  SCOUT          = 'SCOUT',
+  HEAVY_INFANTRY = 'HEAVY_INFANTRY',
+  CAVALRY        = 'CAVALRY',
+  LONGBOWMAN     = 'LONGBOWMAN',
+  CROSSBOWMAN    = 'CROSSBOWMAN',
+  CATAPULT       = 'CATAPULT',
+  TREBUCHET      = 'TREBUCHET',
 }
+
+export type ArmorType = 'light' | 'heavy';
 
 export interface UnitStats {
   maxHealth: number;
-  attack: number;
-  defense: number;
-  movement: number; // How many tiles they can move per turn
-  range: number; // Attack range in tiles
+  meleeDamage: number;
+  rangedDamage: number;   // 0 for melee-only units
+  armorType: ArmorType;
+  speed: number;          // used in movement cost formula
+  attackRange: number;    // 1=melee only, 2-3=ranged
+  vision: number;         // tiles visible
 }
 
 export interface UnitData {
   id: EntityId;
   type: UnitType;
-  ownerId: EntityId; // Nation ID
+  ownerId: EntityId;
   position: GridCoordinates;
   currentHealth: number;
   stats: UnitStats;
@@ -31,7 +41,7 @@ export interface UnitData {
   hasAttackedThisTurn: boolean;
 }
 
-export abstract class Unit implements GameEntity {
+export abstract class Unit implements GameEntity, Serializable<UnitData> {
   protected data: UnitData;
   public readonly type: EntityType.UNIT = EntityType.UNIT;
 
@@ -50,7 +60,7 @@ export abstract class Unit implements GameEntity {
       currentHealth: stats.maxHealth,
       stats,
       hasMovedThisTurn: false,
-      hasAttackedThisTurn: false
+      hasAttackedThisTurn: false,
     };
   }
 
@@ -98,7 +108,7 @@ export abstract class Unit implements GameEntity {
   }
 
   public moveTo(position: GridCoordinates): void {
-    this.data.position = position;
+    this.data.position = { ...position };
     this.data.hasMovedThisTurn = true;
   }
 
@@ -119,9 +129,22 @@ export abstract class Unit implements GameEntity {
     this.data.hasAttackedThisTurn = false;
   }
 
+  /** Directly set current health — used only when restoring from a save. */
+  public setHealth(amount: number): void {
+    this.data.currentHealth = Math.max(0, Math.min(this.data.stats.maxHealth, amount));
+  }
+
   public abstract getCost(): ResourceCost;
 
   public getData(): Readonly<UnitData> {
     return this.data;
+  }
+
+  public toJSON(): UnitData {
+    return {
+      ...this.data,
+      position: { ...this.data.position },
+      stats: { ...this.data.stats },
+    };
   }
 }

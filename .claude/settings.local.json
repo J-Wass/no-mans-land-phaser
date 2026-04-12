@@ -4,7 +4,17 @@
       "Bash(if exist package.json type package.json)",
       "Bash(mkdir:*)",
       "Bash(npx vitest list:*)",
-      "Bash(npx vitest run:*)"
+      "Bash(npx vitest run:*)",
+      "Bash(python -c ':*)",
+      "Bash(python:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run:*)",
+      "Bash(npx vite:*)",
+      "Bash(npx tsc:*)",
+      "Bash(curl:*)",
+      "Bash(node -e ':*)",
+      "Bash(npm install:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []

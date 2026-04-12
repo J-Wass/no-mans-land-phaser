@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Phaser Game</title>
   <style>
     * {
@@ -18,10 +18,16 @@
       min-height: 100vh;
       background-color: #1a1a1a;
       font-family: system-ui, -apple-system, sans-serif;
+      overflow: hidden;
     }
 
     #game-container {
       box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    canvas {
+      touch-action: none;
+      display: block;
     }
   </style>
 </head>

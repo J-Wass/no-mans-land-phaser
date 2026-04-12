@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { Infantry } from './Infantry';
-import { Archer } from './Archer';
+import { Longbowman } from './Longbowman';
 
 describe('Infantry', () => {
   let infantry: Infantry;
@@ -12,10 +12,12 @@ describe('Infantry', () => {
   it('should initialize with correct stats', () => {
     const stats = infantry.getStats();
     expect(stats.maxHealth).toBe(100);
-    expect(stats.attack).toBe(15);
-    expect(stats.defense).toBe(10);
-    expect(stats.movement).toBe(2);
-    expect(stats.range).toBe(1);
+    expect(stats.meleeDamage).toBe(10);
+    expect(stats.rangedDamage).toBe(0);
+    expect(stats.armorType).toBe('light');
+    expect(stats.speed).toBe(2);
+    expect(stats.attackRange).toBe(1);
+    expect(stats.vision).toBe(1);
   });
 
   it('should start with full health', () => {
@@ -64,21 +66,31 @@ describe('Infantry', () => {
     expect(infantry.canMove()).toBe(true);
     expect(infantry.canAttack()).toBe(true);
   });
+
+  it('should serialize to JSON', () => {
+    const json = infantry.toJSON();
+    expect(json.id).toBe('unit-1');
+    expect(json.stats.meleeDamage).toBe(10);
+    expect(json.position).toEqual({ row: 0, col: 0 });
+  });
 });
 
-describe('Archer', () => {
-  let archer: Archer;
+describe('Longbowman', () => {
+  let longbowman: Longbowman;
 
   beforeEach(() => {
-    archer = new Archer('unit-2', 'nation-1', { row: 0, col: 0 });
+    longbowman = new Longbowman('unit-2', 'nation-1', { row: 0, col: 0 });
   });
 
-  it('should have longer range than infantry', () => {
-    const stats = archer.getStats();
-    expect(stats.range).toBe(3);
+  it('should have longer attack range than infantry', () => {
+    expect(longbowman.getStats().attackRange).toBe(3);
   });
 
-  it('should have less health than infantry', () => {
-    expect(archer.getMaxHealth()).toBe(70);
+  it('should have ranged damage', () => {
+    expect(longbowman.getStats().rangedDamage).toBe(12);
+  });
+
+  it('should have light armor', () => {
+    expect(longbowman.getStats().armorType).toBe('light');
   });
 });

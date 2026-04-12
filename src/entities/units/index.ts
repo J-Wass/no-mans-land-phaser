@@ -1,8 +1,10 @@
-/**
- * Units module - barrel exports
- */
-
 export { Unit, UnitType } from './Unit';
+export type { UnitStats, UnitData, ArmorType } from './Unit';
 export { Infantry } from './Infantry';
-export { Archer } from './Archer';
-export type { UnitStats, UnitData } from './Unit';
+export { Scout } from './Scout';
+export { HeavyInfantry } from './HeavyInfantry';
+export { Cavalry } from './Cavalry';
+export { Longbowman } from './Longbowman';
+export { Crossbowman } from './Crossbowman';
+export { Catapult } from './Catapult';
+export { Trebuchet } from './Trebuchet';

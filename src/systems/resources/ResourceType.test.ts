@@ -10,8 +10,11 @@ describe('ResourceStorage', () => {
 
   it('should initialize all resources to 0', () => {
     expect(storage.getAmount(ResourceType.GOLD)).toBe(0);
-    expect(storage.getAmount(ResourceType.IRON)).toBe(0);
-    expect(storage.getAmount(ResourceType.FIRE_MANA)).toBe(0);
+    expect(storage.getAmount(ResourceType.FOOD)).toBe(0);
+    expect(storage.getAmount(ResourceType.RAW_MATERIAL)).toBe(0);
+    expect(storage.getAmount(ResourceType.HAPPINESS)).toBe(0);
+    expect(storage.getAmount(ResourceType.CORRUPTION)).toBe(0);
+    expect(storage.getAmount(ResourceType.RESEARCH)).toBe(0);
   });
 
   it('should add resources correctly', () => {
@@ -23,28 +26,28 @@ describe('ResourceStorage', () => {
   });
 
   it('should remove resources correctly', () => {
-    storage.addResource(ResourceType.IRON, 100);
-    const removed = storage.removeResource(ResourceType.IRON, 30);
+    storage.addResource(ResourceType.RAW_MATERIAL, 100);
+    const removed = storage.removeResource(ResourceType.RAW_MATERIAL, 30);
 
     expect(removed).toBe(true);
-    expect(storage.getAmount(ResourceType.IRON)).toBe(70);
+    expect(storage.getAmount(ResourceType.RAW_MATERIAL)).toBe(70);
   });
 
   it('should not remove resources if insufficient', () => {
-    storage.addResource(ResourceType.WOOD, 10);
-    const removed = storage.removeResource(ResourceType.WOOD, 20);
+    storage.addResource(ResourceType.FOOD, 10);
+    const removed = storage.removeResource(ResourceType.FOOD, 20);
 
     expect(removed).toBe(false);
-    expect(storage.getAmount(ResourceType.WOOD)).toBe(10);
+    expect(storage.getAmount(ResourceType.FOOD)).toBe(10);
   });
 
   it('should check resource availability correctly', () => {
     storage.addResource(ResourceType.GOLD, 100);
-    storage.addResource(ResourceType.IRON, 50);
+    storage.addResource(ResourceType.RAW_MATERIAL, 50);
 
     const hasResources = storage.hasResources({
       [ResourceType.GOLD]: 80,
-      [ResourceType.IRON]: 30
+      [ResourceType.RAW_MATERIAL]: 30,
     });
 
     expect(hasResources).toBe(true);
@@ -52,26 +55,33 @@ describe('ResourceStorage', () => {
 
   it('should consume resources when available', () => {
     storage.addResource(ResourceType.GOLD, 100);
-    storage.addResource(ResourceType.IRON, 50);
+    storage.addResource(ResourceType.RAW_MATERIAL, 50);
 
     const consumed = storage.consumeResources({
       [ResourceType.GOLD]: 60,
-      [ResourceType.IRON]: 20
+      [ResourceType.RAW_MATERIAL]: 20,
     });
 
     expect(consumed).toBe(true);
     expect(storage.getAmount(ResourceType.GOLD)).toBe(40);
-    expect(storage.getAmount(ResourceType.IRON)).toBe(30);
+    expect(storage.getAmount(ResourceType.RAW_MATERIAL)).toBe(30);
   });
 
   it('should not consume resources when insufficient', () => {
     storage.addResource(ResourceType.GOLD, 50);
 
     const consumed = storage.consumeResources({
-      [ResourceType.GOLD]: 100
+      [ResourceType.GOLD]: 100,
     });
 
     expect(consumed).toBe(false);
     expect(storage.getAmount(ResourceType.GOLD)).toBe(50);
+  });
+
+  it('should serialize to JSON', () => {
+    storage.addResource(ResourceType.FOOD, 75);
+    const json = storage.toJSON();
+    expect(json[ResourceType.FOOD]).toBe(75);
+    expect(json[ResourceType.GOLD]).toBe(0);
   });
 });

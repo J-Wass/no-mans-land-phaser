@@ -3,4 +3,5 @@
  */
 
 export { ResourceType, ResourceStorage } from './ResourceType';
-export type { Resource, ResourceCost } from './ResourceType';
+export type { Resource, ResourceCost, ResourceStorageData } from './ResourceType';
+export { TerritoryResourceType } from './TerritoryResourceType';
