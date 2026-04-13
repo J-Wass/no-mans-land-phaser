@@ -9,6 +9,7 @@ import type { EntityId, GridCoordinates } from '@/types/common';
 import type { Unit } from '@/entities/units/Unit';
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
+import type { BattleSystem } from '@/systems/combat/BattleSystem';
 import type { SavedMovementState } from '@/types/gameSetup';
 import { stepCost } from './MovementCosts';
 import type { UnitMovementState } from './MovementState';
@@ -87,6 +88,10 @@ export class MovementSystem {
         continue;
       }
 
+      if (unit.isEngagedInBattle()) {
+        continue;
+      }
+
       // Resolve first-tick cost (ticksRemainingOnStep === 0 means just issued)
       if (state.ticksRemainingOnStep <= 0) {
         const nextCoords = state.path[0];
@@ -136,6 +141,98 @@ export class MovementSystem {
           });
         } else {
           // Pre-compute cost for the next step immediately
+          const nextNext = state.path[0];
+          if (nextNext !== undefined) {
+            const territory = grid.getTerritory(nextNext);
+            if (territory) {
+              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats());
+              state.ticksRemainingOnStep = isFinite(cost) ? cost : 0;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  public tickWithBattles(
+    gameState: GameState,
+    eventBus: GameEventBus,
+    currentTick: number,
+    battleSystem: BattleSystem,
+  ): void {
+    const grid = gameState.getGrid();
+
+    for (const [unitId, state] of this.states) {
+      const unit = gameState.getUnit(unitId);
+      if (!unit || !unit.isAlive()) {
+        this.states.delete(unitId);
+        continue;
+      }
+
+      if (unit.isEngagedInBattle()) {
+        continue;
+      }
+
+      if (state.ticksRemainingOnStep <= 0) {
+        const nextCoords = state.path[0];
+        if (nextCoords === undefined) {
+          this.states.delete(unitId);
+          continue;
+        }
+        const territory = grid.getTerritory(nextCoords);
+        if (!territory) {
+          this.states.delete(unitId);
+          continue;
+        }
+        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats());
+        if (!isFinite(cost)) {
+          this.states.delete(unitId);
+          continue;
+        }
+        state.ticksRemainingOnStep = cost;
+      }
+
+      state.ticksRemainingOnStep--;
+
+      if (state.ticksRemainingOnStep <= 0) {
+        const nextCoords = state.path.shift();
+        if (nextCoords === undefined) {
+          this.states.delete(unitId);
+          continue;
+        }
+
+        const from = unit.position;
+        unit.moveTo(nextCoords);
+
+        eventBus.emit('unit:step-complete', {
+          unitId,
+          from,
+          to: nextCoords,
+          tick: currentTick,
+        });
+
+        const enemyOccupant = gameState.getAllUnits().find(other =>
+          other.id !== unit.id &&
+          other.isAlive() &&
+          !other.isEngagedInBattle() &&
+          other.getOwnerId() !== unit.getOwnerId() &&
+          other.position.row === nextCoords.row &&
+          other.position.col === nextCoords.col,
+        );
+
+        if (enemyOccupant) {
+          battleSystem.startBattle(unit, enemyOccupant, from, nextCoords, currentTick, this, eventBus);
+          continue;
+        }
+
+        if (state.path.length === 0) {
+          this.states.delete(unitId);
+          eventBus.emit('unit:move-complete', {
+            unitId,
+            destination: nextCoords,
+            tick: currentTick,
+          });
+        } else {
           const nextNext = state.path[0];
           if (nextNext !== undefined) {
             const territory = grid.getTerritory(nextNext);

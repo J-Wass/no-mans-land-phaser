@@ -117,6 +117,7 @@ export class PauseScene extends Phaser.Scene {
       currentTick:    this.tickEngine.getCurrentTick(),
       state:          this.gameState.toJSON() as Record<string, unknown>,
       movementStates,
+      battleStates:   this.tickEngine.getBattleStates(),
     };
 
     SaveSystem.save(saveData);

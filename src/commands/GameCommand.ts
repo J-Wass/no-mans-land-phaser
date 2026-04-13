@@ -6,7 +6,7 @@
 
 import type { EntityId, GridCoordinates } from '@/types/common';
 import type { PlayerId } from '@/entities/players/Player';
-import type { UnitType } from '@/entities/units/Unit';
+import type { BattleOrder, UnitType } from '@/entities/units/Unit';
 import type { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import type { CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { TechId } from '@/systems/research/TechTree';
@@ -56,13 +56,22 @@ export interface StartCityProductionCommand {
   issuedAtTick: number;
 }
 
+export interface SetUnitBattleOrderCommand {
+  type:         'SET_UNIT_BATTLE_ORDER';
+  playerId:     PlayerId;
+  unitId:       EntityId;
+  battleOrder:  BattleOrder;
+  issuedAtTick: number;
+}
+
 export type GameCommand =
   | MoveUnitCommand
   | BuildTerritoryCommand
   | BuildCityBuildingCommand
   | StartResearchCommand
   | CancelResearchCommand
-  | StartCityProductionCommand;
+  | StartCityProductionCommand
+  | SetUnitBattleOrderCommand;
 
 export interface CommandResult {
   success: boolean;

@@ -19,6 +19,7 @@ export enum UnitType {
 }
 
 export type ArmorType = 'light' | 'heavy';
+export type BattleOrder = 'RETREAT' | 'FALL_BACK' | 'HOLD' | 'ADVANCE' | 'CHARGE';
 
 export interface UnitStats {
   maxHealth: number;
@@ -39,6 +40,8 @@ export interface UnitData {
   stats: UnitStats;
   hasMovedThisTurn: boolean;
   hasAttackedThisTurn: boolean;
+  battleOrder: BattleOrder;
+  engagedInBattle: boolean;
 }
 
 export abstract class Unit implements GameEntity, Serializable<UnitData> {
@@ -61,6 +64,8 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
       stats,
       hasMovedThisTurn: false,
       hasAttackedThisTurn: false,
+      battleOrder: 'ADVANCE',
+      engagedInBattle: false,
     };
   }
 
@@ -90,6 +95,22 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
 
   public getStats(): Readonly<UnitStats> {
     return this.data.stats;
+  }
+
+  public getBattleOrder(): BattleOrder {
+    return this.data.battleOrder;
+  }
+
+  public setBattleOrder(order: BattleOrder): void {
+    this.data.battleOrder = order;
+  }
+
+  public isEngagedInBattle(): boolean {
+    return this.data.engagedInBattle;
+  }
+
+  public setEngagedInBattle(engaged: boolean): void {
+    this.data.engagedInBattle = engaged;
   }
 
   public isAlive(): boolean {

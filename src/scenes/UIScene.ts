@@ -9,6 +9,7 @@
 
 import Phaser from 'phaser';
 import type { Unit } from '@/entities/units/Unit';
+import type { BattleOrder } from '@/entities/units/Unit';
 import type { GameState } from '@/managers/GameState';
 import type { GameSetup } from '@/types/gameSetup';
 import type { CommandProcessor } from '@/commands/CommandProcessor';
@@ -40,6 +41,11 @@ export class UIScene extends Phaser.Scene {
   // Conditional "Build Outpost" button
   private outpostBtnBg!:   Phaser.GameObjects.Rectangle;
   private outpostBtnText!: Phaser.GameObjects.Text;
+  private battleOrderButtons: Array<{
+    order: BattleOrder;
+    bg: Phaser.GameObjects.Rectangle;
+    text: Phaser.GameObjects.Text;
+  }> = [];
 
   constructor() {
     super({ key: 'UIScene' });
@@ -124,6 +130,30 @@ export class UIScene extends Phaser.Scene {
     this.outpostBtnBg.on('pointerout',  () => this.outpostBtnBg.setFillStyle(0x1a2a1a));
     this.outpostBtnBg.on('pointerup',   () => this.buildOutpost());
 
+    const orders: Array<{ order: BattleOrder; label: string }> = [
+      { order: 'RETREAT', label: 'RET' },
+      { order: 'FALL_BACK', label: 'BACK' },
+      { order: 'HOLD', label: 'HOLD' },
+      { order: 'ADVANCE', label: 'ADV' },
+      { order: 'CHARGE', label: 'CHG' },
+    ];
+    const orderStartX = 430;
+    const orderY = panelY + 22;
+    orders.forEach(({ order, label }, index) => {
+      const x = orderStartX + index * 48;
+      const bg = this.add.rectangle(x, orderY, 42, 20, 0x1f2036)
+        .setStrokeStyle(1, 0x444466)
+        .setInteractive({ useHandCursor: true })
+        .setVisible(false);
+      const text = this.add.text(x, orderY, label, {
+        fontSize: '10px',
+        color: '#8890aa',
+        fontFamily: 'monospace',
+      }).setOrigin(0.5).setVisible(false);
+      bg.on('pointerup', () => this.setBattleOrder(order));
+      this.battleOrderButtons.push({ order, bg, text });
+    });
+
     // ── Event subscriptions ──────────────────────────────────────────────────
     // Tick counter and resources only need updating when a tick fires (not every frame)
     this.eventBus.on('game:tick', ({ tick }) => {
@@ -137,14 +167,27 @@ export class UIScene extends Phaser.Scene {
       if (!unit) {
         this.unitInfoText.setText('Click a unit or city').setColor('#aaaaaa');
         this.setOutpostVisible(false);
+        this.setBattleOrderButtonsVisible(false);
         return;
       }
       this.refreshOutpostButton(unit);
+      this.refreshBattleOrderButtons();
     });
 
     // Refresh outpost button when territory ownership changes
     this.eventBus.on('territory:claimed', () => {
       if (this.selectedUnit) this.refreshOutpostButton(this.selectedUnit);
+    });
+    this.eventBus.on('unit:battle-order-changed', ({ unitId }) => {
+      if (this.selectedUnit?.id === unitId) this.refreshBattleOrderButtons();
+    });
+    this.eventBus.on('unit:destroyed', ({ unitId }) => {
+      if (this.selectedUnit?.id === unitId) {
+        this.selectedUnit = null;
+        this.unitInfoText.setText('Click a unit or city').setColor('#aaaaaa');
+        this.setBattleOrderButtonsVisible(false);
+        this.setOutpostVisible(false);
+      }
     });
   }
 
@@ -155,7 +198,7 @@ export class UIScene extends Phaser.Scene {
       const hp    = `${this.selectedUnit.getHealth()}/${stats.maxHealth}`;
       const pos   = this.selectedUnit.position;
       this.unitInfoText.setText(
-        `[${this.selectedUnit.getUnitType()}] HP:${hp} (${pos.row},${pos.col})`
+        `[${this.selectedUnit.getUnitType()}] HP:${hp} (${pos.row},${pos.col}) ${this.selectedUnit.isEngagedInBattle() ? '[BATTLE]' : ''} ${this.selectedUnit.getBattleOrder()}`
       ).setColor('#e0e0e0');
     }
   }
@@ -176,6 +219,27 @@ export class UIScene extends Phaser.Scene {
     this.outpostBtnText.setVisible(v);
   }
 
+  private setBattleOrderButtonsVisible(v: boolean): void {
+    this.battleOrderButtons.forEach(({ bg, text }) => {
+      bg.setVisible(v);
+      text.setVisible(v);
+    });
+  }
+
+  private refreshBattleOrderButtons(): void {
+    const unit = this.selectedUnit;
+    const visible = unit !== null;
+    this.setBattleOrderButtonsVisible(visible);
+    if (!unit) return;
+
+    this.battleOrderButtons.forEach(({ order, bg, text }) => {
+      const active = unit.getBattleOrder() === order;
+      bg.setFillStyle(active ? 0x445599 : 0x1f2036);
+      bg.setStrokeStyle(1, active ? 0xaad4ff : 0x444466);
+      text.setColor(active ? '#ffffff' : '#8890aa');
+    });
+  }
+
   private buildOutpost(): void {
     if (!this.selectedUnit) return;
     this.commandProcessor.dispatch({
@@ -186,6 +250,18 @@ export class UIScene extends Phaser.Scene {
       issuedAtTick: 0,
     });
     this.refreshOutpostButton(this.selectedUnit);
+  }
+
+  private setBattleOrder(order: BattleOrder): void {
+    if (!this.selectedUnit) return;
+    this.commandProcessor.dispatch({
+      type:         'SET_UNIT_BATTLE_ORDER',
+      playerId:     this.playerId,
+      unitId:       this.selectedUnit.id,
+      battleOrder:  order,
+      issuedAtTick: 0,
+    });
+    this.refreshBattleOrderButtons();
   }
 
   private openResearch(): void {

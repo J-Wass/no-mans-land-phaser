@@ -120,6 +120,21 @@ describe('CommandProcessor', () => {
     expect(result.reason).toMatch(/dead/i);
   });
 
+  it('rejects move commands for units already engaged in battle', () => {
+    unit.setEngagedInBattle(true);
+
+    const result = processor.dispatch({
+      type: 'MOVE_UNIT',
+      playerId: 'player-1',
+      unitId: 'unit-1',
+      path: [{ row: 0, col: 1 }],
+      issuedAtTick: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/engaged in battle/i);
+  });
+
   it('emits unit:move-ordered event on success', () => {
     const events: unknown[] = [];
     eventBus.on('unit:move-ordered', e => events.push(e));
@@ -134,5 +149,18 @@ describe('CommandProcessor', () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ unitId: 'unit-1', playerId: 'player-1' });
+  });
+
+  it('updates a unit battle order through the command processor', () => {
+    const result = processor.dispatch({
+      type: 'SET_UNIT_BATTLE_ORDER',
+      playerId: 'player-1',
+      unitId: 'unit-1',
+      battleOrder: 'CHARGE',
+      issuedAtTick: 3,
+    });
+
+    expect(result.success).toBe(true);
+    expect(unit.getBattleOrder()).toBe('CHARGE');
   });
 });

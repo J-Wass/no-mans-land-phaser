@@ -11,7 +11,7 @@ import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type {
   GameCommand, CommandResult,
   MoveUnitCommand, BuildTerritoryCommand, BuildCityBuildingCommand,
-  StartResearchCommand, CancelResearchCommand, StartCityProductionCommand,
+  StartResearchCommand, CancelResearchCommand, StartCityProductionCommand, SetUnitBattleOrderCommand,
 } from './GameCommand';
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 import { TERRITORY_BUILDING_MAP, TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
@@ -43,6 +43,7 @@ export class CommandProcessor {
       case 'START_RESEARCH':        return this.handleStartResearch(command);
       case 'CANCEL_RESEARCH':       return this.handleCancelResearch(command);
       case 'START_CITY_PRODUCTION': return this.handleStartCityProduction(command);
+      case 'SET_UNIT_BATTLE_ORDER': return this.handleSetUnitBattleOrder(command);
     }
   }
 
@@ -58,6 +59,8 @@ export class CommandProcessor {
     const unit = this.gameState.getUnit(command.unitId);
     if (!unit)        return { success: false, reason: 'Unit not found' };
     if (!unit.isAlive()) return { success: false, reason: 'Unit is dead' };
+    if (unit.isEngagedInBattle())
+      return { success: false, reason: 'Unit is engaged in battle' };
 
     const nation = this.gameState.getNation(player.getControlledNationId());
     if (!nation || unit.getOwnerId() !== nation.getId())
@@ -258,6 +261,26 @@ export class CommandProcessor {
     if (!nation) return { success: false, reason: 'Nation not found' };
 
     nation.cancelResearch();
+    return { success: true };
+  }
+
+  private handleSetUnitBattleOrder(command: SetUnitBattleOrderCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const unit = this.gameState.getUnit(command.unitId);
+    if (!unit || unit.getOwnerId() !== nation.getId())
+      return { success: false, reason: 'Unit not found or not owned' };
+
+    unit.setBattleOrder(command.battleOrder);
+    this.eventBus.emit('unit:battle-order-changed', {
+      unitId: unit.id,
+      battleOrder: command.battleOrder,
+      tick: command.issuedAtTick,
+    });
     return { success: true };
   }
 }

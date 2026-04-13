@@ -8,7 +8,7 @@
 import EventEmitter from 'eventemitter3';
 import type { EntityId, GridCoordinates } from '@/types/common';
 import type { PlayerId } from '@/entities/players/Player';
-import type { UnitType } from '@/entities/units/Unit';
+import type { BattleOrder, UnitType } from '@/entities/units/Unit';
 import type { ProductionOrder } from '@/systems/production/ProductionOrder';
 import type { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import type { CityBuildingType } from '@/systems/territory/CityBuilding';
@@ -20,6 +20,26 @@ export type GameEventMap = {
   'unit:move-complete':        { unitId: EntityId; destination: GridCoordinates; tick: number };
   'unit:move-ordered':         { unitId: EntityId; path: GridCoordinates[]; playerId: PlayerId };
   'unit:move-cancelled':       { unitId: EntityId };
+  'unit:destroyed':            { unitId: EntityId; byUnitId: EntityId | null; tick: number };
+  'unit:battle-order-changed': { unitId: EntityId; battleOrder: BattleOrder; tick: number };
+  'battle:started':            { battleId: string; unitAId: EntityId; unitBId: EntityId; position: GridCoordinates; tick: number };
+  'battle:round-resolved':     {
+    battleId: string;
+    round: number;
+    unitAId: EntityId;
+    unitBId: EntityId;
+    damageToUnitA: number;
+    damageToUnitB: number;
+    momentum: number;
+    tick: number;
+  };
+  'battle:ended':              {
+    battleId: string;
+    winnerUnitId: EntityId | null;
+    loserUnitId: EntityId | null;
+    reason: 'ELIMINATION' | 'RETREAT' | 'ROUT' | 'TIMEOUT' | 'MUTUAL_DESTRUCTION';
+    tick: number;
+  };
   /** City finished producing a unit; renderer should create the sprite. */
   'city:unit-spawned':         { cityId: EntityId; unitId: EntityId; unitType: UnitType; position: GridCoordinates; tick: number };
   /** City finished a resource project. */

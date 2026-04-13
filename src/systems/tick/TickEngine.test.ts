@@ -29,18 +29,18 @@ describe('TickEngine', () => {
   });
 
   it('calls movementSystem.tick on each advance', () => {
-    const spy = jest.spyOn(movementSystem, 'tick');
+    const spy = jest.spyOn(movementSystem, 'tickWithBattles');
     tickEngine.advance();
     tickEngine.advance();
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
   it('passes correct tick number to movementSystem.tick', () => {
-    const spy = jest.spyOn(movementSystem, 'tick');
+    const spy = jest.spyOn(movementSystem, 'tickWithBattles');
     tickEngine.advance(); // tick 1
-    expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 1);
+    expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 1, expect.anything());
     tickEngine.advance(); // tick 2
-    expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 2);
+    expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 2, expect.anything());
   });
 
   it('resets tick counter', () => {

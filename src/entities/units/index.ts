@@ -1,5 +1,5 @@
 export { Unit, UnitType } from './Unit';
-export type { UnitStats, UnitData, ArmorType } from './Unit';
+export type { UnitStats, UnitData, ArmorType, BattleOrder } from './Unit';
 export { Infantry } from './Infantry';
 export { Scout } from './Scout';
 export { HeavyInfantry } from './HeavyInfantry';
