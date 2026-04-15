@@ -24,9 +24,10 @@ export interface TerritoryMenuSceneData {
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 const { BG, PANEL, HEADER, ACCENT, BTN, BTN_HOV, RED_BTN, RED_H, DIM, LT, WHITE, GOLD_C } = UI;
-const GREEN = '#44cc88';
+const GREEN = '#44dd99';
 
-const PW = 700; const PH = 460;
+const PW = 720; const PH = 500;
+const ROW_H = 38;
 
 export class TerritoryMenuScene extends Phaser.Scene {
   private position!:         GridCoordinates;
@@ -61,18 +62,16 @@ export class TerritoryMenuScene extends Phaser.Scene {
     const W  = this.scale.width;
     const H  = this.scale.height;
     const cx = W / 2;
-    const cy = H / 2 - 20;
+    const cy = H / 2 - 28;
     const px = cx - PW / 2;
     const py = cy - PH / 2;
 
-    // Backdrop
-    this.add.rectangle(0, 0, W, H, BG, 0.55).setOrigin(0, 0).setInteractive();
-
-    // Panel
+    this.add.rectangle(0, 0, W, H, BG, 0.5).setOrigin(0, 0).setInteractive();
     this.add.rectangle(cx, cy, PW, PH, PANEL).setStrokeStyle(1, ACCENT);
 
     // ── Header ────────────────────────────────────────────────────────────────
-    this.add.rectangle(cx, py + 22, PW, 44, HEADER).setOrigin(0.5, 0.5);
+    const HDR_H = 50;
+    this.add.rectangle(cx, py + HDR_H / 2, PW, HDR_H, HEADER).setOrigin(0.5, 0.5);
 
     const territory = this.gameState.getGrid().getTerritory(this.position);
     const ownerId   = territory?.getControllingNation() ?? null;
@@ -80,84 +79,83 @@ export class TerritoryMenuScene extends Phaser.Scene {
     const colorHex  = nation?.getColor() ?? '#ffffff';
     const color     = parseInt(colorHex.replace('#', ''), 16);
 
-    this.add.circle(px + 22, py + 22, 8, color);
+    this.add.circle(px + 26, py + HDR_H / 2, 9, color);
     const terrain = territory?.getTerrainType() ?? 'UNKNOWN';
-    this.add.text(px + 40, py + 22,
+    this.add.text(px + 46, py + HDR_H / 2,
       `Territory (${this.position.row}, ${this.position.col}) — ${terrain}`, {
-        fontSize: '16px', color: WHITE, fontFamily: 'monospace', fontStyle: 'bold',
+        fontSize: '17px', color: WHITE, fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0, 0.5);
-    this.add.text(px + 40 + 340, py + 22, nation ? `— ${nation.getName()}` : '— Unclaimed', {
-      fontSize: '13px', color: DIM, fontFamily: 'monospace',
-    }).setOrigin(0, 0.5);
+    this.add.text(px + 46 + 380, py + HDR_H / 2,
+      nation ? `— ${nation.getName()}` : '— Unclaimed', {
+        fontSize: '14px', color: DIM, fontFamily: 'monospace',
+      }).setOrigin(0, 0.5);
 
     // Close
-    const closeBg = this.add.rectangle(px + PW - 28, py + 22, 44, 32, RED_BTN)
+    const closeBg = this.add.rectangle(px + PW - 30, py + HDR_H / 2, 48, 36, RED_BTN)
       .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-    this.add.text(px + PW - 28, py + 22, '✕', {
-      fontSize: '16px', color: '#ff8888', fontFamily: 'monospace',
+    this.add.text(px + PW - 30, py + HDR_H / 2, '✕', {
+      fontSize: '18px', color: '#ff9999', fontFamily: 'monospace',
     }).setOrigin(0.5);
-    closeBg.on('pointerup', () => this.close());
+    closeBg.on('pointerup',   () => this.close());
     closeBg.on('pointerover', () => closeBg.setFillStyle(RED_H));
     closeBg.on('pointerout',  () => closeBg.setFillStyle(RED_BTN));
     this.input.keyboard!.once('keydown-ESC', () => this.close());
 
     // ── Current buildings ─────────────────────────────────────────────────────
-    const secY = py + 56;
-    this.add.text(px + 16, secY, 'CURRENT BUILDINGS', {
-      fontSize: '11px', color: DIM, fontFamily: 'monospace', letterSpacing: 2,
+    const secY = py + HDR_H + 14;
+    this.add.text(px + 18, secY, 'CURRENT BUILDINGS', {
+      fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2,
     });
 
     const buildings = territory?.getBuildings() ?? [];
     const builtStr  = buildings.length === 0
       ? 'None'
       : buildings.map(b => `${BUILDING_MAP_ICON[b]} ${b}`).join('  ');
-    this.add.text(px + 16, secY + 20, builtStr, {
-      fontSize: '12px', color: GREEN, fontFamily: 'monospace',
+    this.add.text(px + 18, secY + 22, builtStr, {
+      fontSize: '14px', color: GREEN, fontFamily: 'monospace',
     });
 
     // ── Available buildings list ───────────────────────────────────────────────
-    const listTop = secY + 50;
+    const listTop = secY + 58;
     this.add.rectangle(cx, listTop, PW - 16, 1, ACCENT).setOrigin(0.5, 0);
-    this.add.text(px + 16,  listTop + 8, 'BUILDING', { fontSize: '11px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
-    this.add.text(px + 280, listTop + 8, 'COST',     { fontSize: '11px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
-    this.add.text(px + 420, listTop + 8, 'REQ',      { fontSize: '11px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
+    this.add.text(px + 18,  listTop + 10, 'BUILDING', { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
+    this.add.text(px + 290, listTop + 10, 'COST',     { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
+    this.add.text(px + 440, listTop + 10, 'REQ',      { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
 
-    const rowH      = 30;
-    const rowStartY = listTop + 28;
+    const rowStartY = listTop + 32;
 
-    // Only show non-OUTPOST buildings (outpost handled by UIScene button)
     const listable = TERRITORY_BUILDING_CATALOG.filter(
       b => b.type !== TerritoryBuildingType.OUTPOST,
     );
 
     listable.forEach((def, i) => {
-      const ry = rowStartY + i * rowH;
+      const ry = rowStartY + i * ROW_H;
 
-      const rowBg = this.add.rectangle(cx, ry + rowH / 2 - 2, PW - 8, rowH - 2, 0)
+      const rowBg = this.add.rectangle(cx, ry + ROW_H / 2 - 2, PW - 10, ROW_H - 2, 0)
         .setOrigin(0.5, 0.5).setInteractive({ useHandCursor: true });
-      rowBg.on('pointerover', () => rowBg.setFillStyle(0x1c1c38));
+      rowBg.on('pointerover', () => rowBg.setFillStyle(0x1e2240));
       rowBg.on('pointerout',  () => rowBg.setFillStyle(0));
 
-      this.add.text(px + 16, ry + rowH / 2,
+      this.add.text(px + 18, ry + ROW_H / 2,
         `${BUILDING_MAP_ICON[def.type]} ${def.label}`, {
-          fontSize: '13px', color: LT, fontFamily: 'monospace',
+          fontSize: '15px', color: LT, fontFamily: 'monospace',
         }).setOrigin(0, 0.5);
 
-      const costLbl = this.add.text(px + 280, ry + rowH / 2,
+      const costLbl = this.add.text(px + 290, ry + ROW_H / 2,
         formatCost(def.cost as Record<string, number>), {
-          fontSize: '12px', color: DIM, fontFamily: 'monospace',
+          fontSize: '14px', color: DIM, fontFamily: 'monospace',
         }).setOrigin(0, 0.5);
 
       const reqText = def.requiresTech ?? (def.requires ? def.requires : '—');
-      this.add.text(px + 420, ry + rowH / 2, String(reqText), {
-        fontSize: '11px', color: '#888899', fontFamily: 'monospace',
+      this.add.text(px + 440, ry + ROW_H / 2, String(reqText), {
+        fontSize: '12px', color: '#8a8aaa', fontFamily: 'monospace',
       }).setOrigin(0, 0.5);
 
-      const btnX   = px + PW - 56;
-      const btn    = this.add.rectangle(btnX, ry + rowH / 2, 76, 22, BTN)
+      const btnX    = px + PW - 58;
+      const btn     = this.add.rectangle(btnX, ry + ROW_H / 2, 84, 26, BTN)
         .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-      const btnText = this.add.text(btnX, ry + rowH / 2, 'BUILD', {
-        fontSize: '12px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
+      const btnText = this.add.text(btnX, ry + ROW_H / 2, 'BUILD', {
+        fontSize: '13px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
 
       btn.on('pointerover', () => { if (btn.getData('enabled')) btn.setFillStyle(BTN_HOV); });
@@ -167,14 +165,18 @@ export class TerritoryMenuScene extends Phaser.Scene {
       this.buildingRows.push({ def, btn, btnText, costLbl });
     });
 
-    // Feedback line
-    this.feedbackText = this.add.text(cx, py + PH - 18, '', {
-      fontSize: '12px', color: GOLD_C, fontFamily: 'monospace',
+    this.feedbackText = this.add.text(cx, py + PH - 20, '', {
+      fontSize: '14px', color: GOLD_C, fontFamily: 'monospace',
     }).setOrigin(0.5);
 
-    // Subscribe to rebuild-borders event
-    this.eventBus.on('territory:building-built', () => this.refreshButtons());
-    this.eventBus.on('territory:claimed',        () => this.refreshButtons());
+    const onRefresh = () => this.refreshButtons();
+    this.eventBus.on('territory:building-built', onRefresh);
+    this.eventBus.on('territory:claimed',        onRefresh);
+
+    this.events.once('shutdown', () => {
+      this.eventBus.off('territory:building-built', onRefresh);
+      this.eventBus.off('territory:claimed',        onRefresh);
+    });
 
     this.refreshButtons();
   }
@@ -200,24 +202,24 @@ export class TerritoryMenuScene extends Phaser.Scene {
   private refreshButtons(): void {
     const territory = this.gameState.getGrid().getTerritory(this.position);
     if (!territory) return;
-    const ownerId = territory.getControllingNation();
-    const nation  = ownerId ? this.gameState.getNation(ownerId) : null;
+    const ownerId  = territory.getControllingNation();
+    const nation   = ownerId ? this.gameState.getNation(ownerId) : null;
     const treasury = nation?.getTreasury();
 
     for (const row of this.buildingRows) {
-      const alreadyBuilt   = territory.hasBuilding(row.def.type);
-      const prereqMet      = !row.def.requires || territory.hasBuilding(row.def.requires);
-      const techMet        = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
-      const canAfford      = treasury?.hasResources(row.def.cost) ?? false;
-      const owned          = ownerId !== null;
-      const enabled        = owned && !alreadyBuilt && prereqMet && techMet && canAfford;
+      const alreadyBuilt = territory.hasBuilding(row.def.type);
+      const prereqMet    = !row.def.requires || territory.hasBuilding(row.def.requires);
+      const techMet      = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
+      const canAfford    = treasury?.hasResources(row.def.cost) ?? false;
+      const owned        = ownerId !== null;
+      const enabled      = owned && !alreadyBuilt && prereqMet && techMet && canAfford;
 
       row.btn.setData('enabled', enabled);
-      row.btn.setFillStyle(enabled ? BTN : 0x111122);
-      row.btn.setStrokeStyle(1, enabled ? ACCENT : 0x333355);
-      row.btnText.setColor(enabled ? LT : '#444455');
+      row.btn.setFillStyle(enabled ? BTN : 0x0e101e);
+      row.btn.setStrokeStyle(1, enabled ? ACCENT : 0x2a2a44);
+      row.btnText.setColor(enabled ? LT : '#444466');
       row.btnText.setText(alreadyBuilt ? 'BUILT' : 'BUILD');
-      row.costLbl.setColor(canAfford ? DIM : '#884444');
+      row.costLbl.setColor(canAfford ? DIM : '#995555');
     }
   }
 
@@ -230,4 +232,3 @@ export class TerritoryMenuScene extends Phaser.Scene {
     this.scene.stop('TerritoryMenuScene');
   }
 }
-

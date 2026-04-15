@@ -13,6 +13,7 @@ export class Cavalry extends Unit {
       speed: 3,
       attackRange: 1,
       vision: 1,
+      upkeep: { [ResourceType.FOOD]: 2, [ResourceType.RAW_MATERIAL]: 1 },
     });
   }
 

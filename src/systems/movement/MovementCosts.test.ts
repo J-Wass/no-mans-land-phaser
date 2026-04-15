@@ -6,17 +6,17 @@ import type { UnitStats } from '@/entities/units/Unit';
 
 const infantryStats: UnitStats = {
   maxHealth: 100, meleeDamage: 10, rangedDamage: 0,
-  armorType: 'light', speed: 2, attackRange: 1, vision: 1,
+  armorType: 'light', speed: 2, attackRange: 1, vision: 1, upkeep: {},
 };
 
 const cavalryStats: UnitStats = {
   maxHealth: 250, meleeDamage: 40, rangedDamage: 0,
-  armorType: 'heavy', speed: 3, attackRange: 1, vision: 1,
+  armorType: 'heavy', speed: 3, attackRange: 1, vision: 1, upkeep: {},
 };
 
 const scoutStats: UnitStats = {
   maxHealth: 100, meleeDamage: 2, rangedDamage: 0,
-  armorType: 'light', speed: 3, attackRange: 1, vision: 2,
+  armorType: 'light', speed: 3, attackRange: 1, vision: 2, upkeep: {},
 };
 
 describe('stepCost', () => {

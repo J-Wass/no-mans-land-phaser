@@ -56,11 +56,11 @@ export class MenuScene extends Phaser.Scene {
 
     // ── OPPONENTS section ──
     this.add.text(cx, 360, 'OPPONENTS', {
-      fontSize: '13px', color: TEXT_DIM, fontFamily: 'monospace', letterSpacing: 3,
+      fontSize: '15px', color: TEXT_DIM, fontFamily: 'monospace', letterSpacing: 3,
     }).setOrigin(0.5);
 
     const opponentCounts = [1, 2, 3, 4];
-    const btnW = 70; const btnH = 38; const gap = 16;
+    const btnW = 76; const btnH = 44; const gap = 16;
     const totalOpW = opponentCounts.length * btnW + (opponentCounts.length - 1) * gap;
     const opStartX = cx - totalOpW / 2 + btnW / 2;
 
@@ -70,7 +70,7 @@ export class MenuScene extends Phaser.Scene {
         .setStrokeStyle(1, ACCENT)
         .setInteractive({ useHandCursor: true });
       const text = this.add.text(bx, 405, String(n), {
-        fontSize: '18px', color: BTN_TEXT, fontFamily: 'monospace', fontStyle: 'bold',
+        fontSize: '20px', color: BTN_TEXT, fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
 
       bg.on('pointerover', () => { if (this.setup.opponentCount !== n) bg.setFillStyle(HOVER); });
@@ -82,7 +82,7 @@ export class MenuScene extends Phaser.Scene {
 
     // ── DIFFICULTY section ──
     this.add.text(cx, 465, 'DIFFICULTY', {
-      fontSize: '13px', color: TEXT_DIM, fontFamily: 'monospace', letterSpacing: 3,
+      fontSize: '15px', color: TEXT_DIM, fontFamily: 'monospace', letterSpacing: 3,
     }).setOrigin(0.5);
 
     const difficulties: Array<{ label: string; value: Difficulty }> = [
@@ -90,7 +90,7 @@ export class MenuScene extends Phaser.Scene {
       { label: 'MEDIUM', value: 'medium' },
       { label: 'HARD', value: 'hard' },
     ];
-    const dBtnW = 110;
+    const dBtnW = 120;
     const totalDW = difficulties.length * dBtnW + (difficulties.length - 1) * gap;
     const dStartX = cx - totalDW / 2 + dBtnW / 2;
 
@@ -100,7 +100,7 @@ export class MenuScene extends Phaser.Scene {
         .setStrokeStyle(1, ACCENT)
         .setInteractive({ useHandCursor: true });
       const text = this.add.text(bx, 510, label, {
-        fontSize: '14px', color: BTN_TEXT, fontFamily: 'monospace',
+        fontSize: '16px', color: BTN_TEXT, fontFamily: 'monospace',
       }).setOrigin(0.5);
 
       bg.on('pointerover', () => { if (this.setup.difficulty !== value) bg.setFillStyle(HOVER); });
@@ -114,13 +114,13 @@ export class MenuScene extends Phaser.Scene {
     this.add.rectangle(cx, 555, 400, 1, ACCENT).setOrigin(0.5, 0.5);
 
     // ── START GAME button ──
-    this.makeActionButton(cx, 615, 240, 52, 'START GAME', 0x226622, 0x33aa33, () => {
+    this.makeActionButton(cx, 620, 260, 56, 'START GAME', 0x1a4422, 0x33aa55, () => {
       this.scene.start('BootScene', { setup: this.setup });
     });
 
     // ── LOAD GAME button ──
     const hasSave = SaveSystem.hasSave();
-    this.makeActionButton(cx, 685, 240, 52, 'LOAD GAME', hasSave ? 0x1a2244 : 0x111122,
+    this.makeActionButton(cx, 694, 260, 56, 'LOAD GAME', hasSave ? 0x1a2244 : 0x111122,
       hasSave ? 0x3355aa : PANEL, () => {
         if (!hasSave) return;
         const saveData = SaveSystem.load();
@@ -152,7 +152,7 @@ export class MenuScene extends Phaser.Scene {
     const bg = this.add.rectangle(x, y, w, h, colorNormal)
       .setStrokeStyle(1, disabled ? 0x333355 : ACCENT);
     const text = this.add.text(x, y, label, {
-      fontSize: '16px',
+      fontSize: '18px',
       color: disabled ? TEXT_DIM : BTN_TEXT,
       fontFamily: 'monospace',
       fontStyle: 'bold',

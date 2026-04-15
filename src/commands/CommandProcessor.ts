@@ -8,10 +8,13 @@
 import type { GameState } from '@/managers/GameState';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
+import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import type {
   GameCommand, CommandResult,
   MoveUnitCommand, BuildTerritoryCommand, BuildCityBuildingCommand,
-  StartResearchCommand, CancelResearchCommand, StartCityProductionCommand, SetUnitBattleOrderCommand,
+  StartResearchCommand, CancelResearchCommand, StartCityProductionCommand,
+  SetUnitBattleOrderCommand, SetRangedTargetCommand,
+  DeclareWarCommand, ProposePeaceCommand, OfferTradeCommand,
 } from './GameCommand';
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 import { TERRITORY_BUILDING_MAP, TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
@@ -33,6 +36,7 @@ export class CommandProcessor {
     private gameState: GameState,
     private movementSystem: MovementSystem,
     private eventBus: GameEventBus,
+    private diplomacySystem?: DiplomacySystem,
   ) {}
 
   public dispatch(command: GameCommand): CommandResult {
@@ -44,6 +48,10 @@ export class CommandProcessor {
       case 'CANCEL_RESEARCH':       return this.handleCancelResearch(command);
       case 'START_CITY_PRODUCTION': return this.handleStartCityProduction(command);
       case 'SET_UNIT_BATTLE_ORDER': return this.handleSetUnitBattleOrder(command);
+      case 'SET_RANGED_TARGET':     return this.handleSetRangedTarget(command);
+      case 'DECLARE_WAR':           return this.handleDeclareWar(command);
+      case 'PROPOSE_PEACE':         return this.handleProposePeace(command);
+      case 'OFFER_TRADE':           return this.handleOfferTrade(command);
     }
   }
 
@@ -281,6 +289,103 @@ export class CommandProcessor {
       battleOrder: command.battleOrder,
       tick: command.issuedAtTick,
     });
+    return { success: true };
+  }
+
+  // ── SET_RANGED_TARGET ─────────────────────────────────────────────────────
+
+  private handleSetRangedTarget(command: SetRangedTargetCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const unit = this.gameState.getUnit(command.unitId);
+    if (!unit || unit.getOwnerId() !== nation.getId())
+      return { success: false, reason: 'Unit not found or not owned' };
+
+    if (command.targetId !== null) {
+      const target = this.gameState.getUnit(command.targetId);
+      if (!target || !target.isAlive())
+        return { success: false, reason: 'Target not found or dead' };
+    }
+
+    unit.setPreferredTargetId(command.targetId);
+    return { success: true };
+  }
+
+  // ── DECLARE_WAR ───────────────────────────────────────────────────────────
+
+  private handleDeclareWar(command: DeclareWarCommand): CommandResult {
+    if (!this.diplomacySystem) return { success: false, reason: 'Diplomacy system unavailable' };
+
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const ok = this.diplomacySystem.declareWar(nation.getId(), command.targetNationId, command.issuedAtTick);
+    return ok ? { success: true } : { success: false, reason: 'Cannot declare war (cooldown or already at war)' };
+  }
+
+  // ── PROPOSE_PEACE ─────────────────────────────────────────────────────────
+
+  private handleProposePeace(command: ProposePeaceCommand): CommandResult {
+    if (!this.diplomacySystem) return { success: false, reason: 'Diplomacy system unavailable' };
+
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const ok = this.diplomacySystem.proposePeace(
+      nation.getId(), command.targetNationId, command.issuedAtTick, this.movementSystem,
+    );
+    return ok ? { success: true } : { success: false, reason: 'Not at war with this nation' };
+  }
+
+  // ── OFFER_TRADE ───────────────────────────────────────────────────────────
+
+  private handleOfferTrade(command: OfferTradeCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const localNation  = this.gameState.getNation(player.getControlledNationId());
+    if (!localNation)  return { success: false, reason: 'Nation not found' };
+
+    const targetNation = this.gameState.getNation(command.targetNationId);
+    if (!targetNation) return { success: false, reason: 'Target nation not found' };
+
+    const localTreasury  = localNation.getTreasury();
+    const targetTreasury = targetNation.getTreasury();
+
+    // Verify both sides have sufficient resources
+    for (const [type, amount] of Object.entries(command.offer)) {
+      if ((amount ?? 0) > 0 && !localTreasury.hasResources({ [type]: amount }))
+        return { success: false, reason: `Insufficient ${type} to offer` };
+    }
+    for (const [type, amount] of Object.entries(command.request)) {
+      if ((amount ?? 0) > 0 && !targetTreasury.hasResources({ [type]: amount }))
+        return { success: false, reason: `Target nation lacks ${type}` };
+    }
+
+    // Execute the transfer
+    for (const [type, amount] of Object.entries(command.offer)) {
+      if ((amount ?? 0) > 0) {
+        localTreasury.consumeResources({ [type]: amount });
+        targetTreasury.addResource(type as import('@/systems/resources/ResourceType').ResourceType, amount!);
+      }
+    }
+    for (const [type, amount] of Object.entries(command.request)) {
+      if ((amount ?? 0) > 0) {
+        targetTreasury.consumeResources({ [type]: amount });
+        localTreasury.addResource(type as import('@/systems/resources/ResourceType').ResourceType, amount!);
+      }
+    }
+
     return { success: true };
   }
 }

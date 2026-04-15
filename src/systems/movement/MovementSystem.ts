@@ -10,6 +10,7 @@ import type { Unit } from '@/entities/units/Unit';
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { BattleSystem } from '@/systems/combat/BattleSystem';
+import type { CitySiegeSystem } from '@/systems/combat/CitySiegeSystem';
 import type { SavedMovementState } from '@/types/gameSetup';
 import { stepCost } from './MovementCosts';
 import type { UnitMovementState } from './MovementState';
@@ -159,6 +160,7 @@ export class MovementSystem {
     eventBus: GameEventBus,
     currentTick: number,
     battleSystem: BattleSystem,
+    citySiegeSystem: CitySiegeSystem,
   ): void {
     const grid = gameState.getGrid();
 
@@ -223,6 +225,17 @@ export class MovementSystem {
         if (enemyOccupant) {
           battleSystem.startBattle(unit, enemyOccupant, from, nextCoords, currentTick, this, eventBus);
           continue;
+        }
+
+        // Check for enemy city on this tile
+        const territory = grid.getTerritory(nextCoords);
+        const cityId = territory?.getCityId() ?? null;
+        if (cityId) {
+          const city = gameState.getCity(cityId);
+          if (city && city.getOwnerId() !== unit.getOwnerId()) {
+            citySiegeSystem.startSiege(unit, city, nextCoords, currentTick, this, eventBus);
+            continue;
+          }
         }
 
         if (state.path.length === 0) {

@@ -13,6 +13,7 @@ export class Longbowman extends Unit {
       speed: 2,
       attackRange: 3,
       vision: 1,
+      upkeep: { [ResourceType.FOOD]: 1, [ResourceType.RAW_MATERIAL]: 1 },
     });
   }
 

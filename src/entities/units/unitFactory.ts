@@ -54,6 +54,10 @@ export function createUnitFromData(data: UnitData): Unit {
   unit.setHealth(data.currentHealth);
   unit.setBattleOrder(data.battleOrder ?? 'ADVANCE');
   unit.setEngagedInBattle(data.engagedInBattle ?? false);
+  if (data.morale !== undefined) unit.setMorale(data.morale);
+  if (data.battlesEngaged !== undefined) unit.setBattlesEngaged(data.battlesEngaged);
+  if (data.homeCityId !== undefined) unit.setHomeCityId(data.homeCityId);
+  if (data.preferredTargetId !== undefined) unit.setPreferredTargetId(data.preferredTargetId);
   if (data.hasMovedThisTurn) unit.moveTo(data.position); // marks hasMovedThisTurn
   return unit;
 }

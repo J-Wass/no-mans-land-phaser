@@ -7,24 +7,27 @@ import Phaser from 'phaser';
 import type { GameState } from '@/managers/GameState';
 import type { TickEngine } from '@/systems/tick/TickEngine';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
+import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import type { GameSetup, GameSaveData } from '@/types/gameSetup';
 import { SaveSystem } from '@/systems/save/SaveSystem';
 import { UI } from '@/config/uiTheme';
 
 export interface PauseSceneData {
-  gameState: GameState;
-  tickEngine: TickEngine;
-  movementSystem: MovementSystem;
-  setup: GameSetup;
+  gameState:       GameState;
+  tickEngine:      TickEngine;
+  movementSystem:  MovementSystem;
+  diplomacySystem: DiplomacySystem;
+  setup:           GameSetup;
 }
 
 const { BG: OVERLAY, PANEL: PANEL_BG, ACCENT, BTN: BTN_NORM, BTN_HOV, LT: TEXT_LT } = UI;
 
 export class PauseScene extends Phaser.Scene {
-  private gameState!: GameState;
-  private tickEngine!: TickEngine;
-  private movementSystem!: MovementSystem;
-  private setup!: GameSetup;
+  private gameState!:       GameState;
+  private tickEngine!:      TickEngine;
+  private movementSystem!:  MovementSystem;
+  private diplomacySystem!: DiplomacySystem;
+  private setup!:           GameSetup;
   private feedbackText!: Phaser.GameObjects.Text;
 
   constructor() {
@@ -32,10 +35,11 @@ export class PauseScene extends Phaser.Scene {
   }
 
   init(data: PauseSceneData): void {
-    this.gameState    = data.gameState;
-    this.tickEngine   = data.tickEngine;
-    this.movementSystem = data.movementSystem;
-    this.setup        = data.setup;
+    this.gameState       = data.gameState;
+    this.tickEngine      = data.tickEngine;
+    this.movementSystem  = data.movementSystem;
+    this.diplomacySystem = data.diplomacySystem;
+    this.setup           = data.setup;
   }
 
   create(): void {
@@ -53,20 +57,20 @@ export class PauseScene extends Phaser.Scene {
       .setInteractive(); // block clicks falling through
 
     // Panel
-    const panelW = 320; const panelH = 340;
+    const panelW = 340; const panelH = 360;
     this.add.rectangle(cx, cy, panelW, panelH, PANEL_BG)
       .setStrokeStyle(1, ACCENT);
 
     // Title
-    this.add.text(cx, cy - 130, 'PAUSED', {
-      fontSize: '28px', color: '#ffffff',
+    this.add.text(cx, cy - 140, 'PAUSED', {
+      fontSize: '32px', color: '#ffffff',
       fontFamily: 'monospace', fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    this.add.rectangle(cx, cy - 100, 200, 1, ACCENT);
+    this.add.rectangle(cx, cy - 106, 220, 1, ACCENT);
 
     // Buttons
-    const btnW = 220; const btnH = 44; const btnGap = 14;
+    const btnW = 240; const btnH = 48; const btnGap = 14;
     const btns: Array<{ label: string; action: () => void; color?: number }> = [
       { label: 'RESUME',      action: () => this.resume() },
       { label: 'SAVE GAME',   action: () => this.saveGame() },
@@ -80,7 +84,7 @@ export class PauseScene extends Phaser.Scene {
         .setStrokeStyle(1, ACCENT)
         .setInteractive({ useHandCursor: true });
       this.add.text(cx, by, btn.label, {
-        fontSize: '15px', color: TEXT_LT,
+        fontSize: '17px', color: TEXT_LT,
         fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
 
@@ -90,8 +94,8 @@ export class PauseScene extends Phaser.Scene {
     });
 
     // Feedback line (save confirmation, errors)
-    this.feedbackText = this.add.text(cx, cy + 148, '', {
-      fontSize: '12px', color: '#88ff88',
+    this.feedbackText = this.add.text(cx, cy + 162, '', {
+      fontSize: '14px', color: '#66ee88',
       fontFamily: 'monospace',
     }).setOrigin(0.5);
 
@@ -118,6 +122,8 @@ export class PauseScene extends Phaser.Scene {
       state:          this.gameState.toJSON() as Record<string, unknown>,
       movementStates,
       battleStates:   this.tickEngine.getBattleStates(),
+      siegeStates:    this.tickEngine.getSiegeStates(),
+      peaceCooldowns: this.diplomacySystem.toSavedState(),
     };
 
     SaveSystem.save(saveData);

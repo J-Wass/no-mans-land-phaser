@@ -20,6 +20,9 @@ const MATERIAL_INTERVAL = 10;  // base +1/s per city
 const GOLD_INTERVAL     = 10;
 const RESEARCH_INTERVAL = 10;
 
+/** How often upkeep is drained — once every 3 seconds at TICK_RATE=10. */
+const UPKEEP_INTERVAL   = 30;
+
 let unitSerial = 1000;
 
 export class ProductionSystem {
@@ -70,6 +73,7 @@ export class ProductionSystem {
         if (spawnPos) {
           const unitId = `unit-city-${++unitSerial}`;
           const unit   = spawnUnit(orderSnapshot.unitType, unitId, city.getOwnerId(), spawnPos);
+          unit.setHomeCityId(city.id);
           gameState.addUnit(unit);
           eventBus.emit('city:unit-spawned', {
             cityId: city.id, unitId, unitType: orderSnapshot.unitType,
@@ -90,6 +94,16 @@ export class ProductionSystem {
         eventBus.emit('city:production-complete', {
           cityId: city.id, order: orderSnapshot, tick: currentTick,
         });
+      }
+    }
+
+    // ── Unit upkeep ───────────────────────────────────────────────────────────
+    if (currentTick % UPKEEP_INTERVAL === 0) {
+      for (const unit of gameState.getAllUnits()) {
+        if (!unit.isAlive()) continue;
+        const nation = gameState.getNation(unit.getOwnerId());
+        if (!nation) continue;
+        nation.getTreasury().consumeResources(unit.getUpkeep());
       }
     }
 

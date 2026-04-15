@@ -10,6 +10,7 @@ import type { BattleOrder, UnitType } from '@/entities/units/Unit';
 import type { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import type { CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { TechId } from '@/systems/research/TechTree';
+import type { ResourceType } from '@/systems/resources/ResourceType';
 
 export interface MoveUnitCommand {
   type:         'MOVE_UNIT';
@@ -64,6 +65,39 @@ export interface SetUnitBattleOrderCommand {
   issuedAtTick: number;
 }
 
+export interface DeclareWarCommand {
+  type:            'DECLARE_WAR';
+  playerId:        PlayerId;
+  targetNationId:  EntityId;
+  issuedAtTick:    number;
+}
+
+export interface ProposePeaceCommand {
+  type:            'PROPOSE_PEACE';
+  playerId:        PlayerId;
+  targetNationId:  EntityId;
+  issuedAtTick:    number;
+}
+
+export interface SetRangedTargetCommand {
+  type:         'SET_RANGED_TARGET';
+  playerId:     PlayerId;
+  unitId:       EntityId;
+  targetId:     EntityId | null;  // null = clear (revert to auto)
+  issuedAtTick: number;
+}
+
+export interface OfferTradeCommand {
+  type:            'OFFER_TRADE';
+  playerId:        PlayerId;
+  targetNationId:  EntityId;
+  /** Resources the local nation gives to the target nation. */
+  offer:           Partial<Record<ResourceType, number>>;
+  /** Resources the local nation receives from the target nation. */
+  request:         Partial<Record<ResourceType, number>>;
+  issuedAtTick:    number;
+}
+
 export type GameCommand =
   | MoveUnitCommand
   | BuildTerritoryCommand
@@ -71,7 +105,11 @@ export type GameCommand =
   | StartResearchCommand
   | CancelResearchCommand
   | StartCityProductionCommand
-  | SetUnitBattleOrderCommand;
+  | SetUnitBattleOrderCommand
+  | SetRangedTargetCommand
+  | DeclareWarCommand
+  | ProposePeaceCommand
+  | OfferTradeCommand;
 
 export interface CommandResult {
   success: boolean;

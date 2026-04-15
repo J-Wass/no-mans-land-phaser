@@ -29,7 +29,14 @@ export interface UnitStats {
   speed: number;          // used in movement cost formula
   attackRange: number;    // 1=melee only, 2-3=ranged
   vision: number;         // tiles visible
+  /** Resources drained from treasury every UPKEEP_INTERVAL ticks while the unit is alive. */
+  upkeep: ResourceCost;
 }
+
+export const DEFAULT_MORALE    = 80;
+export const MAX_MORALE        = 100;
+export const MORALE_LOW        = 30;   // refuses ADVANCE/CHARGE below this
+export const MORALE_ROUT       = 10;   // auto-retreats below this
 
 export interface UnitData {
   id: EntityId;
@@ -42,6 +49,10 @@ export interface UnitData {
   hasAttackedThisTurn: boolean;
   battleOrder: BattleOrder;
   engagedInBattle: boolean;
+  morale: number;
+  battlesEngaged: number;
+  homeCityId: EntityId | null;
+  preferredTargetId: EntityId | null;
 }
 
 export abstract class Unit implements GameEntity, Serializable<UnitData> {
@@ -66,6 +77,10 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
       hasAttackedThisTurn: false,
       battleOrder: 'ADVANCE',
       engagedInBattle: false,
+      morale: DEFAULT_MORALE,
+      battlesEngaged: 0,
+      homeCityId: null,
+      preferredTargetId: null,
     };
   }
 
@@ -113,6 +128,43 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
     this.data.engagedInBattle = engaged;
   }
 
+  public getMorale(): number {
+    return this.data.morale;
+  }
+
+  public setMorale(value: number): void {
+    this.data.morale = Math.max(0, Math.min(MAX_MORALE, value));
+  }
+
+  public getBattlesEngaged(): number {
+    return this.data.battlesEngaged;
+  }
+
+  public incrementBattlesEngaged(): void {
+    this.data.battlesEngaged++;
+  }
+
+  /** Directly set battles-engaged count — used only when restoring from a save. */
+  public setBattlesEngaged(count: number): void {
+    this.data.battlesEngaged = Math.max(0, count);
+  }
+
+  public getHomeCityId(): EntityId | null {
+    return this.data.homeCityId;
+  }
+
+  public setHomeCityId(cityId: EntityId | null): void {
+    this.data.homeCityId = cityId;
+  }
+
+  public getPreferredTargetId(): EntityId | null {
+    return this.data.preferredTargetId;
+  }
+
+  public setPreferredTargetId(targetId: EntityId | null): void {
+    this.data.preferredTargetId = targetId;
+  }
+
   public isAlive(): boolean {
     return this.data.currentHealth > 0;
   }
@@ -156,6 +208,11 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
   }
 
   public abstract getCost(): ResourceCost;
+
+  /** Per-tick-interval upkeep cost. Deducted by ProductionSystem every UPKEEP_INTERVAL ticks. */
+  public getUpkeep(): ResourceCost {
+    return this.data.stats.upkeep;
+  }
 
   public getData(): Readonly<UnitData> {
     return this.data;

@@ -13,6 +13,7 @@ export class HeavyInfantry extends Unit {
       speed: 1,
       attackRange: 1,
       vision: 1,
+      upkeep: { [ResourceType.FOOD]: 2, [ResourceType.RAW_MATERIAL]: 1 },
     });
   }
 

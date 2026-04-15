@@ -14,6 +14,7 @@ import { Infantry } from '@/entities/units/Infantry';
 import { Scout } from '@/entities/units/Scout';
 import { City } from '@/entities/cities/City';
 import { TerrainType } from '@/systems/grid/Territory';
+import { ResourceType } from '@/systems/resources/ResourceType';
 import type { GameSetup } from '@/types/gameSetup';
 import {
   pickCoastalSpawnPairs,
@@ -98,6 +99,10 @@ export class BootScene extends Phaser.Scene {
 
       const nation = new Nation(cfg.id, cfg.name, cfg.color, !isLocal);
       nation.setControlledBy(playerId);
+      // Starting resources — enough to begin researching and build within the first minute
+      nation.getTreasury().addResource(ResourceType.GOLD,         50);
+      nation.getTreasury().addResource(ResourceType.FOOD,         30);
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 20);
       gameState.addNation(nation);
 
       gameState.addPlayer(new Player(playerId, isLocal ? 'Player' : cfg.name, cfg.id, isLocal));

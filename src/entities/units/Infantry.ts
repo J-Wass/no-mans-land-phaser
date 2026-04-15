@@ -13,6 +13,7 @@ export class Infantry extends Unit {
       speed: 2,
       attackRange: 1,
       vision: 1,
+      upkeep: { [ResourceType.FOOD]: 1 },
     });
   }
 

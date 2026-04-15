@@ -13,6 +13,7 @@ export class Crossbowman extends Unit {
       speed: 1,
       attackRange: 2,
       vision: 1,
+      upkeep: { [ResourceType.FOOD]: 1, [ResourceType.RAW_MATERIAL]: 1 },
     });
   }
 

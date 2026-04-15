@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { BattleSystem, BATTLE_ROUND_TICKS, MAX_BATTLE_ROUNDS } from './BattleSystem';
+import { CitySiegeSystem } from './CitySiegeSystem';
 import { GameState } from '@/managers/GameState';
 import { MovementSystem } from '@/systems/movement/MovementSystem';
 import { GameEventBus } from '@/systems/events/GameEventBus';
@@ -41,7 +42,7 @@ describe('BattleSystem', () => {
 
     movementSystem.issueOrder(attacker, [{ row: 0, col: 1 }]);
     for (let tick = 1; tick <= 5; tick++) {
-      movementSystem.tickWithBattles(gameState, eventBus, tick, battleSystem);
+      movementSystem.tickWithBattles(gameState, eventBus, tick, battleSystem, new CitySiegeSystem());
     }
 
     expect(handler).toHaveBeenCalledTimes(1);

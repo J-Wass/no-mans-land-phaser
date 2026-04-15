@@ -14,6 +14,7 @@ import type { TerritoryBuildingType } from '@/systems/territory/TerritoryBuildin
 import type { CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { TechId } from '@/systems/research/TechTree';
 import type { Unit } from '@/entities/units/Unit';
+import type { City } from '@/entities/cities/City';
 
 export type GameEventMap = {
   'unit:step-complete':        { unitId: EntityId; from: GridCoordinates; to: GridCoordinates; tick: number };
@@ -37,9 +38,21 @@ export type GameEventMap = {
     battleId: string;
     winnerUnitId: EntityId | null;
     loserUnitId: EntityId | null;
-    reason: 'ELIMINATION' | 'RETREAT' | 'ROUT' | 'TIMEOUT' | 'MUTUAL_DESTRUCTION';
+    reason: 'ELIMINATION' | 'RETREAT' | 'ROUT' | 'TIMEOUT' | 'MUTUAL_DESTRUCTION' | 'LAND_LOSS';
     tick: number;
   };
+  /** A unit began besieging a city. */
+  'city:siege-started':        { siegeId: string; unitId: EntityId; cityId: EntityId; position: GridCoordinates; tick: number };
+  /** One round of city siege resolved. */
+  'city:siege-round':          { siegeId: string; unitId: EntityId; cityId: EntityId; damageToCity: number; damageToUnit: number; cityHealth: number; tick: number };
+  /** A city was captured by an attacking nation. */
+  'city:conquered':            { cityId: EntityId; byUnitId: EntityId; byNationId: EntityId; position: GridCoordinates; tick: number };
+  /** A ranged unit fired at a target from distance. */
+  'ranged:fired':              { unitId: EntityId; targetId: EntityId; targetType: 'unit' | 'city'; damage: number; from: GridCoordinates; to: GridCoordinates; tick: number };
+  /** A war has been declared between two nations (auto or manual). */
+  'diplomacy:war-declared':    { nationId1: EntityId; nationId2: EntityId; tick: number };
+  /** A peace treaty has been accepted. */
+  'diplomacy:peace-signed':    { fromNationId: EntityId; toNationId: EntityId; tick: number };
   /** City finished producing a unit; renderer should create the sprite. */
   'city:unit-spawned':         { cityId: EntityId; unitId: EntityId; unitType: UnitType; position: GridCoordinates; tick: number };
   /** City finished a resource project. */
@@ -58,6 +71,12 @@ export type GameEventMap = {
   'game:tick':                 { tick: number };
   /** Player selected (or deselected) a unit. */
   'unit:selected':             { unit: Unit | null };
+  /** Player highlighted a city (single-click) or deselected. */
+  'city:selected':             { city: City | null };
+  /** A UIScene interactive element consumed a click — GameScene should ignore it. */
+  'ui:click-consumed':         Record<string, never>;
+  /** Player clicked FIRE on a ranged unit — GameScene should enter target-selection mode. */
+  'ui:ranged-targeting':       { unitId: EntityId };
 };
 
 export class GameEventBus {

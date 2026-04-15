@@ -24,6 +24,23 @@ export interface SavedBattleState {
   roundsElapsed: number;
   momentum: number;
   startedAtTick: number;
+  landA: number;
+  landB: number;
+}
+
+export interface SavedSiegeState {
+  id: string;
+  unitId: string;
+  cityId: string;
+  position: { row: number; col: number };
+  attackerOrigin: { row: number; col: number };
+  ticksUntilRound: number;
+  roundsElapsed: number;
+}
+
+export interface SavedPeaceCooldown {
+  key: string;          // sorted "nationA:nationB"
+  expiresAtTick: number;
 }
 
 export interface GameSaveData {
@@ -35,4 +52,6 @@ export interface GameSaveData {
   state: Record<string, unknown>;
   movementStates: SavedMovementState[];
   battleStates: SavedBattleState[];
+  siegeStates?: SavedSiegeState[];
+  peaceCooldowns?: SavedPeaceCooldown[];
 }

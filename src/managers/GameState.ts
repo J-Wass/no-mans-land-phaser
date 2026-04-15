@@ -170,8 +170,9 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
       const city     = new City(cityData.id, cityData.name, cityData.ownerId, cityData.position);
       if (cityData.currentOrder) city.startOrder(cityData.currentOrder as ProductionOrder);
       // Restore buildings (may be missing in old saves)
-      const cdAny = cd as { buildings?: CityBuildingType[] };
+      const cdAny = cd as { buildings?: CityBuildingType[]; currentHealth?: number };
       if (cdAny.buildings) city.setBuildings(cdAny.buildings);
+      if (typeof cdAny.currentHealth === 'number') city.setHealth(cdAny.currentHealth);
       state.addCity(city);
     }
 

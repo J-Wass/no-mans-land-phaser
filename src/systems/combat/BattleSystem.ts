@@ -1,5 +1,6 @@
 import type { EntityId, GridCoordinates } from '@/types/common';
 import type { Unit, BattleOrder, UnitType } from '@/entities/units/Unit';
+import { MORALE_LOW, MORALE_ROUT } from '@/entities/units/Unit';
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
@@ -9,6 +10,7 @@ import { TICK_RATE } from '@/config/constants';
 export const BATTLE_ROUND_TICKS = 1 * TICK_RATE;
 export const MAX_BATTLE_ROUNDS = 20;
 const MOMENTUM_THRESHOLD = 100;
+export const BATTLE_LAND_START = 100;
 
 export interface SavedBattleState {
   id: string;
@@ -22,11 +24,13 @@ export interface SavedBattleState {
   roundsElapsed: number;
   momentum: number;
   startedAtTick: number;
+  landA: number;
+  landB: number;
 }
 
 interface BattleState extends SavedBattleState {}
 
-type BattleEndReason = 'ELIMINATION' | 'RETREAT' | 'ROUT' | 'TIMEOUT' | 'MUTUAL_DESTRUCTION';
+type BattleEndReason = 'ELIMINATION' | 'RETREAT' | 'ROUT' | 'TIMEOUT' | 'MUTUAL_DESTRUCTION' | 'LAND_LOSS';
 
 export class BattleSystem {
   private battles: Map<string, BattleState> = new Map();
@@ -60,6 +64,8 @@ export class BattleSystem {
       roundsElapsed: 0,
       momentum: 0,
       startedAtTick: currentTick,
+      landA: BATTLE_LAND_START,
+      landB: BATTLE_LAND_START,
     };
 
     attacker.setEngagedInBattle(true);
@@ -113,6 +119,20 @@ export class BattleSystem {
 
       unitA.takeDamage(damageToUnitA);
       unitB.takeDamage(damageToUnitB);
+
+      // Morale damage proportional to HP fraction taken
+      const moraleHitA = Math.ceil(damageToUnitA / unitA.getStats().maxHealth * 50);
+      const moraleHitB = Math.ceil(damageToUnitB / unitB.getStats().maxHealth * 50);
+      unitA.setMorale(unitA.getMorale() - moraleHitA);
+      unitB.setMorale(unitB.getMorale() - moraleHitB);
+
+      // Land shift based on effective orders (respects low morale)
+      const effectiveA = effectiveBattleOrder(unitA);
+      const effectiveB = effectiveBattleOrder(unitB);
+      const landShift = getStanceLandRate(effectiveA) - getStanceLandRate(effectiveB);
+      battle.landA = Math.max(0, battle.landA + landShift);
+      battle.landB = Math.max(0, battle.landB - landShift);
+
       battle.momentum += this.calculateMomentumShift(unitA, unitB, damageToUnitA, damageToUnitB);
 
       eventBus.emit('battle:round-resolved', {
@@ -125,6 +145,26 @@ export class BattleSystem {
         momentum: battle.momentum,
         tick: currentTick,
       });
+
+      // Morale rout
+      const aRouted = unitA.getMorale() <= MORALE_ROUT;
+      const bRouted = unitB.getMorale() <= MORALE_ROUT;
+      if (aRouted || bRouted) {
+        const winner = aRouted && bRouted ? null : (aRouted ? unitB : unitA);
+        const loser  = aRouted && bRouted ? null : (aRouted ? unitA : unitB);
+        this.finishBattle(battle, gameState, movementSystem, eventBus, currentTick, winner, loser, 'ROUT');
+        continue;
+      }
+
+      // Land loss
+      if (battle.landA <= 0) {
+        this.finishBattle(battle, gameState, movementSystem, eventBus, currentTick, unitB, unitA, 'LAND_LOSS');
+        continue;
+      }
+      if (battle.landB <= 0) {
+        this.finishBattle(battle, gameState, movementSystem, eventBus, currentTick, unitA, unitB, 'LAND_LOSS');
+        continue;
+      }
 
       const retreatWinner = this.resolveRetreat(unitA, unitB);
       if (retreatWinner) {
@@ -187,6 +227,8 @@ export class BattleSystem {
         position: { ...battle.position },
         attackerOrigin: { ...battle.attackerOrigin },
         defenderOrigin: { ...battle.defenderOrigin },
+        landA: battle.landA ?? BATTLE_LAND_START,
+        landB: battle.landB ?? BATTLE_LAND_START,
       });
 
       const suffix = Number.parseInt(battle.id.replace('battle-', ''), 10);
@@ -202,28 +244,30 @@ export class BattleSystem {
 
   private getOffenseScore(attacker: Unit, defender: Unit, terrain: TerrainType, round: number): number {
     const stats = attacker.getStats();
-    const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && attacker.getBattleOrder() !== 'CHARGE';
+    const order = effectiveBattleOrder(attacker);
+    const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'CHARGE';
     const baseDamage = useRanged ? Math.max(stats.rangedDamage, stats.meleeDamage * 0.7) : stats.meleeDamage;
     const healthRatio = attacker.getHealth() / stats.maxHealth;
     const healthFactor = 0.55 + 0.45 * healthRatio;
-    const orderFactor = getOrderAttackFactor(attacker.getBattleOrder(), useRanged, round);
-    const matchupFactor = getMatchupAttackFactor(attacker.getUnitType(), defender.getUnitType(), attacker.getBattleOrder(), defender.getStats().armorType, useRanged);
-    const terrainFactor = getTerrainAttackFactor(attacker.getUnitType(), terrain, attacker.getBattleOrder(), useRanged);
+    const orderFactor = getOrderAttackFactor(order, useRanged, round);
+    const matchupFactor = getMatchupAttackFactor(attacker.getUnitType(), defender.getUnitType(), order, defender.getStats().armorType, useRanged);
+    const terrainFactor = getTerrainAttackFactor(attacker.getUnitType(), terrain, order, useRanged);
     const randomness = 0.9 + this.random() * 0.2;
 
     return baseDamage * healthFactor * orderFactor * matchupFactor * terrainFactor * randomness;
   }
 
   private getMitigationScore(defender: Unit, attacker: Unit, terrain: TerrainType): number {
-    const base = getOrderMitigation(defender.getBattleOrder());
-    const terrainBonus = getTerrainMitigation(defender.getUnitType(), terrain, defender.getBattleOrder());
-    const matchupBonus = getMatchupMitigation(defender.getUnitType(), attacker.getUnitType(), defender.getBattleOrder());
+    const order = effectiveBattleOrder(defender);
+    const base = getOrderMitigation(order);
+    const terrainBonus = getTerrainMitigation(defender.getUnitType(), terrain, order);
+    const matchupBonus = getMatchupMitigation(defender.getUnitType(), attacker.getUnitType(), order);
     return clamp(base + terrainBonus + matchupBonus, 0, 0.65);
   }
 
   private calculateMomentumShift(unitA: Unit, unitB: Unit, damageToUnitA: number, damageToUnitB: number): number {
     const damageSwing = damageToUnitB - damageToUnitA;
-    const orderSwing = getOrderPressure(unitA.getBattleOrder(), unitA.getUnitType()) - getOrderPressure(unitB.getBattleOrder(), unitB.getUnitType());
+    const orderSwing = getOrderPressure(effectiveBattleOrder(unitA), unitA.getUnitType()) - getOrderPressure(effectiveBattleOrder(unitB), unitB.getUnitType());
     const healthSwing = Math.round((unitA.getHealth() - unitB.getHealth()) / 12);
     return damageSwing + orderSwing + healthSwing;
   }
@@ -238,11 +282,14 @@ export class BattleSystem {
   }
 
   private didRetreatSucceed(unit: Unit, opponent: Unit): boolean {
-    if (unit.getBattleOrder() !== 'RETREAT' || !unit.isAlive()) return false;
+    if (effectiveBattleOrder(unit) !== 'RETREAT' || !unit.isAlive()) return false;
+
+    // Morale rout gives guaranteed retreat
+    if (unit.getMorale() <= MORALE_ROUT) return true;
 
     const speedDelta = unit.getStats().speed - opponent.getStats().speed;
     const chance = clamp(
-      0.35 + speedDelta * 0.08 - getOrderPressure(opponent.getBattleOrder(), opponent.getUnitType()) / 100,
+      0.35 + speedDelta * 0.08 - getOrderPressure(effectiveBattleOrder(opponent), opponent.getUnitType()) / 100,
       0.15,
       0.85,
     );
@@ -270,6 +317,8 @@ export class BattleSystem {
     const unitB = gameState.getUnit(battle.unitBId);
     unitA?.setEngagedInBattle(false);
     unitB?.setEngagedInBattle(false);
+    unitA?.incrementBattlesEngaged();
+    unitB?.incrementBattlesEngaged();
     movementSystem.cancelOrder(battle.unitAId);
     movementSystem.cancelOrder(battle.unitBId);
 
@@ -452,4 +501,24 @@ function getMatchupMitigation(unitType: UnitType, attackerType: UnitType, order:
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+/** Returns the effective battle order, overriding based on morale thresholds. */
+function effectiveBattleOrder(unit: Unit): BattleOrder {
+  const morale = unit.getMorale();
+  const order  = unit.getBattleOrder();
+  if (morale <= MORALE_ROUT) return 'RETREAT';
+  if (morale <= MORALE_LOW && (order === 'ADVANCE' || order === 'CHARGE')) return 'HOLD';
+  return order;
+}
+
+/** Land rate contribution per round (net = rateA - rateB changes landA). */
+function getStanceLandRate(order: BattleOrder): number {
+  switch (order) {
+    case 'RETREAT':   return -10;
+    case 'FALL_BACK': return -5;
+    case 'HOLD':      return 0;
+    case 'ADVANCE':   return 5;
+    case 'CHARGE':    return 10;
+  }
 }

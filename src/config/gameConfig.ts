@@ -7,16 +7,16 @@ import { PauseScene } from '@/scenes/PauseScene';
 import { CityMenuScene } from '@/scenes/CityMenuScene';
 import { TerritoryMenuScene } from '@/scenes/TerritoryMenuScene';
 import { ResearchScene } from '@/scenes/ResearchScene';
+import { DiplomacyScene } from '@/scenes/DiplomacyScene';
+import { WarConfirmScene } from '@/scenes/WarConfirmScene';
 
 export const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container',
-  backgroundColor: '#1a1a2e',
+  backgroundColor: '#08090f',
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 1000,   // 25 tiles × 40px
-    height: 1040,  // 1000px grid + 40px UI panel
+    mode: Phaser.Scale.RESIZE,
+    autoCenter: Phaser.Scale.NO_CENTER,
   },
   physics: {
     default: 'arcade',
@@ -26,5 +26,5 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     },
   },
   // MenuScene first = entry point; overlay scenes last = render on top
-  scene: [MenuScene, BootScene, GameScene, UIScene, PauseScene, CityMenuScene, TerritoryMenuScene, ResearchScene],
+  scene: [MenuScene, BootScene, GameScene, UIScene, PauseScene, CityMenuScene, TerritoryMenuScene, ResearchScene, DiplomacyScene, WarConfirmScene],
 };

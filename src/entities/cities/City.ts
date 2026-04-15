@@ -11,13 +11,16 @@ import type { ProductionOrder } from '@/systems/production/ProductionOrder';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
 
 export interface CityData {
-  id:           EntityId;
-  name:         string;
-  ownerId:      EntityId;
-  position:     GridCoordinates;
-  population:   number;
-  currentOrder: ProductionOrder | null;
-  buildings:    CityBuildingType[];
+  id:            EntityId;
+  name:          string;
+  ownerId:       EntityId;
+  position:      GridCoordinates;
+  population:    number;
+  currentOrder:  ProductionOrder | null;
+  buildings:     CityBuildingType[];
+  currentHealth: number;
+  maxHealth:     number;
+  meleeDamage:   number;
 }
 
 export class City implements GameEntity, Serializable<CityData> {
@@ -30,9 +33,12 @@ export class City implements GameEntity, Serializable<CityData> {
       name,
       ownerId,
       position,
-      population: 1000,
-      currentOrder: null,
-      buildings: [CityBuildingType.CITY_HALL],
+      population:    1000,
+      currentOrder:  null,
+      buildings:     [CityBuildingType.CITY_HALL],
+      maxHealth:     200,
+      currentHealth: 200,
+      meleeDamage:   12,
     };
   }
 
@@ -43,6 +49,24 @@ export class City implements GameEntity, Serializable<CityData> {
   public getOwnerId(): EntityId { return this.data.ownerId; }
   public setOwnerId(id: EntityId): void { this.data.ownerId = id; }
   public getPopulation(): number { return this.data.population; }
+
+  // ── Combat stats ──────────────────────────────────────────────────────────────
+  public getHealth(): number    { return this.data.currentHealth; }
+  public getMaxHealth(): number { return this.data.maxHealth; }
+  public getMeleeDamage(): number { return this.data.meleeDamage; }
+  public isAlive(): boolean     { return this.data.currentHealth > 0; }
+
+  public takeDamage(amount: number): void {
+    this.data.currentHealth = Math.max(0, this.data.currentHealth - amount);
+  }
+
+  public heal(amount: number): void {
+    this.data.currentHealth = Math.min(this.data.maxHealth, this.data.currentHealth + amount);
+  }
+
+  public setHealth(amount: number): void {
+    this.data.currentHealth = Math.max(0, Math.min(this.data.maxHealth, amount));
+  }
 
   public getCurrentOrder(): ProductionOrder | null { return this.data.currentOrder; }
 
@@ -101,9 +125,9 @@ export class City implements GameEntity, Serializable<CityData> {
   public toJSON(): CityData {
     return {
       ...this.data,
-      position:     { ...this.data.position },
-      currentOrder: this.data.currentOrder ? { ...this.data.currentOrder } : null,
-      buildings:    [...this.data.buildings],
+      position:      { ...this.data.position },
+      currentOrder:  this.data.currentOrder ? { ...this.data.currentOrder } : null,
+      buildings:     [...this.data.buildings],
     };
   }
 }
