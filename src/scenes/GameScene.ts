@@ -651,9 +651,16 @@ export class GameScene extends Phaser.Scene {
       ? this.gameState.getNation(localPlayer.getControlledNationId())
       : null;
 
-    // ── 1. Clicking another own unit always selects it ────────────────────────
+    // ── Determine the local player's nation id via whatever is available ─────
+    // localNation can be null if setup isn't complete yet; fall back to the
+    // currently-selected unit's owner so re-selection still works.
+    const localNationId: string | null =
+      localNation?.getId() ??
+      (this.selectedUnitId ? (this.gameState.getUnit(this.selectedUnitId)?.getOwnerId() ?? null) : null);
+
+    // ── 1. Clicking any own unit always selects it (even while another is selected)
     const clickedUnit = this.getUnitAt(target);
-    if (clickedUnit && localNation && clickedUnit.getOwnerId() === localNation.getId()) {
+    if (clickedUnit && localNationId && clickedUnit.getOwnerId() === localNationId) {
       this.selectUnit(clickedUnit);
       return;
     }

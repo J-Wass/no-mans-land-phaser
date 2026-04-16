@@ -31,3 +31,5 @@ Gold	Gold++	Gold+++
 * create folders for me to upload different sprites sheets, explain what spritesheet format to use
 
 * do the same, but for audio design and music
+
+* similar to capturing a city, when you enter an unfriendly territory you have to fight and overcome the territory's hp.
