@@ -38,15 +38,15 @@ export class MenuScene extends Phaser.Scene {
     this.add.rectangle(0, 0, W, 6, SELECTED).setOrigin(0, 0);
 
     // Title
-    this.add.text(cx, 140, 'TACTICAL', {
+    this.add.text(cx, 140, 'NO MAN\'S LAND', {
       fontSize: '64px', color: '#ffffff',
       fontFamily: 'monospace', fontStyle: 'bold',
     }).setOrigin(0.5);
-    this.add.text(cx, 210, 'CONQUEST', {
+    this.add.text(cx, 210, 'LAND', {
       fontSize: '64px', color: '#8877ff',
       fontFamily: 'monospace', fontStyle: 'bold',
     }).setOrigin(0.5);
-    this.add.text(cx, 275, 'Turn-Based Strategy', {
+    this.add.text(cx, 275, 'Choose wisely.', {
       fontSize: '16px', color: TEXT_DIM,
       fontFamily: 'monospace',
     }).setOrigin(0.5);
