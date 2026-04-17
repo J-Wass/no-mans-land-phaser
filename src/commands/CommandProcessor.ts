@@ -21,6 +21,9 @@ import { TERRITORY_BUILDING_MAP, TerritoryBuildingType } from '@/systems/territo
 import { CITY_BUILDING_MAP } from '@/systems/territory/CityBuilding';
 import { TECH_MAP } from '@/systems/research/TechTree';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
+import { ResourceType } from '@/systems/resources/ResourceType';
+import { TerrainType } from '@/systems/grid/Territory';
+import type { GridCoordinates } from '@/types/common';
 
 const MANA_DEPOSITS = new Set<TerritoryResourceType>([
   TerritoryResourceType.WATER_MANA,
@@ -119,6 +122,7 @@ export class CommandProcessor {
       nation.getTreasury().consumeResources(def.cost);
       territory.setControllingNation(nation.getId());
       territory.addBuilding(TerritoryBuildingType.OUTPOST);
+      this.claimAdjacentImpassable(command.position, nation.getId());
       this.eventBus.emit('territory:claimed', {
         position: command.position, nationId: nation.getId(), tick: command.issuedAtTick,
       });
@@ -219,6 +223,11 @@ export class CommandProcessor {
     const node = TECH_MAP.get(command.techId);
     if (!node) return { success: false, reason: 'Unknown tech' };
 
+    const treasury = nation.getTreasury();
+    if (treasury.getAmount(ResourceType.RESEARCH) < node.researchCost)
+      return { success: false, reason: `Insufficient research points (need ${node.researchCost})` };
+
+    treasury.consumeResources({ [ResourceType.RESEARCH]: node.researchCost });
     nation.startResearch(command.techId, node.ticks);
     this.eventBus.emit('nation:research-started', {
       nationId: nation.getId(), techId: command.techId,
@@ -347,6 +356,25 @@ export class CommandProcessor {
     return ok ? { success: true } : { success: false, reason: 'Not at war with this nation' };
   }
 
+  // ── Shared helpers ────────────────────────────────────────────────────────
+
+  /** Claim unclaimed adjacent mountain/water tiles when an outpost is built. */
+  private claimAdjacentImpassable(position: GridCoordinates, nationId: string): void {
+    const offsets = [
+      { row: -1, col: 0 }, { row: 1, col: 0 },
+      { row: 0, col: -1 }, { row: 0, col: 1 },
+    ];
+    const grid = this.gameState.getGrid();
+    for (const off of offsets) {
+      const nbr = grid.getTerritory({ row: position.row + off.row, col: position.col + off.col });
+      if (!nbr) continue;
+      const t = nbr.getTerrainType();
+      if (t !== TerrainType.WATER && t !== TerrainType.MOUNTAIN) continue;
+      if (nbr.getControllingNation()) continue;
+      nbr.setControllingNation(nationId);
+    }
+  }
+
   // ── OFFER_TRADE ───────────────────────────────────────────────────────────
 
   private handleOfferTrade(command: OfferTradeCommand): CommandResult {
@@ -358,6 +386,24 @@ export class CommandProcessor {
 
     const targetNation = this.gameState.getNation(command.targetNationId);
     if (!targetNation) return { success: false, reason: 'Target nation not found' };
+
+    // If the target nation is AI-controlled, it evaluates and may reject the offer
+    if (targetNation.isAIControlled() && this.diplomacySystem) {
+      const evaluation = this.diplomacySystem.evaluateTradeForAI(
+        localNation.getId(),
+        targetNation.getId(),
+        command.offer,
+        command.request,
+        command.issuedAtTick,
+      );
+      if (!evaluation.accepted) {
+        const secs = Math.ceil(evaluation.backoffTicks / 10);
+        const reason = evaluation.backoffTicks > 0
+          ? `Trade rejected. Try again in ${secs}s.`
+          : 'Trade rejected.';
+        return { success: false, reason };
+      }
+    }
 
     const localTreasury  = localNation.getTreasury();
     const targetTreasury = targetNation.getTreasury();

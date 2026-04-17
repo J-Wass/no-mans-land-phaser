@@ -10,7 +10,7 @@
 
 import Phaser from 'phaser';
 import type { GameState } from '@/managers/GameState';
-import type { CommandProcessor } from '@/commands/CommandProcessor';
+import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { DiplomaticStatus } from '@/types/diplomacy';
@@ -19,12 +19,12 @@ import { UI } from '@/config/uiTheme';
 import { TICK_RATE } from '@/config/constants';
 
 export interface DiplomacySceneData {
-  targetNationId:   string;
-  gameState:        GameState;
-  commandProcessor: CommandProcessor;
-  diplomacySystem:  DiplomacySystem;
-  eventBus:         GameEventBus;
-  currentTick:      number;
+  targetNationId:  string;
+  gameState:       GameState;
+  networkAdapter:  NetworkAdapter;
+  diplomacySystem: DiplomacySystem;
+  eventBus:        GameEventBus;
+  currentTick:     number;
 }
 
 const {
@@ -45,7 +45,7 @@ const TRADE_RESOURCES: Array<{ type: ResourceType; label: string; emoji: string 
 export class DiplomacyScene extends Phaser.Scene {
   private targetNationId!:   string;
   private gameState!:        GameState;
-  private commandProcessor!: CommandProcessor;
+  private networkAdapter!: NetworkAdapter;
   private diplomacySystem!:  DiplomacySystem;
   private currentTick!:      number;
   private playerId!:         string;
@@ -58,7 +58,7 @@ export class DiplomacyScene extends Phaser.Scene {
   init(data: DiplomacySceneData): void {
     this.targetNationId   = data.targetNationId;
     this.gameState        = data.gameState;
-    this.commandProcessor = data.commandProcessor;
+    this.networkAdapter = data.networkAdapter;
     this.diplomacySystem  = data.diplomacySystem;
     this.currentTick      = data.currentTick;
     this.tradeOffer       = {};
@@ -144,8 +144,8 @@ export class DiplomacyScene extends Phaser.Scene {
         if (!onCooldown) {
           peaceBg.on('pointerover', () => peaceBg.setFillStyle(GREEN_H));
           peaceBg.on('pointerout',  () => peaceBg.setFillStyle(GREEN_BTN));
-          peaceBg.on('pointerup',   () => {
-            this.commandProcessor.dispatch({
+          peaceBg.on('pointerup',   async () => {
+            await this.networkAdapter.sendCommand({
               type: 'PROPOSE_PEACE', playerId: this.playerId,
               targetNationId: this.targetNationId, issuedAtTick: this.currentTick,
             });
@@ -177,8 +177,8 @@ export class DiplomacyScene extends Phaser.Scene {
         if (canWar) {
           warBg.on('pointerover', () => warBg.setFillStyle(RED_H));
           warBg.on('pointerout',  () => warBg.setFillStyle(RED_BTN));
-          warBg.on('pointerup',   () => {
-            this.commandProcessor.dispatch({
+          warBg.on('pointerup',   async () => {
+            await this.networkAdapter.sendCommand({
               type: 'DECLARE_WAR', playerId: this.playerId,
               targetNationId: this.targetNationId, issuedAtTick: this.currentTick,
             });
@@ -272,17 +272,20 @@ export class DiplomacyScene extends Phaser.Scene {
       y += 36;
     }
 
-    // Execute Trade button
+    // Execute Trade button + status feedback
     y += 6;
     const tradeBg = this.add.rectangle(cx, y + 16, 180, 32, BTN)
       .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
     this.add.text(cx, y + 16, '⇄  EXECUTE TRADE', {
       fontSize: '13px', color: GOLD_C, fontFamily: 'monospace',
     }).setOrigin(0.5);
+    const tradeStatus = this.add.text(cx, y + 38, '', {
+      fontSize: '11px', color: '#ff8888', fontFamily: 'monospace',
+    }).setOrigin(0.5);
     tradeBg.on('pointerover', () => tradeBg.setFillStyle(BTN_HOV));
     tradeBg.on('pointerout',  () => tradeBg.setFillStyle(BTN));
-    tradeBg.on('pointerup',   () => {
-      this.commandProcessor.dispatch({
+    tradeBg.on('pointerup',   async () => {
+      const result = await this.networkAdapter.sendCommand({
         type: 'OFFER_TRADE',
         playerId:       this.playerId,
         targetNationId: this.targetNationId,
@@ -290,12 +293,17 @@ export class DiplomacyScene extends Phaser.Scene {
         request:        { ...this.tradeRequest },
         issuedAtTick:   this.currentTick,
       });
-      // Reset counters
-      this.tradeOffer   = {};
-      this.tradeRequest = {};
-      for (const res of TRADE_RESOURCES) {
-        offerLbls[res.type]?.setText('0');
-        requestLbls[res.type]?.setText('0');
+      if (result.success) {
+        tradeStatus.setColor('#88ff88').setText('Trade accepted!');
+        // Reset counters on success
+        this.tradeOffer   = {};
+        this.tradeRequest = {};
+        for (const res of TRADE_RESOURCES) {
+          offerLbls[res.type]?.setText('0');
+          requestLbls[res.type]?.setText('0');
+        }
+      } else {
+        tradeStatus.setColor('#ff8888').setText(result.reason ?? 'Trade rejected.');
       }
     });
 

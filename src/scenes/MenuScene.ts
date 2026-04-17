@@ -89,8 +89,9 @@ export class MenuScene extends Phaser.Scene {
       { label: 'EASY', value: 'easy' },
       { label: 'MEDIUM', value: 'medium' },
       { label: 'HARD', value: 'hard' },
+      { label: 'SANDBOX', value: 'sandbox' },
     ];
-    const dBtnW = 120;
+    const dBtnW = 105;
     const totalDW = difficulties.length * dBtnW + (difficulties.length - 1) * gap;
     const dStartX = cx - totalDW / 2 + dBtnW / 2;
 

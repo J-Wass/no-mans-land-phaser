@@ -56,6 +56,7 @@ export class AISystem {
   // ── Private ──────────────────────────────────────────────────────────────────
 
   private initControllers(): void {
+    if (this.difficulty === 'sandbox') return; // AI is entirely passive in sandbox mode
     for (const nation of this.gameState.getAllNations()) {
       if (!nation.isAIControlled()) continue;
       const profile = this.createProfile();
@@ -68,7 +69,7 @@ export class AISystem {
       case 'easy':   return new NoobProfile();
       case 'medium': return new BasicProfile();
       case 'hard':   return new AdvancedProfile();
-      default:         return new BasicProfile();
+      default:       return new BasicProfile();
     }
   }
 }

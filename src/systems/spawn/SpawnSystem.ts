@@ -6,6 +6,7 @@
 import { TerrainType } from '@/systems/grid/Territory';
 import type { Grid } from '@/systems/grid/Grid';
 import type { GridCoordinates } from '@/types/common';
+import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 
 export interface SpawnPair {
   infantry: GridCoordinates;
@@ -157,12 +158,16 @@ export function assignStartingTerritory(
       if (!territory) continue;
       if (territory.getControllingNation()) continue;
       const terrain = territory.getTerrainType();
-      if (terrain === TerrainType.WATER || terrain === TerrainType.MOUNTAIN) continue;
 
       const dA = Math.sqrt((r - cityA.row) ** 2 + (c - cityA.col) ** 2);
       const dB = Math.sqrt((r - cityB.row) ** 2 + (c - cityB.col) ** 2);
       if (dA + dB <= focalDist + OVAL_PADDING) {
         territory.setControllingNation(nationId);
+        // Only passable tiles get an outpost — units can't garrison water or mountains.
+        const passable = terrain !== TerrainType.WATER && terrain !== TerrainType.MOUNTAIN;
+        if (passable && !territory.hasBuilding(TerritoryBuildingType.OUTPOST)) {
+          territory.addBuilding(TerritoryBuildingType.OUTPOST);
+        }
       }
     }
   }

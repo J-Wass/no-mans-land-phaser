@@ -48,7 +48,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Barracks',
     perks: 'Enables unit training',
     cost: { [ResourceType.GOLD]: 15, [ResourceType.RAW_MATERIAL]: 30 },
-    ticks: 100,
+    ticks: 10,
     requiresTech: 'masonry',
   },
   {
@@ -56,7 +56,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Walls',
     perks: 'Defense+',
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 25 },
-    ticks: 150,
+    ticks: 10,
     requiresTech: 'masonry',
   },
   {
@@ -64,7 +64,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Farms',
     perks: '🍎 +2/s',
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 20 },
-    ticks: 100,
+    ticks: 10,
     requiresTech: 'masonry',
   },
   {
@@ -72,7 +72,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Workshop',
     perks: '🪨 +1/s',
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 20 },
-    ticks: 100,
+    ticks: 10,
     requiresTech: 'masonry',
   },
   {
@@ -80,7 +80,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Public Green',
     perks: 'Happiness+',
     cost: { [ResourceType.GOLD]: 5, [ResourceType.RAW_MATERIAL]: 20 },
-    ticks: 100,
+    ticks: 10,
     requiresTech: 'masonry',
   },
   {
@@ -88,7 +88,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Housing',
     perks: 'Population+',
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 25, [ResourceType.FOOD]: 10 },
-    ticks: 120,
+    ticks: 10,
     requiresTech: 'masonry',
   },
   {
@@ -96,7 +96,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Courthouse',
     perks: 'Corruption-',
     cost: { [ResourceType.GOLD]: 20, [ResourceType.RAW_MATERIAL]: 30 },
-    ticks: 150,
+    ticks: 10,
     requiresTech: 'law',
   },
   {
@@ -104,7 +104,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Watchtower',
     perks: 'Vision+',
     cost: { [ResourceType.GOLD]: 5, [ResourceType.RAW_MATERIAL]: 15 },
-    ticks: 100,
+    ticks: 10,
     requiresTech: 'masonry',
   },
   {
@@ -112,7 +112,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'School',
     perks: '🔍 +1/s',
     cost: { [ResourceType.GOLD]: 15, [ResourceType.RAW_MATERIAL]: 25, [ResourceType.FOOD]: 10 },
-    ticks: 150,
+    ticks: 10,
     requiresTech: 'education',
   },
   {
@@ -120,7 +120,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     label: 'Market',
     perks: '🪙 +1/s',
     cost: { [ResourceType.GOLD]: 20, [ResourceType.RAW_MATERIAL]: 35 },
-    ticks: 150,
+    ticks: 10,
     requiresTech: 'trade',
   },
 ];

@@ -46,7 +46,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.OUTPOST,
     label: 'Outpost',
-    perks: 'Claims territory',
+    perks: 'Claims this tile for your nation. Prerequisite for all other territory buildings.',
     cost: { [ResourceType.RAW_MATERIAL]: 10, [ResourceType.FOOD]: 5 },
     requires: null,
     requiresTech: null,
@@ -55,7 +55,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.WALLS,
     label: 'Walls',
-    perks: 'Defense+',
+    perks: 'Reduces melee & ranged damage taken by units defending this tile. Discourages enemy expansion.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -64,7 +64,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.FARMS,
     label: 'Farms',
-    perks: '🍎 +2/s',
+    perks: '🍎 +2 Food/s — sustains your army and cities. Each farm meaningfully extends how long you can field troops.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -73,7 +73,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.WORKSHOP,
     label: 'Workshop',
-    perks: '🪨 +1/s',
+    perks: '🪨 +1 Raw Material/s — accelerates construction and unit production across your empire.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -82,7 +82,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.WATCHTOWER,
     label: 'Watchtower',
-    perks: 'Vision+',
+    perks: 'Extends vision radius by 2 tiles around this territory. Reveals enemy movements and warns of incoming attacks.',
     cost: { [ResourceType.RAW_MATERIAL]: 15 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -91,7 +91,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.PUBLIC_GREEN,
     label: 'Public Green',
-    perks: 'Happiness+',
+    perks: 'Raises local happiness, reducing revolt chance and increasing loyalty to your nation in this region.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -100,7 +100,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.HOUSING,
     label: 'Housing',
-    perks: 'Population+',
+    perks: 'Increases population cap in adjacent cities, allowing higher resource output and larger unit queues.',
     cost: { [ResourceType.RAW_MATERIAL]: 25, [ResourceType.FOOD]: 10 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -109,7 +109,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.COURTHOUSE,
     label: 'Courthouse',
-    perks: 'Corruption-',
+    perks: 'Reduces corruption in this territory, increasing effective gold income and preventing resource leakage.',
     cost: { [ResourceType.RAW_MATERIAL]: 30 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'law',
@@ -118,7 +118,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.FORT,
     label: 'Fort',
-    perks: 'Defense++',
+    perks: 'Garrisoned units gain +20% damage mitigation. Slows enemy advances and anchors your defensive line.',
     cost: { [ResourceType.RAW_MATERIAL]: 30, [ResourceType.FOOD]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -127,7 +127,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.CASTLE,
     label: 'Castle',
-    perks: 'Defense+++',
+    perks: 'Garrisoned units gain +40% damage mitigation and heal faster. The strongest defensive position on land.',
     cost: { [ResourceType.RAW_MATERIAL]: 60, [ResourceType.FOOD]: 40 },
     requires: TerritoryBuildingType.FORT,
     requiresTech: 'physics',
@@ -136,7 +136,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.COPPER_MINE,
     label: 'Copper Mine',
-    perks: 'Copper supply',
+    perks: '⊛ Activates copper supply — all your units gain +2 weapon damage (tier 1 weapons). Req: copper deposit.',
     cost: { [ResourceType.RAW_MATERIAL]: 25 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -145,7 +145,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.IRON_MINE,
     label: 'Iron Mine',
-    perks: 'Iron supply',
+    perks: '⊗ Activates iron supply — all your units gain +4 weapon damage (tier 2 weapons). Req: iron deposit.',
     cost: { [ResourceType.RAW_MATERIAL]: 30 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'iron_working',
@@ -154,7 +154,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.FIRE_GLASS_MINE,
     label: 'Fire Glass Mine',
-    perks: 'Fire Glass supply',
+    perks: '◈ Activates fire glass supply — all your units gain +6 weapon damage (tier 3 weapons). Req: fire glass deposit.',
     cost: { [ResourceType.RAW_MATERIAL]: 40 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'steel_working',
@@ -163,7 +163,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.MANA_MINE,
     label: 'Mana Mine',
-    perks: 'Mana supply',
+    perks: '◆ Activates this tile\'s mana deposit effect: fire=+10% dmg, earth=+15% HP, water=+5% regen, lightning=+10% dmg. Req: any mana deposit.',
     cost: { [ResourceType.RAW_MATERIAL]: 35, [ResourceType.FOOD]: 10 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'mana_studies',

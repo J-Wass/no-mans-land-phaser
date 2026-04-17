@@ -15,18 +15,22 @@ import { MORALE_LOW } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
 import type { GameState } from '@/managers/GameState';
 import type { GameSetup } from '@/types/gameSetup';
-import type { CommandProcessor } from '@/commands/CommandProcessor';
+import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TerrainType } from '@/systems/grid/Territory';
-import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { TerritoryBuildingType, BUILDING_MAP_ICON } from '@/systems/territory/TerritoryBuilding';
+import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { RESOURCE_EMOJI } from '@/scenes/CityMenuScene';
+import type { GridCoordinates } from '@/types/common';
+import { weaponTierDamageBonus } from '@/systems/resources/ResourceBonuses';
+import type { TechId } from '@/systems/research/TechTree';
 
 interface UISceneData {
-  setup:            GameSetup;
-  gameState:        GameState;
-  commandProcessor: CommandProcessor;
-  eventBus:         GameEventBus;
+  setup:          GameSetup;
+  gameState:      GameState;
+  networkAdapter: NetworkAdapter;
+  eventBus:       GameEventBus;
 }
 
 // ── Scale helpers ─────────────────────────────────────────────────────────────
@@ -55,13 +59,14 @@ const STANCE_ORDERS: Array<{ order: BattleOrder; label: string }> = [
 export class UIScene extends Phaser.Scene {
   private setup!:            GameSetup;
   private gameState!:        GameState;
-  private commandProcessor!: CommandProcessor;
+  private networkAdapter!: NetworkAdapter;
   private eventBus!:         GameEventBus;
   private playerId           = '';
 
   // ── Selection state ────────────────────────────────────────────────────────
-  private selectedUnit:   Unit | null = null;
-  private selectedCity:   City | null = null;
+  private selectedUnit:          Unit | null            = null;
+  private selectedCity:          City | null            = null;
+  private selectedTerritoryPos:  GridCoordinates | null = null;
 
   // ── Dynamic text refs (updated every tick / frame) ─────────────────────────
   private tickText!:      Phaser.GameObjects.Text;
@@ -87,7 +92,7 @@ export class UIScene extends Phaser.Scene {
   init(data: UISceneData): void {
     this.setup            = data.setup;
     this.gameState        = data.gameState;
-    this.commandProcessor = data.commandProcessor;
+    this.networkAdapter = data.networkAdapter;
     this.eventBus         = data.eventBus;
     this.playerId         = this.gameState.getLocalPlayer()?.getId() ?? '';
   }
@@ -136,13 +141,19 @@ export class UIScene extends Phaser.Scene {
 
     this.eventBus.on('unit:selected', ({ unit }) => {
       this.selectedUnit = unit;
-      if (unit !== null) this.selectedCity = null; // don't wipe city when unit:selected fires with null (e.g. from clearSelection)
+      if (unit !== null) { this.selectedCity = null; this.selectedTerritoryPos = null; }
       this.rebuildInfoPanel();
     });
 
     this.eventBus.on('city:selected', ({ city }) => {
       this.selectedCity = city;
-      if (city !== null) this.selectedUnit = null; // don't wipe unit when city:selected fires with null (e.g. from selectUnit)
+      if (city !== null) { this.selectedUnit = null; this.selectedTerritoryPos = null; }
+      this.rebuildInfoPanel();
+    });
+
+    this.eventBus.on('territory:highlighted', ({ position }) => {
+      this.selectedTerritoryPos = position;
+      if (position !== null) { this.selectedUnit = null; this.selectedCity = null; }
       this.rebuildInfoPanel();
     });
 
@@ -159,6 +170,12 @@ export class UIScene extends Phaser.Scene {
 
     this.eventBus.on('territory:claimed', () => {
       if (this.selectedUnit) this.rebuildInfoPanel();
+    });
+
+    // Rebuild unit panel when the selected unit steps to a new tile so the
+    // OUTPOST button (which depends on the tile's claimed state) stays current.
+    this.eventBus.on('unit:step-complete', ({ unitId }) => {
+      if (this.selectedUnit?.id === unitId) this.rebuildInfoPanel();
     });
   }
 
@@ -199,7 +216,7 @@ export class UIScene extends Phaser.Scene {
     ) as Phaser.GameObjects.Text;
 
     const diffColor: Record<GameSetup['difficulty'], string> = {
-      easy: '#66cc66', medium: '#ddcc44', hard: '#ee6666',
+      easy: '#66cc66', medium: '#ddcc44', hard: '#ee6666', sandbox: '#88ccff',
     };
     this.track(
       this.add.text(PAD + Math.round(80 * s), midY, this.setup.difficulty.toUpperCase(), {
@@ -224,9 +241,9 @@ export class UIScene extends Phaser.Scene {
         this.scene.stop('ResearchScene');
       } else {
         this.scene.launch('ResearchScene', {
-          gameState:        this.gameState,
-          commandProcessor: this.commandProcessor,
-          eventBus:         this.eventBus,
+          gameState:      this.gameState,
+          networkAdapter: this.networkAdapter,
+          eventBus:       this.eventBus,
         });
       }
     });
@@ -270,6 +287,8 @@ export class UIScene extends Phaser.Scene {
       this.buildUnitPanel();
     } else if (this.selectedCity) {
       this.buildCityPanel();
+    } else if (this.selectedTerritoryPos) {
+      this.buildTerritoryPanel();
     }
   }
 
@@ -321,14 +340,19 @@ export class UIScene extends Phaser.Scene {
     const hasActions = isRanged || hasOutpost;
 
     // Width must fit 5 stance buttons; action row buttons are narrower
-    const stanceRowW = STANCE_ORDERS.length * BTN_W + (STANCE_ORDERS.length - 1) * BTN_GAP;
-    const panelW     = Math.max(Math.round(300 * s), stanceRowW + PAD * 2);
-    const panelH     = PAD
+    const stanceRowW  = STANCE_ORDERS.length * BTN_W + (STANCE_ORDERS.length - 1) * BTN_GAP;
+    const panelW      = Math.max(Math.round(300 * s), stanceRowW + PAD * 2);
+    const STANCE_LBL  = Math.round(ROW_H * 0.55);
+    const STAT_ROW    = Math.round(ROW_H * 0.8);
+    const panelH      = PAD
       + ROW_H                                   // header
       + ROW_H                                   // HP bar
       + ROW_H                                   // morale bar
       + Math.round(ROW_H * 0.75)               // info line
+      + STAT_ROW                                // combat stats row
+      + STAT_ROW                                // armor row
       + (hasActions ? BTN_H + BTN_GAP : 0)     // action row
+      + STANCE_LBL                              // stance label
       + BTN_H                                   // stance row
       + PAD;
     const panelX = 0;
@@ -382,6 +406,37 @@ export class UIScene extends Phaser.Scene {
     ) as Phaser.GameObjects.Text;
     y += Math.round(ROW_H * 0.75);
 
+    // ── Combat stats ─────────────────────────────────────────────────────────
+    const deposits   = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set<TerritoryResourceType>();
+    const weaponBonus = weaponTierDamageBonus(deposits);
+    const effMelee   = stats.meleeDamage + weaponBonus;
+    const effRanged  = stats.rangedDamage > 0 ? stats.rangedDamage + weaponBonus : 0;
+    const meleePart  = weaponBonus > 0 ? `${effMelee}(+${weaponBonus})` : `${effMelee}`;
+    const rangedPart = effRanged > 0
+      ? `  RDMG:${weaponBonus > 0 ? `${effRanged}(+${weaponBonus})` : effRanged}  RNG:${stats.attackRange}`
+      : `  RNG:${stats.attackRange}`;
+    this.trackPanel(
+      this.add.text(lx, y + STAT_ROW / 2,
+        `MELEE:${meleePart}${rangedPart}  SPD:${stats.speed}  HP:${stats.maxHealth}`, {
+          ...MONO, fontSize: fs(11, s), color: '#7788aa',
+        }).setOrigin(0, 0.5),
+    );
+    y += STAT_ROW;
+
+    // ── Armor tier ───────────────────────────────────────────────────────────
+    const armorLabel = resolveArmorTier(deposits, nation);
+    const armorColor = armorLabel === 'Fire Glass' ? '#66ddff'
+      : armorLabel === 'Steel'     ? '#aaccff'
+      : armorLabel === 'Iron'      ? '#8899bb'
+      : armorLabel === 'Bronze'    ? '#cc9944'
+      : '#778899';
+    this.trackPanel(
+      this.add.text(lx, y + STAT_ROW / 2, `Armor: ${armorLabel}`, {
+        ...MONO, fontSize: fs(11, s), color: armorColor,
+      }).setOrigin(0, 0.5),
+    );
+    y += STAT_ROW;
+
     // ── Action row: FIRE toggle (ranged units) + OUTPOST — sits above stances
     if (hasActions) {
       let ax = lx;
@@ -413,7 +468,7 @@ export class UIScene extends Phaser.Scene {
             this.eventBus.emit('ui:ranged-targeting', { unitId: unit.id });
           } else {
             // On CHARGE (melee mode) — switch back to HOLD so ranged fire re-enables
-            this.commandProcessor.dispatch({
+            void this.networkAdapter.sendCommand({
               type: 'SET_UNIT_BATTLE_ORDER',
               playerId: this.playerId,
               unitId: unit.id,
@@ -439,7 +494,7 @@ export class UIScene extends Phaser.Scene {
         oBg.on('pointerout',  () => oBg.setFillStyle(0x182818));
         oBg.on('pointerup', () => {
           this.eventBus.emit('ui:click-consumed', {});
-          this.commandProcessor.dispatch({
+          void this.networkAdapter.sendCommand({
             type: 'BUILD_TERRITORY',
             playerId: this.playerId,
             position: unit.position,
@@ -451,6 +506,14 @@ export class UIScene extends Phaser.Scene {
 
       y += BTN_H + BTN_GAP;
     }
+
+    // ── Stance label ─────────────────────────────────────────────────────────
+    this.trackPanel(
+      this.add.text(lx, y + STANCE_LBL / 2, 'BATTLE STANCE', {
+        ...MONO, fontSize: fs(9, s), color: '#445577', letterSpacing: 2,
+      }).setOrigin(0, 0.5),
+    );
+    y += STANCE_LBL;
 
     // ── Stance buttons (bottom row) ─────────────────────────────────────────
     STANCE_ORDERS.forEach(({ order, label }, i) => {
@@ -477,7 +540,7 @@ export class UIScene extends Phaser.Scene {
         bg.on('pointerout',  () => bg.setFillStyle(fillCol));
         bg.on('pointerup',   () => {
           this.eventBus.emit('ui:click-consumed', {});
-          this.commandProcessor.dispatch({
+          void this.networkAdapter.sendCommand({
             type: 'SET_UNIT_BATTLE_ORDER',
             playerId: this.playerId,
             unitId: unit.id,
@@ -501,7 +564,7 @@ export class UIScene extends Phaser.Scene {
         ...MONO, fontSize: fs(11, s), color: '#556688',
       }).setOrigin(0, 0.5),
     );
-    const barX = lx + Math.round(28 * s);
+    const barX = lx + Math.round(44 * s);
     // Background
     this.trackPanel(
       this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), barW, barH, 0x111828)
@@ -526,11 +589,11 @@ export class UIScene extends Phaser.Scene {
     lx: number, y: number, barW: number, barH: number, s: number, _panelW: number,
   ): void {
     this.trackPanel(
-      this.add.text(lx, y + barH / 2 + Math.round(4 * s), 'MRL', {
+      this.add.text(lx, y + barH / 2 + Math.round(4 * s), 'Morale', {
         ...MONO, fontSize: fs(11, s), color: '#556688',
       }).setOrigin(0, 0.5),
     );
-    const barX = lx + Math.round(28 * s);
+    const barX = lx + Math.round(44 * s);
     this.trackPanel(
       this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), barW, barH, 0x111828)
         .setOrigin(0, 0.5),
@@ -562,7 +625,7 @@ export class UIScene extends Phaser.Scene {
     const BAR_H = Math.round(9 * s);
 
     const panelW = Math.round(320 * s);
-    const panelH = PAD + ROW_H * 4 + PAD;
+    const panelH = PAD + ROW_H * 5 + PAD;
     const panelX = 0;
     const panelY = H - panelH;
 
@@ -600,7 +663,7 @@ export class UIScene extends Phaser.Scene {
     const hpMax = city.getMaxHealth();
     const ratio = hpMax > 0 ? hp / hpMax : 0;
     this.trackPanel(
-      this.add.text(lx, y + BAR_H / 2 + Math.round(4 * s), 'HP', {
+      this.add.text(lx, y + BAR_H / 2 + Math.round(4 * s), 'Health', {
         ...MONO, fontSize: fs(11, s), color: '#556688',
       }).setOrigin(0, 0.5),
     );
@@ -645,8 +708,108 @@ export class UIScene extends Phaser.Scene {
         ...MONO, fontSize: fs(11, s), color: '#557755',
       }).setOrigin(0, 0.5),
     );
+    y += ROW_H;
+
+    // Corruption line
+    const ownerNation = this.gameState.getNation(city.getOwnerId());
+    if (ownerNation) {
+      const cityCount  = this.gameState.getAllCities().filter(c => c.getOwnerId() === ownerNation.getId()).length;
+      const corruptPct = Math.min(60, Math.max(0, (cityCount - 1) * 10));
+      const corruptStr = corruptPct > 0
+        ? `Corruption: ${corruptPct}%  (-${corruptPct}% gold)`
+        : 'Corruption: none';
+      this.trackPanel(
+        this.add.text(lx, y + ROW_H * 0.4, corruptStr, {
+          ...MONO, fontSize: fs(11, s), color: corruptPct > 0 ? '#ff9944' : '#3a6644',
+        }).setOrigin(0, 0.5),
+      );
+    }
 
     this.panelVisible = false; // no per-frame updates needed for city panel
+  }
+
+  private buildTerritoryPanel(): void {
+    const pos = this.selectedTerritoryPos!;
+    const H   = this.scale.height;
+    const s   = uiScale(H);
+
+    const PAD   = Math.round(12 * s);
+    const ROW_H = Math.round(24 * s);
+
+    const panelW = Math.round(340 * s);
+    const panelH = PAD + ROW_H * 3 + PAD;
+    const panelX = 0;
+    const panelY = H - panelH;
+
+    this.trackPanel(
+      this.add.rectangle(panelX, panelY, panelW, panelH, 0x0a0e1e, 0.94)
+        .setOrigin(0, 0).setStrokeStyle(1, 0x233660),
+    );
+    this.trackPanel(
+      this.add.rectangle(panelX, panelY, panelW, 1, 0x3355bb, 0.8).setOrigin(0, 0),
+    );
+    this.trackPanel(
+      this.add.rectangle(panelX + panelW, panelY, 1, panelH, 0x3355bb, 0.5).setOrigin(0, 0),
+    );
+
+    let y = panelY + PAD;
+    const lx = panelX + PAD;
+
+    const territory = this.gameState.getGrid().getTerritory(pos);
+    const terrain   = territory?.getTerrainType() ?? 'UNKNOWN';
+    const ownerId   = territory?.getControllingNation() ?? null;
+    const nation    = ownerId ? this.gameState.getNation(ownerId) : null;
+
+    // Header: terrain type + coords, owner on right
+    this.trackPanel(
+      this.add.text(lx, y + ROW_H * 0.4,
+        `${terrain}  (${pos.row}, ${pos.col})`, {
+          ...MONO, fontSize: fs(14, s), color: '#aabbcc', fontStyle: 'bold',
+        }).setOrigin(0, 0.5),
+    );
+    this.trackPanel(
+      this.add.text(panelX + panelW - PAD, y + ROW_H * 0.4,
+        nation?.getName() ?? 'Unclaimed', {
+          ...MONO, fontSize: fs(11, s), color: nation ? '#99aacc' : '#445566',
+        }).setOrigin(1, 0.5),
+    );
+    y += ROW_H;
+
+    // Deposit row
+    const deposit = territory?.getResourceDeposit?.() ?? null;
+    const DEPOSIT_LABEL: Record<TerritoryResourceType, string> = {
+      [TerritoryResourceType.COPPER]:         '⊛ Copper',
+      [TerritoryResourceType.IRON]:           '⊗ Iron',
+      [TerritoryResourceType.FIRE_GLASS]:     '◈ Fire Glass',
+      [TerritoryResourceType.SILVER]:         '◇ Silver',
+      [TerritoryResourceType.GOLD_DEPOSIT]:   '◆ Gold',
+      [TerritoryResourceType.WATER_MANA]:     '~ Water Mana',
+      [TerritoryResourceType.FIRE_MANA]:      '▲ Fire Mana',
+      [TerritoryResourceType.LIGHTNING_MANA]: '⚡ Lightning Mana',
+      [TerritoryResourceType.EARTH_MANA]:     '◉ Earth Mana',
+      [TerritoryResourceType.AIR_MANA]:       '≋ Air Mana',
+      [TerritoryResourceType.SHADOW_MANA]:    '◐ Shadow Mana',
+    };
+    const depositStr = deposit ? (DEPOSIT_LABEL[deposit] ?? String(deposit)) : 'No deposit';
+    this.trackPanel(
+      this.add.text(lx, y + ROW_H * 0.4, `Deposit: ${depositStr}`, {
+        ...MONO, fontSize: fs(11, s), color: deposit ? '#ffe066' : '#445566',
+      }).setOrigin(0, 0.5),
+    );
+    y += ROW_H;
+
+    // Buildings row
+    const buildings = territory?.getBuildings() ?? [];
+    const buildStr  = buildings.length > 0
+      ? buildings.map(b => `${BUILDING_MAP_ICON[b]} ${b.replace(/_/g, ' ')}`).join('  ')
+      : 'No buildings';
+    this.trackPanel(
+      this.add.text(lx, y + ROW_H * 0.4, `${buildStr}`, {
+        ...MONO, fontSize: fs(11, s), color: buildings.length > 0 ? '#66dd99' : '#445566',
+      }).setOrigin(0, 0.5),
+    );
+
+    this.panelVisible = false;
   }
 
   // ── Per-frame dynamic update ───────────────────────────────────────────────
@@ -697,7 +860,8 @@ export class UIScene extends Phaser.Scene {
     if (!this.resourceText?.active) return;
     const lp = this.gameState.getLocalPlayer();
     if (!lp) return;
-    const t = this.gameState.getNation(lp.getControlledNationId())?.getTreasury();
+    const nation = this.gameState.getNation(lp.getControlledNationId());
+    const t = nation?.getTreasury();
     if (!t) return;
 
     const f = t.getAmount(ResourceType.FOOD);
@@ -705,13 +869,32 @@ export class UIScene extends Phaser.Scene {
     const g = t.getAmount(ResourceType.GOLD);
     const r = t.getAmount(ResourceType.RESEARCH);
 
+    const cityCount  = nation ? this.gameState.getAllCities().filter(c => c.getOwnerId() === nation.getId()).length : 0;
+    const corruptPct = Math.min(60, Math.max(0, (cityCount - 1) * 10));
+    const corruptStr = corruptPct > 0 ? `  [C]${corruptPct}%` : '';
+
     this.resourceText.setText(
-      `${RESOURCE_EMOJI[ResourceType.FOOD]}${f}  ${RESOURCE_EMOJI[ResourceType.RAW_MATERIAL]}${m}  ${RESOURCE_EMOJI[ResourceType.GOLD]}${g}  ${RESOURCE_EMOJI[ResourceType.RESEARCH]}${r}`,
+      `${RESOURCE_EMOJI[ResourceType.FOOD]}${f}  ${RESOURCE_EMOJI[ResourceType.RAW_MATERIAL]}${m}  ${RESOURCE_EMOJI[ResourceType.GOLD]}${g}  ${RESOURCE_EMOJI[ResourceType.RESEARCH]}${r}${corruptStr}`,
     );
   }
 }
 
 // ── Module-level helpers ───────────────────────────────────────────────────────
+
+import type { Nation } from '@/entities/nations/Nation';
+
+function resolveArmorTier(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  nation: Nation | null | undefined,
+): string {
+  if (deposits.has(TerritoryResourceType.FIRE_GLASS)) return 'Fire Glass';
+  if (deposits.has(TerritoryResourceType.IRON)) {
+    const hasSteelWorking = nation?.hasResearched('steel_working' as TechId) ?? false;
+    return hasSteelWorking ? 'Steel' : 'Iron';
+  }
+  if (deposits.has(TerritoryResourceType.COPPER)) return 'Bronze';
+  return 'Leather';
+}
 
 function unitDisplayName(unit: Unit): string {
   switch (unit.getUnitType()) {

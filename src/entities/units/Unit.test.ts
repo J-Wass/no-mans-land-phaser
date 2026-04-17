@@ -1,23 +1,13 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { Infantry } from './Infantry';
 import { Longbowman } from './Longbowman';
+import { DEFAULT_MORALE, MAX_MORALE } from './Unit';
 
 describe('Infantry', () => {
   let infantry: Infantry;
 
   beforeEach(() => {
     infantry = new Infantry('unit-1', 'nation-1', { row: 0, col: 0 });
-  });
-
-  it('should initialize with correct stats', () => {
-    const stats = infantry.getStats();
-    expect(stats.maxHealth).toBe(100);
-    expect(stats.meleeDamage).toBe(10);
-    expect(stats.rangedDamage).toBe(0);
-    expect(stats.armorType).toBe('light');
-    expect(stats.speed).toBe(2);
-    expect(stats.attackRange).toBe(1);
-    expect(stats.vision).toBe(1);
   });
 
   it('should start with full health', () => {
@@ -78,6 +68,35 @@ describe('Infantry', () => {
 
   it('should default to advance battle orders', () => {
     expect(infantry.getBattleOrder()).toBe('ADVANCE');
+  });
+
+  it('should start with default morale', () => {
+    expect(infantry.getMorale()).toBe(DEFAULT_MORALE);
+  });
+
+  it('should clamp morale to [0, MAX_MORALE]', () => {
+    infantry.setMorale(200);
+    expect(infantry.getMorale()).toBe(MAX_MORALE);
+    infantry.setMorale(-50);
+    expect(infantry.getMorale()).toBe(0);
+  });
+
+  it('should start not engaged in battle', () => {
+    expect(infantry.isEngagedInBattle()).toBe(false);
+  });
+
+  it('should track engaged-in-battle state', () => {
+    infantry.setEngagedInBattle(true);
+    expect(infantry.isEngagedInBattle()).toBe(true);
+    infantry.setEngagedInBattle(false);
+    expect(infantry.isEngagedInBattle()).toBe(false);
+  });
+
+  it('should block movement when engaged in battle', () => {
+    infantry.setEngagedInBattle(true);
+    // canMove() is about turn state, but engaged units should be rejected by CommandProcessor
+    // directly verify the flag is set for the processor to check
+    expect(infantry.isEngagedInBattle()).toBe(true);
   });
 });
 

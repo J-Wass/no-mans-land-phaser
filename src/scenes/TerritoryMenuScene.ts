@@ -10,16 +10,17 @@ import type { GridCoordinates } from '@/types/common';
 import { TERRITORY_BUILDING_CATALOG, BUILDING_MAP_ICON } from '@/systems/territory/TerritoryBuilding';
 import type { TerritoryBuildingDef } from '@/systems/territory/TerritoryBuilding';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
-import type { CommandProcessor } from '@/commands/CommandProcessor';
+import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
+import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { UI } from '@/config/uiTheme';
 import { formatCost } from '@/utils/uiHelpers';
 
 export interface TerritoryMenuSceneData {
-  position:         GridCoordinates;
-  gameState:        GameState;
-  commandProcessor: CommandProcessor;
-  eventBus:         GameEventBus;
+  position:       GridCoordinates;
+  gameState:      GameState;
+  networkAdapter: NetworkAdapter;
+  eventBus:       GameEventBus;
 }
 
 // ── Palette ───────────────────────────────────────────────────────────────────
@@ -32,7 +33,7 @@ const ROW_H = 38;
 export class TerritoryMenuScene extends Phaser.Scene {
   private position!:         GridCoordinates;
   private gameState!:        GameState;
-  private commandProcessor!: CommandProcessor;
+  private networkAdapter!: NetworkAdapter;
   private eventBus!:         GameEventBus;
   private playerId!:         string;
 
@@ -44,13 +45,14 @@ export class TerritoryMenuScene extends Phaser.Scene {
   }> = [];
 
   private feedbackText!: Phaser.GameObjects.Text;
+  private hoverHintText!: Phaser.GameObjects.Text;
 
   constructor() { super({ key: 'TerritoryMenuScene' }); }
 
   init(data: TerritoryMenuSceneData): void {
     this.position         = data.position;
     this.gameState        = data.gameState;
-    this.commandProcessor = data.commandProcessor;
+    this.networkAdapter = data.networkAdapter;
     this.eventBus         = data.eventBus;
     this.buildingRows     = [];
 
@@ -68,6 +70,11 @@ export class TerritoryMenuScene extends Phaser.Scene {
 
     this.add.rectangle(0, 0, W, H, BG, 0.5).setOrigin(0, 0).setInteractive();
     this.add.rectangle(cx, cy, PW, PH, PANEL).setStrokeStyle(1, ACCENT);
+
+    // Hover hint — shown when mousing over a locked row
+    this.hoverHintText = this.add.text(cx, py + PH - 30, '', {
+      fontSize: '12px', color: '#aa99cc', fontFamily: 'monospace', fontStyle: 'italic',
+    }).setOrigin(0.5).setDepth(10);
 
     // ── Header ────────────────────────────────────────────────────────────────
     const HDR_H = 50;
@@ -101,6 +108,27 @@ export class TerritoryMenuScene extends Phaser.Scene {
     closeBg.on('pointerout',  () => closeBg.setFillStyle(RED_BTN));
     this.input.keyboard!.once('keydown-ESC', () => this.close());
 
+    // ── Resource deposit (shown in header band) ───────────────────────────────
+    const deposit = territory?.getResourceDeposit();
+    if (deposit) {
+      const DEPOSIT_LABEL: Record<TerritoryResourceType, string> = {
+        [TerritoryResourceType.COPPER]:         '⊛ Copper deposit',
+        [TerritoryResourceType.IRON]:           '⊗ Iron deposit',
+        [TerritoryResourceType.FIRE_GLASS]:     '◈ Fire Glass deposit',
+        [TerritoryResourceType.SILVER]:         '◇ Silver deposit',
+        [TerritoryResourceType.GOLD_DEPOSIT]:   '◆ Gold deposit',
+        [TerritoryResourceType.WATER_MANA]:     '~ Water Mana',
+        [TerritoryResourceType.FIRE_MANA]:      '▲ Fire Mana',
+        [TerritoryResourceType.LIGHTNING_MANA]: '⚡ Lightning Mana',
+        [TerritoryResourceType.EARTH_MANA]:     '◉ Earth Mana',
+        [TerritoryResourceType.AIR_MANA]:       '≋ Air Mana',
+        [TerritoryResourceType.SHADOW_MANA]:    '◐ Shadow Mana',
+      };
+      this.add.text(px + PW - 160, py + HDR_H / 2, DEPOSIT_LABEL[deposit], {
+        fontSize: '13px', color: '#ffe066', fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0, 0.5);
+    }
+
     // ── Current buildings ─────────────────────────────────────────────────────
     const secY = py + HDR_H + 14;
     this.add.text(px + 18, secY, 'CURRENT BUILDINGS', {
@@ -133,8 +161,15 @@ export class TerritoryMenuScene extends Phaser.Scene {
 
       const rowBg = this.add.rectangle(cx, ry + ROW_H / 2 - 2, PW - 10, ROW_H - 2, 0)
         .setOrigin(0.5, 0.5).setInteractive({ useHandCursor: true });
-      rowBg.on('pointerover', () => rowBg.setFillStyle(0x1e2240));
-      rowBg.on('pointerout',  () => rowBg.setFillStyle(0));
+      rowBg.on('pointerover', () => {
+        rowBg.setFillStyle(0x1e2240);
+        const hint = this.getLockReasonForBuilding(def);
+        if (hint) this.hoverHintText.setText(hint).setVisible(true);
+      });
+      rowBg.on('pointerout', () => {
+        rowBg.setFillStyle(0);
+        this.hoverHintText.setVisible(false);
+      });
 
       this.add.text(px + 18, ry + ROW_H / 2,
         `${BUILDING_MAP_ICON[def.type]} ${def.label}`, {
@@ -160,7 +195,7 @@ export class TerritoryMenuScene extends Phaser.Scene {
 
       btn.on('pointerover', () => { if (btn.getData('enabled')) btn.setFillStyle(BTN_HOV); });
       btn.on('pointerout',  () => { if (btn.getData('enabled')) btn.setFillStyle(BTN); });
-      btn.on('pointerup',   () => { if (btn.getData('enabled')) this.build(def); });
+      btn.on('pointerup',   () => { this.build(def); });
 
       this.buildingRows.push({ def, btn, btnText, costLbl });
     });
@@ -183,8 +218,8 @@ export class TerritoryMenuScene extends Phaser.Scene {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  private build(def: TerritoryBuildingDef): void {
-    const result = this.commandProcessor.dispatch({
+  private async build(def: TerritoryBuildingDef): Promise<void> {
+    const result = await this.networkAdapter.sendCommand({
       type:         'BUILD_TERRITORY',
       playerId:     this.playerId,
       position:     this.position,
@@ -226,6 +261,34 @@ export class TerritoryMenuScene extends Phaser.Scene {
   private showFeedback(msg: string, color: string): void {
     this.feedbackText.setText(msg).setColor(color);
     this.time.delayedCall(2500, () => this.feedbackText.setText(''));
+  }
+
+  private getLockReasonForBuilding(def: TerritoryBuildingDef): string {
+    const territory = this.gameState.getGrid().getTerritory(this.position);
+    if (!territory) return '';
+    if (territory.hasBuilding(def.type)) return '';  // "BUILT" label already makes this obvious
+    const ownerId = territory.getControllingNation();
+    if (!ownerId) return '⚠  territory is not owned — build an outpost first';
+    const nation = this.gameState.getNation(ownerId);
+    if (def.requires !== null && !territory.hasBuilding(def.requires))
+      return `⚠  requires ${def.requires.replace(/_/g, ' ').toLowerCase()} on this tile first`;
+    if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech))
+      return `⚠  requires research: ${def.requiresTech.replace(/_/g, ' ').toLowerCase()}`;
+    if (def.type === TerritoryBuildingType.MANA_MINE) {
+      const deposit = territory.getResourceDeposit();
+      const isMana = deposit === TerritoryResourceType.WATER_MANA   ||
+                     deposit === TerritoryResourceType.FIRE_MANA     ||
+                     deposit === TerritoryResourceType.LIGHTNING_MANA ||
+                     deposit === TerritoryResourceType.EARTH_MANA    ||
+                     deposit === TerritoryResourceType.AIR_MANA      ||
+                     deposit === TerritoryResourceType.SHADOW_MANA;
+      if (!isMana) return '⚠  requires a mana deposit on this tile';
+    } else if (def.requiresDeposit !== null) {
+      if (territory.getResourceDeposit() !== def.requiresDeposit)
+        return `⚠  requires a ${def.requiresDeposit.replace(/_/g, ' ').toLowerCase()} deposit on this tile`;
+    }
+    if (!nation?.getTreasury().hasResources(def.cost)) return '⚠  insufficient resources';
+    return '';
   }
 
   private close(): void {

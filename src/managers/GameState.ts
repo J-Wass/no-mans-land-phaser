@@ -18,7 +18,8 @@ import { DiplomaticStatus } from '@/types/diplomacy';
 import { createUnitFromData } from '@/entities/units/unitFactory';
 import type { ProductionOrder } from '@/systems/production/ProductionOrder';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
-import type { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 
 export class GameState implements Serializable<ReturnType<GameState['toJSON']>> {
   private grid:          Grid;
@@ -90,6 +91,49 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     return this.getAllUnits().filter(u => u.getOwnerId() === nationId);
   }
   public removeUnit(id: EntityId): boolean { return this.units.delete(id); }
+
+  // ── Resource deposits ─────────────────────────────────────────────────────
+
+  /**
+   * Returns the set of TerritoryResourceTypes that are "active" for a nation —
+   * i.e. the nation controls the territory AND has built the matching mine.
+   *
+   * Material deposits (Copper/Iron/FireGlass) need their specific mine building.
+   * Mana deposits need a MANA_MINE building.
+   * Silver/GoldDeposit need a SILVER_MINE/GOLD_MINE — treated the same as copper mine for now.
+   */
+  public getNationActiveDeposits(nationId: EntityId): Set<TerritoryResourceType> {
+    const result = new Set<TerritoryResourceType>();
+    for (const territory of this.grid.getTerritoriesByNation(nationId)) {
+      const deposit = territory.getResourceDeposit();
+      if (!deposit) continue;
+      const buildings = territory.getBuildings();
+      const isMana = (
+        deposit === TerritoryResourceType.WATER_MANA ||
+        deposit === TerritoryResourceType.FIRE_MANA ||
+        deposit === TerritoryResourceType.LIGHTNING_MANA ||
+        deposit === TerritoryResourceType.EARTH_MANA ||
+        deposit === TerritoryResourceType.AIR_MANA ||
+        deposit === TerritoryResourceType.SHADOW_MANA
+      );
+      if (isMana && buildings.includes(TerritoryBuildingType.MANA_MINE)) {
+        result.add(deposit);
+      } else if (deposit === TerritoryResourceType.COPPER && buildings.includes(TerritoryBuildingType.COPPER_MINE)) {
+        result.add(deposit);
+      } else if (deposit === TerritoryResourceType.IRON && buildings.includes(TerritoryBuildingType.IRON_MINE)) {
+        result.add(deposit);
+      } else if (deposit === TerritoryResourceType.FIRE_GLASS && buildings.includes(TerritoryBuildingType.FIRE_GLASS_MINE)) {
+        result.add(deposit);
+      } else if (
+        (deposit === TerritoryResourceType.SILVER || deposit === TerritoryResourceType.GOLD_DEPOSIT) &&
+        (buildings.includes(TerritoryBuildingType.COPPER_MINE) || buildings.includes(TerritoryBuildingType.IRON_MINE))
+      ) {
+        // Silver/gold deposits activated by any ore mine (placeholder until dedicated buildings exist)
+        result.add(deposit);
+      }
+    }
+    return result;
+  }
 
   // ── Turn management ───────────────────────────────────────────────────────
   public getCurrentTurn(): number        { return this.currentTurn; }

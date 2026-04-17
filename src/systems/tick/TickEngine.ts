@@ -12,7 +12,9 @@ import type { SavedBattleState } from '@/systems/combat/BattleSystem';
 import { CitySiegeSystem } from '@/systems/combat/CitySiegeSystem';
 import { RangedFireSystem } from '@/systems/combat/RangedFireSystem';
 import { ProductionSystem } from '@/systems/production/ProductionSystem';
+import { TerritoryConquestSystem } from '@/systems/territory/TerritoryConquestSystem';
 import { MAX_MORALE } from '@/entities/units/Unit';
+import { waterManaRegenBonus } from '@/systems/resources/ResourceBonuses';
 import type { SavedSiegeState } from '@/types/gameSetup';
 import { TICK_RATE } from '@/config/constants';
 
@@ -29,10 +31,11 @@ const MORALE_RECOVERY_CITY     = 5;
 
 export class TickEngine {
   private currentTick = 0;
-  private readonly productionSystem  = new ProductionSystem();
-  private readonly battleSystem      = new BattleSystem();
-  private readonly citySiegeSystem   = new CitySiegeSystem();
-  private readonly rangedFireSystem  = new RangedFireSystem();
+  private readonly productionSystem       = new ProductionSystem();
+  private readonly battleSystem           = new BattleSystem();
+  private readonly citySiegeSystem        = new CitySiegeSystem();
+  private readonly rangedFireSystem       = new RangedFireSystem();
+  private readonly territoryConquestSystem = new TerritoryConquestSystem();
 
   constructor(
     private gameState: GameState,
@@ -48,6 +51,7 @@ export class TickEngine {
     this.citySiegeSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.rangedFireSystem.tick(this.gameState, this.eventBus, this.currentTick);
     this.productionSystem.tick(this.gameState, this.eventBus, this.currentTick);
+    this.territoryConquestSystem.tick(this.gameState, this.eventBus, this.currentTick);
     this.sweepDeadUnits();
     if (this.currentTick % CITY_HEAL_INTERVAL_TICKS === 0) {
       this.healUnitsInCities();
@@ -90,7 +94,9 @@ export class TickEngine {
       const city = this.gameState.getCity(cityId);
       if (!city || city.getOwnerId() !== unit.getOwnerId()) continue;
 
-      unit.heal(Math.ceil(unit.getStats().maxHealth * CITY_HEAL_RATE));
+      const deposits  = this.gameState.getNationActiveDeposits(unit.getOwnerId());
+      const totalRate = CITY_HEAL_RATE + waterManaRegenBonus(deposits);
+      unit.heal(Math.ceil(unit.getStats().maxHealth * totalRate));
     }
   }
 

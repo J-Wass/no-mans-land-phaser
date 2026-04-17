@@ -59,10 +59,16 @@ export type GameEventMap = {
   'city:production-complete':  { cityId: EntityId; order: ProductionOrder; tick: number };
   /** City finished constructing a building. */
   'city:building-built':       { cityId: EntityId; building: CityBuildingType; tick: number };
-  /** A previously unclaimed territory was claimed by a nation. */
-  'territory:claimed':         { position: GridCoordinates; nationId: EntityId; tick: number };
+  /** A previously unclaimed (or captured) territory was claimed by a nation. */
+  'territory:claimed':              { position: GridCoordinates; nationId: EntityId; tick: number; fromNationId?: EntityId };
   /** A building was constructed on a territory tile. */
-  'territory:building-built':  { position: GridCoordinates; building: TerritoryBuildingType; tick: number };
+  'territory:building-built':       { position: GridCoordinates; building: TerritoryBuildingType; tick: number };
+  /** A unit started conquering an enemy territory tile. */
+  'territory:conquest-started':     { position: GridCoordinates; nationId: EntityId; needed: number; tick: number };
+  /** Conquest progress update — emitted each tick while contested. */
+  'territory:conquest-progress':    { position: GridCoordinates; progress: number; needed: number; tick: number };
+  /** Conquest was interrupted (defender arrived or attacker left). */
+  'territory:conquest-cancelled':   { position: GridCoordinates; tick: number };
   /** A nation completed a research tech. */
   'nation:research-complete':  { nationId: EntityId; techId: TechId };
   /** A nation started researching a tech. */
@@ -73,6 +79,8 @@ export type GameEventMap = {
   'unit:selected':             { unit: Unit | null };
   /** Player highlighted a city (single-click) or deselected. */
   'city:selected':             { city: City | null };
+  /** Player single-clicked a territory tile — show info panel without opening menu. */
+  'territory:highlighted':     { position: GridCoordinates | null };
   /** A UIScene interactive element consumed a click — GameScene should ignore it. */
   'ui:click-consumed':         Record<string, never>;
   /** Player clicked FIRE on a ranged unit — GameScene should enter target-selection mode. */

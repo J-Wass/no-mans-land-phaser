@@ -14,7 +14,21 @@
       "Bash(curl:*)",
       "Bash(node -e ':*)",
       "Bash(npm install:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(wc *)",
+      "Bash(npx jest *)",
+      "Bash(ipconfig *)",
+      "Bash(findstr \"Default Gateway\")",
+      "Bash(findstr /v \"\")",
+      "Bash(findstr \"IPv4 Address\")",
+      "Bash(grep -v '^$')",
+      "Bash(awk '{print $NF}')",
+      "Bash(awk -F': ' '{print $2}')",
+      "Bash(awk '/fe80/ {print $NF}')",
+      "Bash(grep -v \"^$\")",
+      "Bash(wmic memphysical *)",
+      "Bash(wmic memorydevice *)",
+      "Bash(wmic MEMORYQUERY *)"
     ],
     "deny": [],
     "ask": []

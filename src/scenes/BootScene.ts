@@ -14,13 +14,18 @@ import { Infantry } from '@/entities/units/Infantry';
 import { Scout } from '@/entities/units/Scout';
 import { City } from '@/entities/cities/City';
 import { TerrainType } from '@/systems/grid/Territory';
+import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import type { GameSetup } from '@/types/gameSetup';
+import type { TechId } from '@/systems/research/TechTree';
 import {
   pickCoastalSpawnPairs,
   findCityPositions,
   assignStartingTerritory,
 } from '@/systems/spawn/SpawnSystem';
+
+/** Root-level techs (no prerequisites) — eligible for random starting grant. */
+const ROOT_TECHS: TechId[] = ['writing', 'hunting', 'masonry', 'scientific_method', 'mathematics'];
 
 const GRID_SIZE = 25;
 
@@ -83,6 +88,43 @@ export class BootScene extends Phaser.Scene {
     for (const [r, c] of mountainTiles)      grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.MOUNTAIN);
     for (const [r, c] of interiorWaterTiles) grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
 
+    // ── Resource deposits ─────────────────────────────────────────────────────
+    // Spawn deposits randomly on plains/desert/forest tiles (not on the border water ring).
+    // Each eligible tile has a ~15% chance.  The deposit pool is weighted toward common types.
+
+    const DEPOSIT_POOL: TerritoryResourceType[] = [
+      TerritoryResourceType.COPPER,
+      TerritoryResourceType.COPPER,
+      TerritoryResourceType.IRON,
+      TerritoryResourceType.IRON,
+      TerritoryResourceType.FIRE_GLASS,
+      TerritoryResourceType.SILVER,
+      TerritoryResourceType.GOLD_DEPOSIT,
+      TerritoryResourceType.WATER_MANA,
+      TerritoryResourceType.FIRE_MANA,
+      TerritoryResourceType.LIGHTNING_MANA,
+      TerritoryResourceType.EARTH_MANA,
+      TerritoryResourceType.AIR_MANA,
+      TerritoryResourceType.SHADOW_MANA,
+    ];
+
+    const ELIGIBLE_TERRAIN = new Set<TerrainType>([
+      TerrainType.PLAINS,
+      TerrainType.DESERT,
+      TerrainType.FOREST,
+    ]);
+
+    for (let r = 1; r < GRID_SIZE - 1; r++) {
+      for (let c = 1; c < GRID_SIZE - 1; c++) {
+        const territory = grid.getTerritory({ row: r, col: c });
+        if (!territory) continue;
+        if (!ELIGIBLE_TERRAIN.has(territory.getTerrainType())) continue;
+        if (Math.random() > 0.15) continue;
+        const deposit = DEPOSIT_POOL[Math.floor(Math.random() * DEPOSIT_POOL.length)];
+        territory.setResourceDeposit(deposit!);
+      }
+    }
+
     // ── Spawn placement ───────────────────────────────────────────────────────
 
     const totalNations  = 1 + Math.min(setup.opponentCount, 4);
@@ -103,12 +145,18 @@ export class BootScene extends Phaser.Scene {
       nation.getTreasury().addResource(ResourceType.GOLD,         50);
       nation.getTreasury().addResource(ResourceType.FOOD,         30);
       nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 20);
+
+      // Grant one random root tech at game start (low-level head start varies each game)
+      const startingTech = ROOT_TECHS[Math.floor(Math.random() * ROOT_TECHS.length)]!;
+      nation.startResearch(startingTech, 1);
+      nation.tickResearch();
+
       gameState.addNation(nation);
 
       gameState.addPlayer(new Player(playerId, isLocal ? 'Player' : cfg.name, cfg.id, isLocal));
 
-      gameState.addUnit(new Infantry(`unit-inf-${i + 1}`,   cfg.id, pair.infantry));
-      gameState.addUnit(new Scout(   `unit-scout-${i + 1}`, cfg.id, pair.scout));
+      const infantry = new Infantry(`unit-inf-${i + 1}`,   cfg.id, pair.infantry);
+      const scout    = new Scout(   `unit-scout-${i + 1}`, cfg.id, pair.scout);
 
       takenPositions.push(pair.infantry, pair.scout);
 
@@ -121,7 +169,15 @@ export class BootScene extends Phaser.Scene {
         const cityId   = `city-${i + 1}-${j + 1}`;
         gameState.addCity(new City(cityId, cityName, cfg.id, pos));
         takenPositions.push(pos);
+        // Assign starting units to the first city of their nation
+        if (j === 0) {
+          infantry.setHomeCityId(cityId);
+          scout.setHomeCityId(cityId);
+        }
       }
+
+      gameState.addUnit(infantry);
+      gameState.addUnit(scout);
 
       // Assign starting territory — an ellipse connecting the two cities
       assignStartingTerritory(grid, cfg.id, cityPositions, GRID_SIZE);

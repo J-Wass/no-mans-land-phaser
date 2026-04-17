@@ -12,16 +12,23 @@ import { coordsToKey } from '@/systems/grid/Grid';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { mineralGoldBonus } from '@/systems/resources/ResourceBonuses';
 
 // ── Passive yield intervals (in ticks) ────────────────────────────────────────
 // TICK_RATE = 10 → 5 ticks = 0.5s, 10 ticks = 1s
-const FOOD_INTERVAL     = 5;   // base +2/s per city
-const MATERIAL_INTERVAL = 10;  // base +1/s per city
-const GOLD_INTERVAL     = 10;
-const RESEARCH_INTERVAL = 10;
+const FOOD_INTERVAL        = 5;   // base +2/s per city
+const MATERIAL_INTERVAL    = 10;  // base +1/s per city
+const GOLD_INTERVAL        = 10;
+const RESEARCH_INTERVAL    = 10;
+// Territory terrain yields — slower than city yields, represents land exploitation
+const TERRAIN_FOOD_INTERVAL    = 50;  // plains: +1 food per 5s
+const TERRAIN_MATERIAL_INTERVAL = 50; // forest/hills: +1 material per 5s
+const TERRAIN_GOLD_INTERVAL    = 80;  // desert: +1 gold per 8s
 
 /** How often upkeep is drained — once every 3 seconds at TICK_RATE=10. */
-const UPKEEP_INTERVAL   = 30;
+const UPKEEP_INTERVAL      = 30;
+/** How often corruption drains gold — once every 5 seconds. */
+const CORRUPTION_INTERVAL  = 50;
 
 let unitSerial = 1000;
 
@@ -33,6 +40,7 @@ export class ProductionSystem {
       const nation = gameState.getNation(city.getOwnerId());
       if (!nation) continue;
       const t = nation.getTreasury();
+
       if (currentTick % FOOD_INTERVAL     === 0) t.addResource(ResourceType.FOOD,         1);
       if (currentTick % MATERIAL_INTERVAL === 0) t.addResource(ResourceType.RAW_MATERIAL, 1);
       if (currentTick % GOLD_INTERVAL     === 0) t.addResource(ResourceType.GOLD,         1);
@@ -49,14 +57,34 @@ export class ProductionSystem {
           && currentTick % GOLD_INTERVAL === 0)          t.addResource(ResourceType.GOLD,         1);
     }
 
-    // ── Territory building bonuses (Farms/Workshop on non-city territories) ───
+    // ── Territory building bonuses + terrain yields ───────────────────────────
     for (const nation of gameState.getAllNations()) {
       const t = nation.getTreasury();
+
       for (const territory of gameState.getGrid().getTerritoriesByNation(nation.getId())) {
+        // Building bonuses (non-city territories)
         if (territory.hasBuilding(TerritoryBuildingType.FARMS)
             && currentTick % FOOD_INTERVAL === 0)        t.addResource(ResourceType.FOOD,         1);
         if (territory.hasBuilding(TerritoryBuildingType.WORKSHOP)
             && currentTick % MATERIAL_INTERVAL === 0)    t.addResource(ResourceType.RAW_MATERIAL, 1);
+
+        // Terrain passive yields
+        const terrain = territory.getTerrainType();
+        if (terrain === TerrainType.PLAINS && currentTick % TERRAIN_FOOD_INTERVAL === 0) {
+          t.addResource(ResourceType.FOOD, 1);
+        } else if ((terrain === TerrainType.FOREST || terrain === TerrainType.HILLS)
+            && currentTick % TERRAIN_MATERIAL_INTERVAL === 0) {
+          t.addResource(ResourceType.RAW_MATERIAL, 1);
+        } else if (terrain === TerrainType.DESERT && currentTick % TERRAIN_GOLD_INTERVAL === 0) {
+          t.addResource(ResourceType.GOLD, 1);
+        }
+      }
+
+      // Silver/gold deposit mines provide bonus gold income
+      if (currentTick % GOLD_INTERVAL === 0) {
+        const deposits = gameState.getNationActiveDeposits(nation.getId());
+        const goldBonus = mineralGoldBonus(deposits);
+        if (goldBonus > 0) t.addResource(ResourceType.GOLD, goldBonus);
       }
     }
 
@@ -104,6 +132,24 @@ export class ProductionSystem {
         const nation = gameState.getNation(unit.getOwnerId());
         if (!nation) continue;
         nation.getTreasury().consumeResources(unit.getUpkeep());
+      }
+    }
+
+    // ── Corruption drain ──────────────────────────────────────────────────────
+    // Corruption = 10% per extra city beyond the first (max 60%).
+    // Every CORRUPTION_INTERVAL ticks, drain gold proportional to how much was
+    // earned in that window (cityCount * interval/GOLD_INTERVAL gold earned → drain %).
+    if (currentTick % CORRUPTION_INTERVAL === 0 && currentTick > 0) {
+      for (const nation of gameState.getAllNations()) {
+        const cityCount  = gameState.getAllCities().filter(c => c.getOwnerId() === nation.getId()).length;
+        const corruptPct = Math.min(60, Math.max(0, (cityCount - 1) * 10));
+        if (corruptPct === 0) continue;
+        // Gold earned per city per window = CORRUPTION_INTERVAL / GOLD_INTERVAL
+        const goldPerCity    = CORRUPTION_INTERVAL / GOLD_INTERVAL;
+        const drainAmount    = Math.round(cityCount * goldPerCity * (corruptPct / 100));
+        if (drainAmount > 0) {
+          nation.getTreasury().consumeResources({ [ResourceType.GOLD]: drainAmount });
+        }
       }
     }
 

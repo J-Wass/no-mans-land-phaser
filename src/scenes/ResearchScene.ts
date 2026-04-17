@@ -6,7 +6,7 @@
 
 import Phaser from 'phaser';
 import type { GameState } from '@/managers/GameState';
-import type { CommandProcessor } from '@/commands/CommandProcessor';
+import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { TECH_CATALOG } from '@/systems/research/TechTree';
 import type { TechBranch, TechNode } from '@/systems/research/TechTree';
@@ -14,9 +14,9 @@ import { TICK_RATE } from '@/config/constants';
 import { UI } from '@/config/uiTheme';
 
 export interface ResearchSceneData {
-  gameState:        GameState;
-  commandProcessor: CommandProcessor;
-  eventBus:         GameEventBus;
+  gameState:      GameState;
+  networkAdapter: NetworkAdapter;
+  eventBus:       GameEventBus;
 }
 
 // ── Palette ───────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ const NODE_GAP = 6;
 
 export class ResearchScene extends Phaser.Scene {
   private gameState!:        GameState;
-  private commandProcessor!: CommandProcessor;
+  private networkAdapter!: NetworkAdapter;
   private eventBus!:         GameEventBus;
   private playerId!:         string;
 
@@ -63,7 +63,7 @@ export class ResearchScene extends Phaser.Scene {
 
   init(data: ResearchSceneData): void {
     this.gameState        = data.gameState;
-    this.commandProcessor = data.commandProcessor;
+    this.networkAdapter = data.networkAdapter;
     this.eventBus         = data.eventBus;
     this.nodeButtons      = [];
     const lp = this.gameState.getLocalPlayer();
@@ -196,16 +196,16 @@ export class ResearchScene extends Phaser.Scene {
     return lp ? this.gameState.getNation(lp.getControlledNationId()) : null;
   }
 
-  private startResearch(node: TechNode): void {
-    this.commandProcessor.dispatch({
+  private async startResearch(node: TechNode): Promise<void> {
+    await this.networkAdapter.sendCommand({
       type: 'START_RESEARCH', playerId: this.playerId,
       techId: node.id, issuedAtTick: 0,
     });
     this.refreshNodes();
   }
 
-  private cancelResearch(): void {
-    this.commandProcessor.dispatch({
+  private async cancelResearch(): Promise<void> {
+    await this.networkAdapter.sendCommand({
       type: 'CANCEL_RESEARCH', playerId: this.playerId, issuedAtTick: 0,
     });
     this.refreshNodes();

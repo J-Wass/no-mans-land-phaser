@@ -18,6 +18,8 @@ import type { City } from '@/entities/cities/City';
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { EntityId, GridCoordinates } from '@/types/common';
+import type { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
+import { weaponTierDamageBonus, fireManaDamageFactor, lightningManaFactor } from '@/systems/resources/ResourceBonuses';
 
 /** Ticks between consecutive shots from a stationary ranged unit (2 s at TICK_RATE=10). */
 export const RANGED_FIRE_INTERVAL_TICKS = 20;
@@ -42,7 +44,8 @@ export class RangedFireSystem {
       const target = this.findTarget(unit, gameState);
       if (!target) continue;
 
-      const damage = this.calculateDamage(unit);
+      const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
+      const damage   = this.calculateDamage(unit, deposits);
 
       if (target.type === 'unit') {
         target.unit.takeDamage(damage);
@@ -142,12 +145,15 @@ export class RangedFireSystem {
     return null;
   }
 
-  private calculateDamage(attacker: Unit): number {
-    const stats = attacker.getStats();
+  private calculateDamage(attacker: Unit, deposits: ReadonlySet<TerritoryResourceType>): number {
+    const stats      = attacker.getStats();
+    const baseDamage = stats.rangedDamage + weaponTierDamageBonus(deposits);
     const healthRatio  = attacker.getHealth() / stats.maxHealth;
     const healthFactor = 0.55 + 0.45 * healthRatio;
-    const randomness   = 0.9 + Math.random() * 0.2;
-    return Math.max(1, Math.round(stats.rangedDamage * healthFactor * randomness));
+    const fireFactor      = fireManaDamageFactor(deposits);
+    const lightningFactor = lightningManaFactor(deposits);
+    const randomness      = 0.9 + Math.random() * 0.2;
+    return Math.max(1, Math.round(baseDamage * healthFactor * fireFactor * lightningFactor * randomness));
   }
 }
 

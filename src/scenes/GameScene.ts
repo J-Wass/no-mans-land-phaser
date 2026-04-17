@@ -10,6 +10,8 @@ import { Pathfinder } from '@/systems/pathfinding/Pathfinder';
 import { TickEngine } from '@/systems/tick/TickEngine';
 import { GameEventBus } from '@/systems/events/GameEventBus';
 import { CommandProcessor } from '@/commands/CommandProcessor';
+import { LocalServerAdapter } from '@/network/LocalServerAdapter';
+import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import { AISystem } from '@/systems/ai/AISystem';
 import { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import { DiplomaticStatus } from '@/types/diplomacy';
@@ -45,7 +47,8 @@ export class GameScene extends Phaser.Scene {
   private pathfinder!: Pathfinder;
   private tickEngine!: TickEngine;
   private eventBus!: GameEventBus;
-  private commandProcessor!: CommandProcessor;
+  private commandProcessor!: CommandProcessor;  // server-side: used by AI + TickEngine
+  private networkAdapter!: NetworkAdapter;       // client-side: used by all player input
 
   private unitSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private unitLabels: Map<string, Phaser.GameObjects.Text> = new Map();
@@ -58,6 +61,10 @@ export class GameScene extends Phaser.Scene {
   private territoryGraphic!: Phaser.GameObjects.Graphics;
   private rangeGraphic!: Phaser.GameObjects.Graphics;
   private healthBarGraphic!: Phaser.GameObjects.Graphics;
+  private conquestGraphic!: Phaser.GameObjects.Graphics;
+
+  // posKey → { progress, needed, nationId } for active territory conquests
+  private activeConquests = new Map<string, { progress: number; needed: number; nationId: string }>();
 
   private selectedUnitId: string | null = null;
   private selectedCityId: string | null = null;
@@ -114,6 +121,7 @@ export class GameScene extends Phaser.Scene {
     this.selectedTerritory = null;
     this.targetingUnitId = null;
     this.tickAccumulator = 0;
+    this.activeConquests.clear();
 
     this.movementSystem = new MovementSystem();
     this.pathfinder = new Pathfinder(this.gameState.getGrid());
@@ -123,6 +131,9 @@ export class GameScene extends Phaser.Scene {
     this.commandProcessor = new CommandProcessor(
       this.gameState, this.movementSystem, this.eventBus, this.diplomacySystem,
     );
+    // Wrap the processor in the local adapter — all player commands go through here.
+    // Swap LocalServerAdapter for a real transport adapter to enable multiplayer.
+    this.networkAdapter = new LocalServerAdapter(this.commandProcessor);
     this.aiSystem = new AISystem(
       this.gameState,
       this.commandProcessor,
@@ -142,9 +153,11 @@ export class GameScene extends Phaser.Scene {
 
     this.drawWaterBorder();
     this.drawGrid();
+    this.drawResourceDeposits();
 
     this.territoryGraphic = this.add.graphics().setDepth(28);
-    this.rangeGraphic     = this.add.graphics().setDepth(29);
+    this.conquestGraphic  = this.add.graphics().setDepth(29);
+    this.rangeGraphic     = this.add.graphics().setDepth(30);
     this.pathGraphic      = this.add.graphics().setDepth(100);
     this.selectionGraphic = this.add.graphics().setDepth(200);
     this.healthBarGraphic = this.add.graphics().setDepth(500);
@@ -250,6 +263,21 @@ export class GameScene extends Phaser.Scene {
     this.eventBus.on('territory:claimed', () => this.drawTerritoryBorders());
     this.eventBus.on('territory:building-built', () => this.drawTerritoryBorders());
 
+    this.eventBus.on('territory:conquest-started', ({ position, nationId, needed }) => {
+      const posKey = `${position.row},${position.col}`;
+      this.activeConquests.set(posKey, { progress: 0, needed, nationId });
+    });
+    this.eventBus.on('territory:conquest-progress', ({ position, progress }) => {
+      const existing = this.activeConquests.get(`${position.row},${position.col}`);
+      if (existing) existing.progress = progress;
+    });
+    this.eventBus.on('territory:conquest-cancelled', ({ position }) => {
+      this.activeConquests.delete(`${position.row},${position.col}`);
+    });
+    this.eventBus.on('territory:claimed', ({ position }) => {
+      this.activeConquests.delete(`${position.row},${position.col}`);
+    });
+
     // Camera bounds include the visual water border
     const totalSize = (GRID_SIZE + WATER_BORDER * 2) * TILE_SIZE;
     this.cameras.main.setBounds(
@@ -294,10 +322,10 @@ export class GameScene extends Phaser.Scene {
     this.eventBus.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
 
     this.scene.launch('UIScene', {
-      setup: this.setup,
-      gameState: this.gameState,
-      commandProcessor: this.commandProcessor,
-      eventBus: this.eventBus,
+      setup:          this.setup,
+      gameState:      this.gameState,
+      networkAdapter: this.networkAdapter,
+      eventBus:       this.eventBus,
     });
   }
 
@@ -311,6 +339,7 @@ export class GameScene extends Phaser.Scene {
     this.drawPaths();
     this.drawSelection();
     this.drawUnitHealthBars();
+    this.drawConquestOverlay();
     this.updateRangeOverlay();
     this.drawTargetingReticle();
     this.updateStanceBadges();
@@ -398,6 +427,44 @@ export class GameScene extends Phaser.Scene {
           .setDisplaySize(TILE_SIZE, imgH)
           .setOrigin(0.5, 1)
           .setDepth(r);
+      }
+    }
+  }
+
+  /** Draw a small icon on each tile that has a resource deposit. Drawn once at scene start. */
+  private drawResourceDeposits(): void {
+    const grid = this.gameState.getGrid();
+    const { rows, cols } = grid.getSize();
+
+    const DEPOSIT_ICON: Record<string, string> = {
+      COPPER:         '⊛',
+      IRON:           '⊗',
+      FIRE_GLASS:     '◈',
+      SILVER:         '◇',
+      GOLD_DEPOSIT:   '◆',
+      WATER_MANA:     '~',
+      FIRE_MANA:      '▲',
+      LIGHTNING_MANA: '⚡',
+      EARTH_MANA:     '◉',
+      AIR_MANA:       '≋',
+      SHADOW_MANA:    '◐',
+    };
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const territory = grid.getTerritory({ row: r, col: c });
+        const deposit = territory?.getResourceDeposit();
+        if (!deposit) continue;
+        const icon = DEPOSIT_ICON[deposit] ?? '?';
+        const cx = c * TILE_SIZE + TILE_SIZE / 2 + 11;
+        const cy = r * TILE_SIZE + TILE_SIZE / 2 + 11;
+        this.add.text(cx, cy, icon, {
+          fontSize: '9px',
+          color: '#ffe066',
+          fontFamily: 'monospace',
+          stroke: '#000000',
+          strokeThickness: 2,
+        }).setOrigin(0.5).setDepth(27);
       }
     }
   }
@@ -626,7 +693,7 @@ export class GameScene extends Phaser.Scene {
         : null;
       const clickedEnemy = this.getUnitAt(target);
       if (clickedEnemy && localNation && clickedEnemy.getOwnerId() !== localNation.getId()) {
-        this.commandProcessor.dispatch({
+        void this.networkAdapter.sendCommand({
           type:         'SET_RANGED_TARGET',
           playerId:     localPlayer!.getId(),
           unitId:       this.targetingUnitId,
@@ -658,9 +725,24 @@ export class GameScene extends Phaser.Scene {
       localNation?.getId() ??
       (this.selectedUnitId ? (this.gameState.getUnit(this.selectedUnitId)?.getOwnerId() ?? null) : null);
 
-    // ── 1. Clicking any own unit always selects it (even while another is selected)
+    // ── 1. Click on tile with a unit (possibly also a city) ─────────────────
+    // Single-click → select the unit.
+    // Double-click → open city menu (if city on tile) OR territory menu (otherwise).
     const clickedUnit = this.getUnitAt(target);
     if (clickedUnit && localNationId && clickedUnit.getOwnerId() === localNationId) {
+      if (isDoubleClick) {
+        const cityOnTile = this.getCityAt(target);
+        if (cityOnTile) {
+          if (localNation && cityOnTile.getOwnerId() === localNation.getId()) {
+            this.selectCity(cityOnTile);
+          } else {
+            this.openDiplomacy(cityOnTile.getOwnerId());
+          }
+        } else {
+          this.selectTerritory(target);
+        }
+        return;
+      }
       this.selectUnit(clickedUnit);
       return;
     }
@@ -744,7 +826,7 @@ export class GameScene extends Phaser.Scene {
       : [];
 
     const dispatchMove = (): void => {
-      this.commandProcessor.dispatch({
+      void this.networkAdapter.sendCommand({
         type: 'MOVE_UNIT',
         playerId,
         unitId,
@@ -761,7 +843,17 @@ export class GameScene extends Phaser.Scene {
     // Show war confirmation popup; dispatch only if player confirms
     this.scene.launch('WarConfirmScene', {
       nationNames: neutralsHit.map(id => this.gameState.getNation(id)?.getName() ?? id),
-      onConfirm:   dispatchMove,
+      onConfirm: async () => {
+        for (const targetNationId of neutralsHit) {
+          await this.networkAdapter.sendCommand({
+            type: 'DECLARE_WAR',
+            playerId,
+            targetNationId,
+            issuedAtTick: this.tickEngine.getCurrentTick(),
+          });
+        }
+        dispatchMove();
+      },
     });
   }
 
@@ -833,9 +925,9 @@ export class GameScene extends Phaser.Scene {
     this.updateUISelection(undefined);
     this.scene.launch('CityMenuScene', {
       city,
-      gameState: this.gameState,
-      commandProcessor: this.commandProcessor,
-      eventBus: this.eventBus,
+      gameState:      this.gameState,
+      networkAdapter: this.networkAdapter,
+      eventBus:       this.eventBus,
     });
   }
 
@@ -848,9 +940,9 @@ export class GameScene extends Phaser.Scene {
     this.updateUISelection(undefined);
     this.scene.launch('TerritoryMenuScene', {
       position,
-      gameState: this.gameState,
-      commandProcessor: this.commandProcessor,
-      eventBus: this.eventBus,
+      gameState:      this.gameState,
+      networkAdapter: this.networkAdapter,
+      eventBus:       this.eventBus,
     });
   }
 
@@ -875,6 +967,7 @@ export class GameScene extends Phaser.Scene {
     this.scene.stop('TerritoryMenuScene');
     this.updateUISelection(undefined);
     this.eventBus.emit('city:selected', { city: null });
+    this.eventBus.emit('territory:highlighted', { position: { ...position } });
     this.rangeGraphic.clear();
   }
 
@@ -884,11 +977,11 @@ export class GameScene extends Phaser.Scene {
     this.scene.stop('DiplomacyScene');
     this.scene.launch('DiplomacyScene', {
       targetNationId,
-      gameState:        this.gameState,
-      commandProcessor: this.commandProcessor,
-      diplomacySystem:  this.diplomacySystem,
-      eventBus:         this.eventBus,
-      currentTick:      this.tickEngine.getCurrentTick(),
+      gameState:       this.gameState,
+      networkAdapter:  this.networkAdapter,
+      diplomacySystem: this.diplomacySystem,
+      eventBus:        this.eventBus,
+      currentTick:     this.tickEngine.getCurrentTick(),
     });
   }
 
@@ -900,6 +993,7 @@ export class GameScene extends Phaser.Scene {
     this.scene.stop('TerritoryMenuScene');
     this.updateUISelection(undefined);
     this.eventBus.emit('city:selected', { city: null });
+    this.eventBus.emit('territory:highlighted', { position: null });
     this.rangeGraphic.clear();
   }
 
@@ -942,6 +1036,39 @@ export class GameScene extends Phaser.Scene {
           }
         }
       }
+    }
+  }
+
+  /** Draw a progress bar on each actively contested territory tile. */
+  private drawConquestOverlay(): void {
+    this.conquestGraphic.clear();
+
+    for (const [posKey, { progress, needed, nationId }] of this.activeConquests) {
+      const [rowStr, colStr] = posKey.split(',');
+      const row = parseInt(rowStr ?? '0', 10);
+      const col = parseInt(colStr ?? '0', 10);
+
+      const ratio   = needed > 0 ? Math.min(1, progress / needed) : 0;
+      const barW    = TILE_SIZE - 4;
+      const barH    = 5;
+      const x       = col * TILE_SIZE + 2;
+      const y       = (row + 1) * TILE_SIZE - barH - 2;
+
+      const nation  = this.gameState.getNation(nationId);
+      const color   = nation ? parseInt(nation.getColor().replace('#', ''), 16) : 0xffffff;
+
+      // Pulsing tint on the tile to show it's being contested
+      const pulse = 0.10 + 0.06 * Math.sin(this.time.now / 300);
+      this.conquestGraphic.fillStyle(color, pulse);
+      this.conquestGraphic.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+
+      // Progress bar background
+      this.conquestGraphic.fillStyle(0x000000, 0.7);
+      this.conquestGraphic.fillRect(x, y, barW, barH);
+
+      // Progress bar fill
+      this.conquestGraphic.fillStyle(color, 0.95);
+      this.conquestGraphic.fillRect(x, y, Math.max(1, Math.round(barW * ratio)), barH);
     }
   }
 

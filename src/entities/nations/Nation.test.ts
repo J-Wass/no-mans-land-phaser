@@ -67,4 +67,61 @@ describe('Nation', () => {
     expect(json.treasury[ResourceType.FOOD]).toBe(50);
     expect(json.relations[nation2.getId()]).toBe(DiplomaticStatus.WAR);
   });
+
+  describe('research', () => {
+    it('starts idle with no current research', () => {
+      expect(nation1.getCurrentResearch()).toBeNull();
+    });
+
+    it('starts research and tracks state', () => {
+      nation1.startResearch('masonry', 10);
+      const cr = nation1.getCurrentResearch();
+      expect(cr).not.toBeNull();
+      expect(cr!.techId).toBe('masonry');
+      expect(cr!.ticksTotal).toBe(10);
+      expect(cr!.ticksRemaining).toBe(10);
+    });
+
+    it('completes research after ticking down', () => {
+      nation1.startResearch('masonry', 3);
+      nation1.tickResearch();
+      nation1.tickResearch();
+      const completed = nation1.tickResearch();
+      expect(completed).toBe('masonry');
+      expect(nation1.hasResearched('masonry')).toBe(true);
+      expect(nation1.getCurrentResearch()).toBeNull();
+    });
+
+    it('returns null from tickResearch when idle', () => {
+      expect(nation1.tickResearch()).toBeNull();
+    });
+
+    it('cancels in-progress research', () => {
+      nation1.startResearch('masonry', 10);
+      nation1.cancelResearch();
+      expect(nation1.getCurrentResearch()).toBeNull();
+      expect(nation1.hasResearched('masonry')).toBe(false);
+    });
+
+    it('canResearch returns true for root techs with no prerequisites', () => {
+      expect(nation1.canResearch('masonry')).toBe(true);
+    });
+
+    it('canResearch returns false when prerequisite is not met', () => {
+      // 'trade' requires 'writing'
+      expect(nation1.canResearch('trade')).toBe(false);
+    });
+
+    it('canResearch returns true once prerequisite is researched', () => {
+      nation1.startResearch('writing', 1);
+      nation1.tickResearch();
+      expect(nation1.canResearch('trade')).toBe(true);
+    });
+
+    it('canResearch returns false for already-researched tech', () => {
+      nation1.startResearch('masonry', 1);
+      nation1.tickResearch();
+      expect(nation1.canResearch('masonry')).toBe(false);
+    });
+  });
 });

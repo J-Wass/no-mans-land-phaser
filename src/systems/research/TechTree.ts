@@ -23,13 +23,15 @@ export interface TechNode {
   requires: TechId[];
   /** Research time in game ticks (TICK_RATE=10, so 300 ticks = 30 s). */
   ticks: number;
+  /** RESEARCH resource points consumed from treasury when research begins. */
+  researchCost: number;
   description: string;
 }
 
 const T = (
   id: TechId, name: string, branch: TechBranch,
   requires: TechId[], ticks: number, description: string,
-): TechNode => ({ id, name, branch, requires, ticks, description });
+): TechNode => ({ id, name, branch, requires, ticks, researchCost: ticks, description });
 
 /** Full tech catalog — display order within each branch is top to bottom. */
 export const TECH_CATALOG: TechNode[] = [

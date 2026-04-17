@@ -6,6 +6,13 @@ import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TICK_RATE } from '@/config/constants';
+import type { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
+import {
+  weaponTierDamageBonus,
+  fireManaDamageFactor,
+  earthManaHPFactor,
+  lightningManaFactor,
+} from '@/systems/resources/ResourceBonuses';
 
 export const BATTLE_ROUND_TICKS = 1 * TICK_RATE;
 export const MAX_BATTLE_ROUNDS = 20;
@@ -113,9 +120,11 @@ export class BattleSystem {
       battle.ticksUntilRound = BATTLE_ROUND_TICKS;
       battle.roundsElapsed++;
 
-      const terrain = gameState.getGrid().getTerritory(battle.position)?.getTerrainType() ?? TerrainType.PLAINS;
-      const damageToUnitA = this.calculateDamage(unitB, unitA, terrain, battle.roundsElapsed);
-      const damageToUnitB = this.calculateDamage(unitA, unitB, terrain, battle.roundsElapsed);
+      const terrain       = gameState.getGrid().getTerritory(battle.position)?.getTerrainType() ?? TerrainType.PLAINS;
+      const depositsA     = gameState.getNationActiveDeposits(unitA.getOwnerId());
+      const depositsB     = gameState.getNationActiveDeposits(unitB.getOwnerId());
+      const damageToUnitA = this.calculateDamage(unitB, unitA, terrain, battle.roundsElapsed, depositsB, depositsA);
+      const damageToUnitB = this.calculateDamage(unitA, unitB, terrain, battle.roundsElapsed, depositsA, depositsB);
 
       unitA.takeDamage(damageToUnitA);
       unitB.takeDamage(damageToUnitB);
@@ -236,33 +245,58 @@ export class BattleSystem {
     }
   }
 
-  private calculateDamage(attacker: Unit, defender: Unit, terrain: TerrainType, round: number): number {
-    const offense = this.getOffenseScore(attacker, defender, terrain, round);
-    const mitigation = this.getMitigationScore(defender, attacker, terrain);
+  private calculateDamage(
+    attacker: Unit,
+    defender: Unit,
+    terrain: TerrainType,
+    round: number,
+    attackerDeposits: ReadonlySet<TerritoryResourceType>,
+    defenderDeposits: ReadonlySet<TerritoryResourceType>,
+  ): number {
+    const offense    = this.getOffenseScore(attacker, defender, terrain, round, attackerDeposits);
+    const mitigation = this.getMitigationScore(defender, attacker, terrain, defenderDeposits);
     return Math.max(1, Math.round(offense * (1 - mitigation)));
   }
 
-  private getOffenseScore(attacker: Unit, defender: Unit, terrain: TerrainType, round: number): number {
+  private getOffenseScore(
+    attacker: Unit,
+    defender: Unit,
+    terrain: TerrainType,
+    round: number,
+    attackerDeposits: ReadonlySet<TerritoryResourceType>,
+  ): number {
     const stats = attacker.getStats();
     const order = effectiveBattleOrder(attacker);
     const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'CHARGE';
-    const baseDamage = useRanged ? Math.max(stats.rangedDamage, stats.meleeDamage * 0.7) : stats.meleeDamage;
-    const healthRatio = attacker.getHealth() / stats.maxHealth;
+    const rawBase   = useRanged ? Math.max(stats.rangedDamage, stats.meleeDamage * 0.7) : stats.meleeDamage;
+    // Weapon tier adds flat damage before scaling
+    const baseDamage = rawBase + weaponTierDamageBonus(attackerDeposits);
+    const healthRatio  = attacker.getHealth() / stats.maxHealth;
     const healthFactor = 0.55 + 0.45 * healthRatio;
-    const orderFactor = getOrderAttackFactor(order, useRanged, round);
+    const orderFactor   = getOrderAttackFactor(order, useRanged, round);
     const matchupFactor = getMatchupAttackFactor(attacker.getUnitType(), defender.getUnitType(), order, defender.getStats().armorType, useRanged);
     const terrainFactor = getTerrainAttackFactor(attacker.getUnitType(), terrain, order, useRanged);
-    const randomness = 0.9 + this.random() * 0.2;
+    // Mana bonuses as multipliers
+    const fireFactor      = fireManaDamageFactor(attackerDeposits);
+    const lightningFactor = lightningManaFactor(attackerDeposits);
+    const randomness      = 0.9 + this.random() * 0.2;
 
-    return baseDamage * healthFactor * orderFactor * matchupFactor * terrainFactor * randomness;
+    return baseDamage * healthFactor * orderFactor * matchupFactor * terrainFactor * fireFactor * lightningFactor * randomness;
   }
 
-  private getMitigationScore(defender: Unit, attacker: Unit, terrain: TerrainType): number {
-    const order = effectiveBattleOrder(defender);
-    const base = getOrderMitigation(order);
+  private getMitigationScore(
+    defender: Unit,
+    attacker: Unit,
+    terrain: TerrainType,
+    defenderDeposits: ReadonlySet<TerritoryResourceType>,
+  ): number {
+    const order        = effectiveBattleOrder(defender);
+    const base         = getOrderMitigation(order);
     const terrainBonus = getTerrainMitigation(defender.getUnitType(), terrain, order);
     const matchupBonus = getMatchupMitigation(defender.getUnitType(), attacker.getUnitType(), order);
-    return clamp(base + terrainBonus + matchupBonus, 0, 0.65);
+    // Earth mana grants bonus mitigation (+8%)
+    const earthBonus   = earthManaHPFactor(defenderDeposits) - 1.0;
+    return clamp(base + terrainBonus + matchupBonus + earthBonus, 0, 0.65);
   }
 
   private calculateMomentumShift(unitA: Unit, unitB: Unit, damageToUnitA: number, damageToUnitB: number): number {

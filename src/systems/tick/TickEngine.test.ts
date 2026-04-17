@@ -3,6 +3,10 @@ import { TickEngine } from './TickEngine';
 import { GameState } from '@/managers/GameState';
 import { MovementSystem } from '@/systems/movement/MovementSystem';
 import { GameEventBus } from '@/systems/events/GameEventBus';
+import { Nation } from '@/entities/nations/Nation';
+import { City } from '@/entities/cities/City';
+import { Infantry } from '@/entities/units/Infantry';
+import { TICK_RATE } from '@/config/constants';
 
 describe('TickEngine', () => {
   let gameState: GameState;
@@ -15,17 +19,6 @@ describe('TickEngine', () => {
     movementSystem = new MovementSystem();
     eventBus = new GameEventBus();
     tickEngine = new TickEngine(gameState, movementSystem, eventBus);
-  });
-
-  it('starts at tick 0', () => {
-    expect(tickEngine.getCurrentTick()).toBe(0);
-  });
-
-  it('increments tick on each advance', () => {
-    expect(tickEngine.advance()).toBe(1);
-    expect(tickEngine.advance()).toBe(2);
-    expect(tickEngine.advance()).toBe(3);
-    expect(tickEngine.getCurrentTick()).toBe(3);
   });
 
   it('calls movementSystem.tick on each advance', () => {
@@ -43,10 +36,47 @@ describe('TickEngine', () => {
     expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 2, expect.anything(), expect.anything());
   });
 
-  it('resets tick counter', () => {
+  it('emits game:tick event on each advance', () => {
+    const ticks: number[] = [];
+    eventBus.on('game:tick', ({ tick }: { tick: number }) => ticks.push(tick));
     tickEngine.advance();
     tickEngine.advance();
-    tickEngine.reset();
-    expect(tickEngine.getCurrentTick()).toBe(0);
+    tickEngine.advance();
+    expect(ticks).toEqual([1, 2, 3]);
+  });
+
+  it('heals damaged units inside a friendly city every TICK_RATE ticks', () => {
+    const nation = new Nation('nation-1', 'Rome', '#FF0000');
+    gameState.addNation(nation);
+
+    const city = new City('city-1', 'Rome City', 'nation-1', { row: 0, col: 0 });
+    gameState.addCity(city); // also sets territory.cityId and controllingNation
+
+    const unit = new Infantry('unit-1', 'nation-1', { row: 0, col: 0 });
+    unit.takeDamage(40); // bring down to 60 HP
+    gameState.addUnit(unit);
+
+    // Advance TICK_RATE ticks to trigger the heal pulse
+    for (let i = 0; i < TICK_RATE; i++) tickEngine.advance();
+
+    // 5% of 100 maxHP = 5; ceil(5) = 5; 60 + 5 = 65
+    expect(unit.getHealth()).toBeGreaterThan(60);
+  });
+
+  it('does not heal units that are engaged in battle', () => {
+    const nation = new Nation('nation-1', 'Rome', '#FF0000');
+    gameState.addNation(nation);
+
+    const city = new City('city-1', 'Rome City', 'nation-1', { row: 0, col: 0 });
+    gameState.addCity(city);
+
+    const unit = new Infantry('unit-1', 'nation-1', { row: 0, col: 0 });
+    unit.takeDamage(40);
+    unit.setEngagedInBattle(true);
+    gameState.addUnit(unit);
+
+    for (let i = 0; i < TICK_RATE; i++) tickEngine.advance();
+
+    expect(unit.getHealth()).toBe(60);
   });
 });

@@ -7,7 +7,7 @@
 import Phaser from 'phaser';
 import type { City } from '@/entities/cities/City';
 import type { GameState } from '@/managers/GameState';
-import type { CommandProcessor } from '@/commands/CommandProcessor';
+import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 import type { CatalogEntry } from '@/systems/production/ProductionCatalog';
@@ -20,10 +20,10 @@ import { UI } from '@/config/uiTheme';
 import { formatCost } from '@/utils/uiHelpers';
 
 export interface CityMenuSceneData {
-  city:             City;
-  gameState:        GameState;
-  commandProcessor: CommandProcessor;
-  eventBus:         GameEventBus;
+  city:           City;
+  gameState:      GameState;
+  networkAdapter: NetworkAdapter;
+  eventBus:       GameEventBus;
 }
 
 // ── Resource emoji map ────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ type Tab = 'units' | 'buildings';
 export class CityMenuScene extends Phaser.Scene {
   private city!:             City;
   private gameState!:        GameState;
-  private commandProcessor!: CommandProcessor;
+  private networkAdapter!: NetworkAdapter;
   private eventBus!:         GameEventBus;
   private playerId!:         string;
 
@@ -78,13 +78,14 @@ export class CityMenuScene extends Phaser.Scene {
 
   private tabUnitsBtn!:     Phaser.GameObjects.Rectangle;
   private tabBuildingsBtn!: Phaser.GameObjects.Rectangle;
+  private hoverHintText!:   Phaser.GameObjects.Text;
 
   constructor() { super({ key: 'CityMenuScene' }); }
 
   init(data: CityMenuSceneData): void {
     this.city             = data.city;
     this.gameState        = data.gameState;
-    this.commandProcessor = data.commandProcessor;
+    this.networkAdapter = data.networkAdapter;
     this.eventBus         = data.eventBus;
     this.unitRows         = [];
     this.buildingRows     = [];
@@ -105,6 +106,11 @@ export class CityMenuScene extends Phaser.Scene {
 
     this.add.rectangle(0, 0, W, H, BG, 0.5).setOrigin(0, 0).setInteractive();
     this.add.rectangle(cx, cy, PW, PH, PANEL).setStrokeStyle(1, ACCENT);
+
+    // Hover hint — shown when mousing over a locked/unavailable row
+    this.hoverHintText = this.add.text(cx, py + PH - 11, '', {
+      fontSize: '12px', color: '#aa99cc', fontFamily: 'monospace', fontStyle: 'italic',
+    }).setOrigin(0.5).setDepth(10);
 
     // ── Header ────────────────────────────────────────────────────────────────
     const HDR_H = 50;
@@ -234,8 +240,15 @@ export class CityMenuScene extends Phaser.Scene {
       const ry = rowStartY + i * ROW_H + 18;
       const rowBg = this.add.rectangle(cx, ry + ROW_H / 2 - 2, PW - 10, ROW_H - 2, 0)
         .setOrigin(0.5).setInteractive({ useHandCursor: true });
-      rowBg.on('pointerover', () => rowBg.setFillStyle(0x1e2240));
-      rowBg.on('pointerout',  () => rowBg.setFillStyle(0));
+      rowBg.on('pointerover', () => {
+        rowBg.setFillStyle(0x1e2240);
+        const hint = this.getLockReasonForUnit(entry);
+        if (hint) this.hoverHintText.setText(hint).setVisible(true);
+      });
+      rowBg.on('pointerout', () => {
+        rowBg.setFillStyle(0);
+        this.hoverHintText.setVisible(false);
+      });
 
       const nameText  = this.add.text(px + 18, ry + ROW_H / 2,
         entry.label, { fontSize: '15px', color: LT, fontFamily: 'monospace' }).setOrigin(0, 0.5);
@@ -268,8 +281,15 @@ export class CityMenuScene extends Phaser.Scene {
       const ry = rowStartY + i * ROW_H + 18;
       const rowBg = this.add.rectangle(cx, ry + ROW_H / 2 - 2, PW - 10, ROW_H - 2, 0)
         .setOrigin(0.5).setInteractive({ useHandCursor: true });
-      rowBg.on('pointerover', () => rowBg.setFillStyle(0x1e2240));
-      rowBg.on('pointerout',  () => rowBg.setFillStyle(0));
+      rowBg.on('pointerover', () => {
+        rowBg.setFillStyle(0x1e2240);
+        const hint = this.getLockReasonForBuilding(def);
+        if (hint) this.hoverHintText.setText(hint).setVisible(true);
+      });
+      rowBg.on('pointerout', () => {
+        rowBg.setFillStyle(0);
+        this.hoverHintText.setVisible(false);
+      });
 
       const nameText  = this.add.text(px + 18, ry + ROW_H / 2,
         def.label, { fontSize: '15px', color: LT, fontFamily: 'monospace' }).setOrigin(0, 0.5);
@@ -352,8 +372,8 @@ export class CityMenuScene extends Phaser.Scene {
     this.refreshBuildButtons();
   }
 
-  private startProduction(entry: CatalogEntry): void {
-    const result = this.commandProcessor.dispatch({
+  private async startProduction(entry: CatalogEntry): Promise<void> {
+    const result = await this.networkAdapter.sendCommand({
       type:         'START_CITY_PRODUCTION',
       playerId:     this.playerId,
       cityId:       this.city.id,
@@ -363,8 +383,8 @@ export class CityMenuScene extends Phaser.Scene {
     if (result.success) this.refresh();
   }
 
-  private buildCityBuilding(def: CityBuildingDef): void {
-    const result = this.commandProcessor.dispatch({
+  private async buildCityBuilding(def: CityBuildingDef): Promise<void> {
+    const result = await this.networkAdapter.sendCommand({
       type:         'BUILD_CITY_BUILDING',
       playerId:     this.playerId,
       cityId:       this.city.id,
@@ -429,6 +449,27 @@ export class CityMenuScene extends Phaser.Scene {
         row.costLabel.setColor(canAfford ? DIM : '#995555');
       }
     }
+  }
+
+  private getLockReasonForUnit(entry: CatalogEntry): string {
+    const nation = this.gameState.getNation(this.city.getOwnerId());
+    if (this.city.getCurrentOrder()) return '⚠  city is already producing something';
+    const missing = entry.requiresTechs.filter(t => !nation?.hasResearched(t));
+    if (missing.length) return `⚠  requires research: ${missing.map(t => t.replace(/_/g, ' ').toLowerCase()).join(', ')}`;
+    if (entry.requiresBuilding !== null && !this.city.hasBuilding(entry.requiresBuilding))
+      return `⚠  requires ${entry.requiresBuilding.replace(/_/g, ' ').toLowerCase()} in this city`;
+    if (!nation?.getTreasury().hasResources(entry.cost)) return '⚠  insufficient resources';
+    return '';
+  }
+
+  private getLockReasonForBuilding(def: CityBuildingDef): string {
+    if (this.city.hasBuilding(def.type)) return '';  // "BUILT" label already makes this obvious
+    const nation = this.gameState.getNation(this.city.getOwnerId());
+    if (this.city.getCurrentOrder()) return '⚠  city is already producing something';
+    if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech))
+      return `⚠  requires research: ${def.requiresTech.replace(/_/g, ' ').toLowerCase()}`;
+    if (!nation?.getTreasury().hasResources(def.cost)) return '⚠  insufficient resources';
+    return '';
   }
 
   private close(): void {

@@ -1,4 +1,4 @@
-export type Difficulty = 'easy' | 'medium' | 'hard';
+export type Difficulty = 'easy' | 'medium' | 'hard' | 'sandbox';
 
 export interface GameSetup {
   opponentCount: number; // 1–4

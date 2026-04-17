@@ -21,9 +21,20 @@ import type { MovementSystem } from '@/systems/movement/MovementSystem';
 import type { EntityId, GridCoordinates } from '@/types/common';
 import type { SavedPeaceCooldown } from '@/types/gameSetup';
 import { DiplomaticStatus } from '@/types/diplomacy';
+import type { ResourceType } from '@/systems/resources/ResourceType';
+import { TICK_RATE } from '@/config/constants';
 
 /** Ticks before war can be declared again after a peace treaty (2 min at TICK_RATE=10). */
 export const PEACE_COOLDOWN_TICKS = 1200;
+
+/** Initial trade rejection backoff (10s at TICK_RATE=10). Doubles with each rejection. */
+const TRADE_BACKOFF_BASE_TICKS = 10 * TICK_RATE;
+/** After this many ticks without a new offer, the rejection counter resets (2 min). */
+const TRADE_RESET_TICKS = 2 * 60 * TICK_RATE;
+/** The AI accepts a trade if (total offer value) / (total request value) >= this ratio. */
+const TRADE_FAIR_RATIO = 0.70;
+/** If the AI is running low on a resource (below this amount), it weights that need strongly. */
+const AI_LOW_THRESHOLD = 20;
 
 function pairKey(a: EntityId, b: EntityId): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
@@ -32,6 +43,14 @@ function pairKey(a: EntityId, b: EntityId): string {
 export class DiplomacySystem {
   /** Maps sorted nation-pair key → tick when the peace cooldown expires. */
   private readonly peaceCooldowns: Map<string, number> = new Map();
+
+  // ── Trade backoff tracking ───────────────────────────────────────────────
+  /** Maps "localId:aiId" → number of consecutive rejections. */
+  private readonly tradeRejectionCount: Map<string, number> = new Map();
+  /** Maps "localId:aiId" → tick when the current rejection backoff expires. */
+  private readonly tradeRejectionExpiry: Map<string, number> = new Map();
+  /** Maps "localId:aiId" → tick of the last trade offer (for 2m inactivity reset). */
+  private readonly tradeLastOfferTick: Map<string, number> = new Map();
 
   constructor(
     private readonly gameState: GameState,
@@ -136,6 +155,84 @@ export class DiplomacySystem {
   ): number {
     const expiry = this.peaceCooldowns.get(pairKey(nationId1, nationId2)) ?? 0;
     return Math.max(0, expiry - currentTick);
+  }
+
+  // ── Trade evaluation ────────────────────────────────────────────────────────
+
+  /**
+   * Evaluate a trade offer FROM a human player TO an AI nation.
+   *
+   * Returns `{ accepted: true }` or `{ accepted: false, backoffTicks: number }`.
+   *
+   * Acceptance criteria:
+   *   1. No active backoff from a prior rejection.
+   *   2. The trade is at least TRADE_FAIR_RATIO (offer value / request value >= 0.70).
+   *   3. OR the AI is low on a resource it is being offered (needs-based bonus).
+   *
+   * On rejection the backoff doubles with each consecutive refusal and resets
+   * after TRADE_RESET_TICKS of inactivity.
+   */
+  public evaluateTradeForAI(
+    localNationId: EntityId,
+    aiNationId:    EntityId,
+    offer:         Partial<Record<ResourceType, number>>,
+    request:       Partial<Record<ResourceType, number>>,
+    currentTick:   number,
+  ): { accepted: boolean; backoffTicks: number } {
+    const tradeKey = `${localNationId}:${aiNationId}`;
+
+    // ── Reset rejection counter if player was inactive for 2 min ────────────
+    const lastOffer = this.tradeLastOfferTick.get(tradeKey) ?? 0;
+    if (currentTick - lastOffer >= TRADE_RESET_TICKS) {
+      this.tradeRejectionCount.delete(tradeKey);
+      this.tradeRejectionExpiry.delete(tradeKey);
+    }
+    this.tradeLastOfferTick.set(tradeKey, currentTick);
+
+    // ── Check active backoff ─────────────────────────────────────────────────
+    const expiry = this.tradeRejectionExpiry.get(tradeKey) ?? 0;
+    if (currentTick < expiry) {
+      return { accepted: false, backoffTicks: expiry - currentTick };
+    }
+
+    // ── Compute offer / request totals ───────────────────────────────────────
+    const aiTreasury = this.gameState.getNation(aiNationId)?.getTreasury();
+    if (!aiTreasury) return { accepted: false, backoffTicks: 0 };
+
+    let offerTotal   = 0;
+    let requestTotal = 0;
+    for (const [, amount] of Object.entries(offer))   offerTotal   += (amount ?? 0);
+    for (const [, amount] of Object.entries(request)) requestTotal += (amount ?? 0);
+
+    // Avoid division by zero on "gift" offers (no request)
+    if (requestTotal === 0) {
+      // Pure gift — always accepted
+      return { accepted: true, backoffTicks: 0 };
+    }
+
+    // ── Needs-based bonus: AI values offered resources it is running low on ──
+    let needsBonus = 0;
+    for (const [type, amount] of Object.entries(offer)) {
+      if ((amount ?? 0) > 0 && aiTreasury.getAmount(type as ResourceType) < AI_LOW_THRESHOLD) {
+        needsBonus += (amount ?? 0) * 0.5; // weight needed resources as 50% more valuable
+      }
+    }
+    const effectiveOfferValue = offerTotal + needsBonus;
+    const fairRatio = effectiveOfferValue / requestTotal;
+
+    if (fairRatio >= TRADE_FAIR_RATIO) {
+      // Accepted — clear rejection state
+      this.tradeRejectionCount.delete(tradeKey);
+      this.tradeRejectionExpiry.delete(tradeKey);
+      return { accepted: true, backoffTicks: 0 };
+    }
+
+    // ── Rejected — apply doubling backoff ────────────────────────────────────
+    const count = (this.tradeRejectionCount.get(tradeKey) ?? 0) + 1;
+    this.tradeRejectionCount.set(tradeKey, count);
+    const backoffTicks = TRADE_BACKOFF_BASE_TICKS * Math.pow(2, count - 1);
+    this.tradeRejectionExpiry.set(tradeKey, currentTick + backoffTicks);
+    return { accepted: false, backoffTicks };
   }
 
   // ── Persistence ─────────────────────────────────────────────────────────────
