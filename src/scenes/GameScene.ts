@@ -84,6 +84,7 @@ export class GameScene extends Phaser.Scene {
   private uiClickConsumed = false;
   private stanceBadges: Map<string, Phaser.GameObjects.Container> = new Map();
   private minZoom = 0.25;
+  private gameSpeed = 1;
 
   // Double-click detection for city/territory menus
   private lastClickMs     = 0;
@@ -313,6 +314,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.eventBus.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
+    this.eventBus.on('game:speed-change', ({ speed }) => { this.gameSpeed = speed; });
 
     this.scene.launch('UIScene', {
       setup:          this.setup,
@@ -324,8 +326,9 @@ export class GameScene extends Phaser.Scene {
 
   override update(_time: number, delta: number): void {
     this.tickAccumulator += delta;
-    while (this.tickAccumulator >= TICK_INTERVAL_MS) {
-      this.tickAccumulator -= TICK_INTERVAL_MS;
+    const effectiveInterval = TICK_INTERVAL_MS / this.gameSpeed;
+    while (this.tickAccumulator >= effectiveInterval) {
+      this.tickAccumulator -= effectiveInterval;
       this.tickEngine.advance();
       this.aiSystem.tick(this.tickEngine.getCurrentTick());
     }
@@ -568,7 +571,11 @@ export class GameScene extends Phaser.Scene {
     const grid = this.gameState.getGrid();
     const { rows, cols } = grid.getSize();
 
-    // ── Fog graphic: black for undiscovered, dark overlay for discovered-not-visible ──
+    // ── Fog graphic: 4 distinct states ────────────────────────────────────────
+    // Full vision:   no overlay (tile fully visible)
+    // Edge of fog:   light grey (near-visible — see tiles, only light/heavy unit contacts)
+    // Fog of war:    dark overlay (discovered but not currently visible)
+    // Unknown:       solid black (never seen)
     this.fogGraphic.clear();
 
     for (let r = 0; r < rows; r++) {
@@ -578,13 +585,17 @@ export class GameScene extends Phaser.Scene {
         const y   = r * TILE_SIZE;
 
         if (vision.visible.has(key)) {
-          // Fully visible — no fog
+          // Full vision — no fog
+        } else if (vision.nearVisible.has(key)) {
+          // Edge of fog — light grey, can see tile but only get light/heavy contact info
+          this.fogGraphic.fillStyle(0x101830, 0.3);
+          this.fogGraphic.fillRect(x, y, TILE_SIZE, TILE_SIZE);
         } else if (vision.discovered.has(key)) {
-          // Discovered but not currently visible
-          this.fogGraphic.fillStyle(0x000000, 0.5);
+          // Fog of war — darker overlay, can see tile shape but no live updates
+          this.fogGraphic.fillStyle(0x000000, 0.62);
           this.fogGraphic.fillRect(x, y, TILE_SIZE, TILE_SIZE);
         } else {
-          // Never seen — solid black
+          // Unknown — total black, never been seen
           this.fogGraphic.fillStyle(0x000000, 1);
           this.fogGraphic.fillRect(x, y, TILE_SIZE, TILE_SIZE);
         }
@@ -924,6 +935,7 @@ export class GameScene extends Phaser.Scene {
       if (unit) {
         const path = this.pathfinder.findPath(
           unit.position, target, unit.getUnitType(), unit.getStats(),
+          unit.getOwnerId(), this.gameState,
         );
         if (path && path.length > 0) {
           this.dispatchMoveWithWarCheck(localPlayer.getId(), unit.id, path);

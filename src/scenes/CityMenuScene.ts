@@ -422,16 +422,18 @@ export class CityMenuScene extends Phaser.Scene {
     const treasury = nation?.getTreasury();
 
     if (this.activeTab === 'units') {
+      const deposits = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set();
       for (const row of this.unitRows) {
-        const canAfford  = treasury?.hasResources(row.entry.cost) ?? false;
-        const techsOk    = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
-        const buildingOk = !row.entry.requiresBuilding || this.city.hasBuilding(row.entry.requiresBuilding);
-        const enabled    = !busy && canAfford && techsOk && buildingOk;
+        const canAfford   = treasury?.hasResources(row.entry.cost) ?? false;
+        const techsOk     = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
+        const buildingOk  = !row.entry.requiresBuilding || this.city.hasBuilding(row.entry.requiresBuilding);
+        const depositOk   = !row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit);
+        const enabled     = !busy && canAfford && techsOk && buildingOk && depositOk;
         row.btn.setData('enabled', enabled);
         row.btn.setFillStyle(enabled ? BTN : 0x0e101e);
         row.btn.setStrokeStyle(1, enabled ? ACCENT : 0x2a2a44);
         row.btnText.setColor(enabled ? LT : '#444466');
-        row.btnText.setText(techsOk && buildingOk ? 'BUILD' : 'LOCKED');
+        row.btnText.setText(techsOk && buildingOk && depositOk ? 'BUILD' : 'LOCKED');
         row.costLabel.setColor(canAfford ? DIM : '#995555');
       }
     } else {
@@ -457,6 +459,11 @@ export class CityMenuScene extends Phaser.Scene {
     if (missing.length) return `⚠  requires research: ${missing.map(t => t.replace(/_/g, ' ').toLowerCase()).join(', ')}`;
     if (entry.requiresBuilding !== null && !this.city.hasBuilding(entry.requiresBuilding))
       return `⚠  requires ${entry.requiresBuilding.replace(/_/g, ' ').toLowerCase()} in this city`;
+    if (entry.requiresDeposit) {
+      const deposits = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set();
+      if (!deposits.has(entry.requiresDeposit))
+        return `⚠  requires active ${entry.requiresDeposit.replace(/_/g, ' ').toLowerCase()} mine`;
+    }
     if (!nation?.getTreasury().hasResources(entry.cost)) return '⚠  insufficient resources';
     return '';
   }

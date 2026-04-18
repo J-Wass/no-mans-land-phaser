@@ -90,10 +90,19 @@ export interface OfferTradeCommand {
   issuedAtTick:    number;
 }
 
+export interface UpgradeTerritoryBuildingCommand {
+  type:         'UPGRADE_TERRITORY';
+  playerId:     PlayerId;
+  position:     GridCoordinates;
+  building:     TerritoryBuildingType;
+  issuedAtTick: number;
+}
+
 export type GameCommand =
   | MoveUnitCommand
   | BuildTerritoryCommand
   | BuildCityBuildingCommand
+  | UpgradeTerritoryBuildingCommand
   | StartResearchCommand
   | CancelResearchCommand
   | StartCityProductionCommand

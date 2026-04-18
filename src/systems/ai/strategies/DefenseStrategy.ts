@@ -92,6 +92,7 @@ class DefendPositionGoal implements AIGoal {
     for (const unit of units) {
       const path = ctx.pathfinder.findPath(
         unit.position, this.target, unit.getUnitType(), unit.getStats(),
+        ctx.nationId, ctx.gameState,
       );
       if (path && path.length > 0) {
         const r = ctx.commandProcessor.dispatch({

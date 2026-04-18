@@ -5,7 +5,9 @@
  *   - The territory is controlled by the nation, AND
  *   - The matching mine building has been constructed.
  *
- * Use GameState.getNationActiveDeposits(nationId) to get the set for a nation.
+ * Use GameState.getNationActiveDeposits(nationId) to get the presence set.
+ * Use GameState.getNationActiveDepositCounts(nationId) to get per-type counts for
+ * "further advantage" (2+ mines of the same type).
  */
 
 import { TerritoryResourceType } from './TerritoryResourceType';
@@ -21,59 +23,93 @@ export function weaponTierDamageBonus(deposits: ReadonlySet<TerritoryResourceTyp
   return 0;
 }
 
-/**
- * Damage multiplier from fire mana (+10%).
- * Returns a factor to multiply the base offense score by.
- */
-export function fireManaDamageFactor(deposits: ReadonlySet<TerritoryResourceType>): number {
-  return deposits.has(TerritoryResourceType.FIRE_MANA) ? 1.10 : 1.0;
+/** Clamp mine count to [0, 3]. */
+function mineCount(
+  type: TerritoryResourceType,
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
+  if (!deposits.has(type)) return 0;
+  return Math.min(3, counts?.get(type) ?? 1);
 }
 
 /**
- * Effective HP factor from earth mana (+15%).
- * Applied to the unit's current health ratio during mitigation/offense to simulate tougher units.
+ * Damage multiplier from fire mana. +10% per mine, up to +30% at 3 mines.
  */
-export function earthManaHPFactor(deposits: ReadonlySet<TerritoryResourceType>): number {
-  return deposits.has(TerritoryResourceType.EARTH_MANA) ? 1.15 : 1.0;
+export function fireManaDamageFactor(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
+  const n = mineCount(TerritoryResourceType.FIRE_MANA, deposits, counts);
+  return 1.0 + n * 0.10;
 }
 
 /**
- * Extra heal fraction of maxHP per city-heal pulse from water mana (+5% maxHP/s).
- * Add this to the base heal amount each pulse.
+ * Damage mitigation factor from earth mana. +10% mitigation per mine, up to +30% at 3 mines.
  */
-export function waterManaRegenBonus(deposits: ReadonlySet<TerritoryResourceType>): number {
-  return deposits.has(TerritoryResourceType.WATER_MANA) ? 0.05 : 0;
+export function earthManaHPFactor(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
+  const n = mineCount(TerritoryResourceType.EARTH_MANA, deposits, counts);
+  return 1.0 + n * 0.10;
+}
+
+/**
+ * Extra heal fraction of maxHP per water-mana heal pulse (independent of city).
+ * +5% per mine, up to +15% at 3 mines.
+ */
+export function waterManaRegenBonus(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
+  const n = mineCount(TerritoryResourceType.WATER_MANA, deposits, counts);
+  return n * 0.05;
 }
 
 /**
  * Extra gold income per tick-interval from precious metal deposits.
- * Silver: +2 gold, Gold deposit: +4 gold.
+ * Silver: +2 gold per mine, Gold deposit: +4 gold per mine, stacks up to 3 mines each.
  */
-export function mineralGoldBonus(deposits: ReadonlySet<TerritoryResourceType>): number {
+export function mineralGoldBonus(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
   let bonus = 0;
-  if (deposits.has(TerritoryResourceType.SILVER))       bonus += 2;
-  if (deposits.has(TerritoryResourceType.GOLD_DEPOSIT)) bonus += 4;
+  const silverCount = mineCount(TerritoryResourceType.SILVER, deposits, counts);
+  const goldCount   = mineCount(TerritoryResourceType.GOLD_DEPOSIT, deposits, counts);
+  bonus += 2 * silverCount;
+  bonus += 4 * goldCount;
   return bonus;
 }
 
 /**
- * Whether a nation has an active air mana mine (grants +1 vision to all units).
+ * Vision radius bonus from air mana. +1 per mine, up to +3 at 3 mines.
  */
-export function hasAirMana(deposits: ReadonlySet<TerritoryResourceType>): boolean {
-  return deposits.has(TerritoryResourceType.AIR_MANA);
+export function airManaVisionBonus(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
+  return mineCount(TerritoryResourceType.AIR_MANA, deposits, counts);
 }
 
 /**
- * Whether a nation has an active shadow mana mine (reduces enemy unit vision toward them by 1).
+ * How many tiles of vision to subtract from an observer looking at a shadow-mana unit.
+ * -1 per mine, up to -3 at 3 mines. Apply with max(0, vision - reduction).
  */
-export function hasShadowMana(deposits: ReadonlySet<TerritoryResourceType>): boolean {
-  return deposits.has(TerritoryResourceType.SHADOW_MANA);
+export function shadowManaVisionReduction(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
+  return mineCount(TerritoryResourceType.SHADOW_MANA, deposits, counts);
 }
 
 /**
- * Whether a nation has an active lightning mana mine.
- * Grants a +10% attack speed bonus (represented as extra attack factor in combat).
+ * Extra effective speed from lightning mana. +1 speed per mine, up to +3 at 3 mines.
  */
-export function lightningManaFactor(deposits: ReadonlySet<TerritoryResourceType>): number {
-  return deposits.has(TerritoryResourceType.LIGHTNING_MANA) ? 1.10 : 1.0;
+export function lightningManaSpeedBonus(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
+  return mineCount(TerritoryResourceType.LIGHTNING_MANA, deposits, counts);
 }

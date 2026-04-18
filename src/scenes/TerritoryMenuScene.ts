@@ -10,6 +10,7 @@ import type { GridCoordinates } from '@/types/common';
 import { TERRITORY_BUILDING_CATALOG, BUILDING_MAP_ICON } from '@/systems/territory/TerritoryBuilding';
 import type { TerritoryBuildingDef } from '@/systems/territory/TerritoryBuilding';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { MAX_WALLS_LEVEL } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
@@ -38,10 +39,13 @@ export class TerritoryMenuScene extends Phaser.Scene {
   private playerId!:         string;
 
   private buildingRows: Array<{
-    def:     TerritoryBuildingDef;
-    btn:     Phaser.GameObjects.Rectangle;
-    btnText: Phaser.GameObjects.Text;
-    costLbl: Phaser.GameObjects.Text;
+    def:        TerritoryBuildingDef;
+    btn:        Phaser.GameObjects.Rectangle;
+    btnText:    Phaser.GameObjects.Text;
+    costLbl:    Phaser.GameObjects.Text;
+    upgradeBtn: Phaser.GameObjects.Rectangle | null;
+    upgradeTxt: Phaser.GameObjects.Text | null;
+    levelLbl:   Phaser.GameObjects.Text | null;
   }> = [];
 
   private feedbackText!: Phaser.GameObjects.Text;
@@ -138,9 +142,13 @@ export class TerritoryMenuScene extends Phaser.Scene {
     const buildings = territory?.getBuildings() ?? [];
     const builtStr  = buildings.length === 0
       ? 'None'
-      : buildings.map(b => `${BUILDING_MAP_ICON[b]} ${b}`).join('  ');
+      : buildings.map(b => {
+          const lvl = territory?.getBuildingLevel(b) ?? 1;
+          const lvlTag = (b === TerritoryBuildingType.WALLS) ? ` Lvl${lvl}` : '';
+          return `${BUILDING_MAP_ICON[b]} ${b.replace(/_/g, ' ')}${lvlTag}`;
+        }).join('   ');
     this.add.text(px + 18, secY + 22, builtStr, {
-      fontSize: '14px', color: GREEN, fontFamily: 'monospace',
+      fontSize: '13px', color: GREEN, fontFamily: 'monospace',
     });
 
     // ── Available buildings list ───────────────────────────────────────────────
@@ -186,8 +194,8 @@ export class TerritoryMenuScene extends Phaser.Scene {
         fontSize: '12px', color: '#8a8aaa', fontFamily: 'monospace',
       }).setOrigin(0, 0.5);
 
-      const btnX    = px + PW - 58;
-      const btn     = this.add.rectangle(btnX, ry + ROW_H / 2, 84, 26, BTN)
+      const btnX    = px + PW - 100;
+      const btn     = this.add.rectangle(btnX, ry + ROW_H / 2, 80, 26, BTN)
         .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
       const btnText = this.add.text(btnX, ry + ROW_H / 2, 'BUILD', {
         fontSize: '13px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
@@ -197,7 +205,28 @@ export class TerritoryMenuScene extends Phaser.Scene {
       btn.on('pointerout',  () => { if (btn.getData('enabled')) btn.setFillStyle(BTN); });
       btn.on('pointerup',   () => { this.build(def); });
 
-      this.buildingRows.push({ def, btn, btnText, costLbl });
+      // Upgrade button (only for upgradeable buildings like WALLS)
+      let upgradeBtn: Phaser.GameObjects.Rectangle | null = null;
+      let upgradeTxt: Phaser.GameObjects.Text | null = null;
+      let levelLbl:   Phaser.GameObjects.Text | null = null;
+
+      if (def.maxLevel > 1) {
+        const upX = px + PW - 18;
+        upgradeBtn = this.add.rectangle(upX, ry + ROW_H / 2, 70, 26, 0x1a2a1a)
+          .setStrokeStyle(1, 0x33aa55).setInteractive({ useHandCursor: true });
+        upgradeTxt = this.add.text(upX, ry + ROW_H / 2, '▲ UP', {
+          fontSize: '12px', color: '#77ee99', fontFamily: 'monospace', fontStyle: 'bold',
+        }).setOrigin(0.5);
+        upgradeBtn.on('pointerover', () => { if (upgradeBtn!.getData('enabled')) upgradeBtn!.setFillStyle(0x284428); });
+        upgradeBtn.on('pointerout',  () => { if (upgradeBtn!.getData('enabled')) upgradeBtn!.setFillStyle(0x1a2a1a); });
+        upgradeBtn.on('pointerup',   () => { this.upgrade(def); });
+
+        levelLbl = this.add.text(px + 560, ry + ROW_H / 2, '', {
+          fontSize: '12px', color: '#aaddcc', fontFamily: 'monospace',
+        }).setOrigin(0, 0.5);
+      }
+
+      this.buildingRows.push({ def, btn, btnText, costLbl, upgradeBtn, upgradeTxt, levelLbl });
     });
 
     this.feedbackText = this.add.text(cx, py + PH - 20, '', {
@@ -205,18 +234,38 @@ export class TerritoryMenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const onRefresh = () => this.refreshButtons();
-    this.eventBus.on('territory:building-built', onRefresh);
-    this.eventBus.on('territory:claimed',        onRefresh);
+    this.eventBus.on('territory:building-built',    onRefresh);
+    this.eventBus.on('territory:building-upgraded', onRefresh);
+    this.eventBus.on('territory:claimed',           onRefresh);
 
     this.events.once('shutdown', () => {
-      this.eventBus.off('territory:building-built', onRefresh);
-      this.eventBus.off('territory:claimed',        onRefresh);
+      this.eventBus.off('territory:building-built',    onRefresh);
+      this.eventBus.off('territory:building-upgraded', onRefresh);
+      this.eventBus.off('territory:claimed',           onRefresh);
     });
 
     this.refreshButtons();
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  private async upgrade(def: TerritoryBuildingDef): Promise<void> {
+    const result = await this.networkAdapter.sendCommand({
+      type:         'UPGRADE_TERRITORY',
+      playerId:     this.playerId,
+      position:     this.position,
+      building:     def.type,
+      issuedAtTick: 0,
+    });
+    if (result.success) {
+      const territory = this.gameState.getGrid().getTerritory(this.position);
+      const lvl = territory?.getBuildingLevel(def.type) ?? 1;
+      this.showFeedback(`Upgraded: ${def.label} → Lvl ${lvl}`, '#88ffcc');
+    } else {
+      this.showFeedback(result.reason ?? 'Cannot upgrade', '#cc4444');
+    }
+    this.refreshButtons();
+  }
 
   private async build(def: TerritoryBuildingDef): Promise<void> {
     const result = await this.networkAdapter.sendCommand({
@@ -255,6 +304,29 @@ export class TerritoryMenuScene extends Phaser.Scene {
       row.btnText.setColor(enabled ? LT : '#444466');
       row.btnText.setText(alreadyBuilt ? 'BUILT' : 'BUILD');
       row.costLbl.setColor(canAfford ? DIM : '#995555');
+
+      // Upgrade button state
+      if (row.upgradeBtn && row.upgradeTxt && row.levelLbl) {
+        const curLevel  = territory.getBuildingLevel(row.def.type);
+        const maxLevel  = row.def.type === TerritoryBuildingType.WALLS ? MAX_WALLS_LEVEL : row.def.maxLevel;
+        const atMax     = curLevel >= maxLevel;
+        const canUpgrade = alreadyBuilt && !atMax && (treasury?.hasResources(row.def.upgradeCost) ?? false);
+
+        row.upgradeBtn.setData('enabled', canUpgrade);
+        row.upgradeBtn.setVisible(alreadyBuilt);
+        row.upgradeTxt.setVisible(alreadyBuilt);
+        row.upgradeBtn.setFillStyle(canUpgrade ? 0x1a2a1a : 0x0e130e);
+        row.upgradeBtn.setStrokeStyle(1, canUpgrade ? 0x33aa55 : 0x223322);
+        row.upgradeTxt.setColor(canUpgrade ? '#77ee99' : '#336633');
+        row.upgradeTxt.setText(atMax ? 'MAX' : '▲ UP');
+
+        if (alreadyBuilt) {
+          row.levelLbl.setText(`Lvl ${curLevel}/${maxLevel}`).setVisible(true);
+          row.levelLbl.setColor(atMax ? '#88ddcc' : '#aaddaa');
+        } else {
+          row.levelLbl.setVisible(false);
+        }
+      }
     }
   }
 

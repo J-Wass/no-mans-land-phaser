@@ -81,7 +81,8 @@ export class ProductionSystem {
       // Silver/gold deposit mines provide bonus gold income
       if (currentTick % GOLD_INTERVAL === 0) {
         const deposits = gameState.getNationActiveDeposits(nation.getId());
-        const goldBonus = mineralGoldBonus(deposits);
+        const counts   = gameState.getNationActiveDepositCounts(nation.getId());
+        const goldBonus = mineralGoldBonus(deposits, counts);
         if (goldBonus > 0) t.addResource(ResourceType.GOLD, goldBonus);
       }
     }

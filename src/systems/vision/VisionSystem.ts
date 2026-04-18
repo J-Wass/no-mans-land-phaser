@@ -11,7 +11,7 @@
  */
 
 import type { GameState } from '@/managers/GameState';
-import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
+import { airManaVisionBonus, shadowManaVisionReduction } from '@/systems/resources/ResourceBonuses';
 import type { Unit } from '@/entities/units/Unit';
 
 export interface VisionResult {
@@ -29,9 +29,10 @@ export class VisionSystem {
    * Updates `gameState.getDiscoveredTiles(nationId)` as a side-effect.
    */
   public compute(gameState: GameState, nationId: string): VisionResult {
-    const deposits    = gameState.getNationActiveDeposits(nationId);
-    const airMana     = deposits.has(TerritoryResourceType.AIR_MANA) ? 1 : 0;
-    const grid        = gameState.getGrid();
+    const deposits = gameState.getNationActiveDeposits(nationId);
+    const counts   = gameState.getNationActiveDepositCounts(nationId);
+    const airBonus = airManaVisionBonus(deposits, counts);
+    const grid     = gameState.getGrid();
     const visible     = new Set<string>();
     const nearVisible = new Set<string>();
 
@@ -53,7 +54,7 @@ export class VisionSystem {
     // ── Unit vision ────────────────────────────────────────────────────────
     for (const unit of gameState.getUnitsByNation(nationId)) {
       if (!unit.isAlive()) continue;
-      const radius = unit.getStats().vision + airMana;
+      const radius = unit.getStats().vision + airBonus;
       this.addVisionCircle(unit, radius, grid, visible, nearVisible);
     }
 
@@ -78,6 +79,18 @@ export class VisionSystem {
    *  'near'        — unit is in the near-visible ring (unidentified contact)
    *  'hidden'      — unit is beyond detection range
    */
+  /**
+   * Determine if an enemy `unit` is visible to the viewer nation.
+   *
+   * Shadow mana (on the enemy unit's nation) subtracts from each observer unit's effective
+   * vision radius when detecting that unit:
+   *   1 mine: -1 vision,  2 mines: -2,  3 mines: -3  (minimum effective vision = 0)
+   * At effective vision 0 the observer sees the shadow unit only when on the same tile
+   * (visible) or 1 tile away (near/edge-of-fog).
+   *
+   * Air mana (on the viewer nation) adds +1 vision per mine (up to +3), which can
+   * partially or fully counteract shadow mana.
+   */
   public unitVisibility(
     unit: Unit,
     viewerVisible:     Set<string>,
@@ -85,24 +98,36 @@ export class VisionSystem {
     gameState:         GameState,
     viewerNationId:    string,
   ): 'visible' | 'near' | 'hidden' {
+    const enemyDeposits  = gameState.getNationActiveDeposits(unit.getOwnerId());
+    const enemyCounts    = gameState.getNationActiveDepositCounts(unit.getOwnerId());
+    const shadowReduction = shadowManaVisionReduction(enemyDeposits, enemyCounts);
+
     const key = `${unit.position.row},${unit.position.col}`;
 
-    if (viewerVisible.has(key)) return 'visible';
-
-    // Shadow mana: enemy units with shadow mana active require the viewer to be
-    // within the visible range (not just near-visible) to detect them.
-    const enemyDeposits = gameState.getNationActiveDeposits(unit.getOwnerId());
-    const shadowPenalty = enemyDeposits.has(TerritoryResourceType.SHADOW_MANA) ? 1 : 0;
-
-    if (shadowPenalty > 0) {
-      // Shadow units are invisible even in the near-visible ring unless within visible range
+    if (shadowReduction === 0) {
+      // Fast path: no shadow mana, use precomputed sets
+      if (viewerVisible.has(key))     return 'visible';
+      if (viewerNearVisible.has(key)) return 'near';
       return 'hidden';
     }
 
-    if (viewerNearVisible.has(key)) return 'near';
+    // Shadow mana path: recheck by iterating each observer unit with reduced vision
+    const viewerDeposits = gameState.getNationActiveDeposits(viewerNationId);
+    const viewerCounts   = gameState.getNationActiveDepositCounts(viewerNationId);
+    const airBonus       = airManaVisionBonus(viewerDeposits, viewerCounts);
 
-    void viewerNationId; // reserved for future ally-vision pass
-    return 'hidden';
+    const { row: sr, col: sc } = unit.position;
+    let result: 'visible' | 'near' | 'hidden' = 'hidden';
+
+    for (const observer of gameState.getUnitsByNation(viewerNationId)) {
+      if (!observer.isAlive()) continue;
+      const effectiveVision = Math.max(0, observer.getStats().vision + airBonus - shadowReduction);
+      const dist = Math.abs(observer.position.row - sr) + Math.abs(observer.position.col - sc);
+      if (dist <= effectiveVision)     return 'visible'; // best result, short-circuit
+      if (dist <= effectiveVision + 1) result = 'near';
+    }
+
+    return result;
   }
 
   // ── Private ────────────────────────────────────────────────────────────────

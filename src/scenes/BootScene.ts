@@ -3,7 +3,8 @@
  *
  * Spawn placement: each team gets two units on the coast (inner edge of the water
  * border) using farthest-point sampling so teams are maximally spread apart.
- * The starting candidate is chosen randomly, so layouts differ every game.
+ * Terrain is procedurally generated each game for variety.
+ * Nation/city names are loaded from src/config/names.json.
  */
 
 import Phaser from 'phaser';
@@ -19,11 +20,13 @@ import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType
 import { ResourceType } from '@/systems/resources/ResourceType';
 import type { GameSetup } from '@/types/gameSetup';
 import type { TechId } from '@/systems/research/TechTree';
+import type { Grid } from '@/systems/grid/Grid';
 import {
   pickCoastalSpawnPairs,
   findCityPositions,
   assignStartingTerritory,
 } from '@/systems/spawn/SpawnSystem';
+import GAME_NAMES from '@/config/names.json';
 
 /** Root-level techs (no prerequisites) — eligible for random starting grant. */
 const ROOT_TECHS: TechId[] = ['writing', 'hunting', 'masonry', 'scientific_method', 'mathematics'];
@@ -33,15 +36,6 @@ const GRID_SIZE = 25;
 interface BootSceneData {
   setup?: GameSetup;
 }
-
-// Fixed nation identities — positions are determined at runtime by the spawn algorithm
-const NATION_CONFIGS = [
-  { id: 'nation-1', name: 'Rome',     color: '#e63946', cities: ['Roma',       'Capua'      ] },
-  { id: 'nation-2', name: 'Persia',   color: '#457b9d', cities: ['Persepolis', 'Susa'       ] },
-  { id: 'nation-3', name: 'Greece',   color: '#2a9d8f', cities: ['Athens',     'Corinth'    ] },
-  { id: 'nation-4', name: 'Egypt',    color: '#e9c46a', cities: ['Alexandria', 'Memphis'    ] },
-  { id: 'nation-5', name: 'Carthage', color: '#f4a261', cities: ['Carthago',   'Utica'      ] },
-] as const;
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -55,6 +49,7 @@ export class BootScene extends Phaser.Scene {
 
     // ── Terrain (must be set before spawn algorithm queries it) ──────────────
 
+    // Water border
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
         if (r === 0 || r === GRID_SIZE - 1 || c === 0 || c === GRID_SIZE - 1) {
@@ -63,36 +58,10 @@ export class BootScene extends Phaser.Scene {
       }
     }
 
-    const forestTiles: [number, number][] = [
-      [3, 4], [3, 5], [4, 4], [4, 5], [4, 6], [5, 5], [5, 6],
-      [14, 16], [14, 17], [15, 16], [15, 17], [15, 18], [16, 17],
-    ];
-    const hillTiles: [number, number][] = [
-      [8, 17], [8, 18], [9, 17], [9, 18], [9, 19], [10, 18],
-      [18, 5], [18, 6], [19, 5], [19, 6],
-    ];
-    const desertTiles: [number, number][] = [
-      [19, 14], [19, 15], [20, 14], [20, 15], [20, 16], [21, 15],
-      [5, 18], [6, 18], [6, 19], [7, 18],
-    ];
-    const mountainTiles: [number, number][] = [
-      [2, 17], [3, 17], [3, 18], [4, 17],
-      [20, 7], [21, 7], [21, 8], [22, 7],
-    ];
-    const interiorWaterTiles: [number, number][] = [
-      [11, 10], [11, 11], [12, 10], [12, 11], [12, 12], [13, 11],
-    ];
-
-    for (const [r, c] of forestTiles)        grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.FOREST);
-    for (const [r, c] of hillTiles)          grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.HILLS);
-    for (const [r, c] of desertTiles)        grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.DESERT);
-    for (const [r, c] of mountainTiles)      grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.MOUNTAIN);
-    for (const [r, c] of interiorWaterTiles) grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
+    // Procedural terrain
+    placeProceduralTerrain(grid, GRID_SIZE);
 
     // ── Resource deposits ─────────────────────────────────────────────────────
-    // Spawn deposits randomly on plains/desert/forest tiles (not on the border water ring).
-    // Each eligible tile has a ~15% chance.  The deposit pool is weighted toward common types.
-
     const DEPOSIT_POOL: TerritoryResourceType[] = [
       TerritoryResourceType.COPPER,
       TerritoryResourceType.COPPER,
@@ -132,47 +101,50 @@ export class BootScene extends Phaser.Scene {
     const spawnPairs    = pickCoastalSpawnPairs(grid, GRID_SIZE, totalNations);
     const takenPositions: import('@/types/common').GridCoordinates[] = [];
 
+    // Shuffle nation configs so each game uses different names/colors
+    const shuffledNations = [...GAME_NAMES.nations];
+    for (let i = shuffledNations.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledNations[i], shuffledNations[j]] = [shuffledNations[j]!, shuffledNations[i]!];
+    }
+
     for (let i = 0; i < totalNations; i++) {
-      const cfg  = NATION_CONFIGS[i];
+      const cfg  = shuffledNations[i];
       const pair = spawnPairs[i];
       if (!cfg || !pair) break;
 
+      const nationId = `nation-${i + 1}`;
       const isLocal  = i === 0;
       const playerId = `player-${i + 1}`;
 
-      const nation = new Nation(cfg.id, cfg.name, cfg.color, !isLocal);
+      const nation = new Nation(nationId, cfg.name, cfg.color, !isLocal);
       nation.setControlledBy(playerId);
-      // Starting resources — enough to begin researching and build within the first minute
       nation.getTreasury().addResource(ResourceType.GOLD,         50);
       nation.getTreasury().addResource(ResourceType.FOOD,         30);
       nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 20);
 
-      // Grant one random root tech at game start (low-level head start varies each game)
       const startingTech = ROOT_TECHS[Math.floor(Math.random() * ROOT_TECHS.length)]!;
       nation.startResearch(startingTech, 1);
       nation.tickResearch();
 
       gameState.addNation(nation);
+      gameState.addPlayer(new Player(playerId, isLocal ? 'Player' : cfg.name, nationId, isLocal));
 
-      gameState.addPlayer(new Player(playerId, isLocal ? 'Player' : cfg.name, cfg.id, isLocal));
-
-      const infantry = new Infantry(`unit-inf-${i + 1}`,   cfg.id, pair.infantry);
-      const scout    = new Scout(   `unit-scout-${i + 1}`, cfg.id, pair.scout);
+      const infantry = new Infantry(`unit-inf-${i + 1}`,   nationId, pair.infantry);
+      const scout    = new Scout(   `unit-scout-${i + 1}`, nationId, pair.scout);
       infantry.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY));
       scout.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT));
 
       takenPositions.push(pair.infantry, pair.scout);
 
-      // Place 2 cities near the spawn, spaced apart
       const cityPositions = findCityPositions(grid, pair.infantry, takenPositions, GRID_SIZE);
       for (let j = 0; j < 2; j++) {
         const pos = cityPositions[j];
         if (!pos) continue;
         const cityName = cfg.cities[j] ?? `${cfg.name} ${j + 1}`;
         const cityId   = `city-${i + 1}-${j + 1}`;
-        gameState.addCity(new City(cityId, cityName, cfg.id, pos));
+        gameState.addCity(new City(cityId, cityName, nationId, pos));
         takenPositions.push(pos);
-        // Assign starting units to the first city of their nation
         if (j === 0) {
           infantry.setHomeCityId(cityId);
           scout.setHomeCityId(cityId);
@@ -182,10 +154,73 @@ export class BootScene extends Phaser.Scene {
       gameState.addUnit(infantry);
       gameState.addUnit(scout);
 
-      // Assign starting territory — an ellipse connecting the two cities
-      assignStartingTerritory(grid, cfg.id, cityPositions, GRID_SIZE);
+      assignStartingTerritory(grid, nationId, cityPositions, GRID_SIZE);
     }
 
     this.scene.start('GameScene', { gameState, setup });
+  }
+}
+
+// ── Procedural terrain generation ─────────────────────────────────────────────
+
+function placeCluster(
+  grid: Grid,
+  terrain: TerrainType,
+  centerRow: number,
+  centerCol: number,
+  radius: number,
+  gridSize: number,
+): void {
+  for (let r = centerRow - radius; r <= centerRow + radius; r++) {
+    for (let c = centerCol - radius; c <= centerCol + radius; c++) {
+      if (r < 1 || r >= gridSize - 1 || c < 1 || c >= gridSize - 1) continue;
+      if (Math.abs(r - centerRow) + Math.abs(c - centerCol) > radius) continue;
+      grid.getTerritory({ row: r, col: c })?.setTerrainType(terrain);
+    }
+  }
+}
+
+function randomInRange(min: number, max: number): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function placeProceduralTerrain(grid: Grid, gridSize: number): void {
+  const P = gridSize - 2; // playable range: 1..gridSize-2
+
+  // Forests: 4-6 clusters, radius 1-3
+  for (let i = 0; i < randomInRange(4, 6); i++) {
+    placeCluster(grid, TerrainType.FOREST,
+      randomInRange(1, P), randomInRange(1, P),
+      randomInRange(1, 3), gridSize);
+  }
+
+  // Hills: 3-5 clusters, radius 1-2
+  for (let i = 0; i < randomInRange(3, 5); i++) {
+    placeCluster(grid, TerrainType.HILLS,
+      randomInRange(1, P), randomInRange(1, P),
+      randomInRange(1, 2), gridSize);
+  }
+
+  // Desert: 2-4 clusters, radius 1-2
+  for (let i = 0; i < randomInRange(2, 4); i++) {
+    placeCluster(grid, TerrainType.DESERT,
+      randomInRange(1, P), randomInRange(1, P),
+      randomInRange(1, 2), gridSize);
+  }
+
+  // Mountains: 2-3 small clusters, radius 1
+  for (let i = 0; i < randomInRange(2, 3); i++) {
+    placeCluster(grid, TerrainType.MOUNTAIN,
+      randomInRange(1, P), randomInRange(1, P),
+      1, gridSize);
+  }
+
+  // Interior lakes: 1-2, radius 1, kept away from edges
+  const lakeMin = Math.floor(gridSize * 0.25);
+  const lakeMax = Math.floor(gridSize * 0.75);
+  for (let i = 0; i < randomInRange(1, 2); i++) {
+    placeCluster(grid, TerrainType.WATER,
+      randomInRange(lakeMin, lakeMax), randomInRange(lakeMin, lakeMax),
+      1, gridSize);
   }
 }

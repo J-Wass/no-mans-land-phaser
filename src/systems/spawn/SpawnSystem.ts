@@ -142,7 +142,7 @@ export function assignStartingTerritory(
   cities: GridCoordinates[],
   gridSize: number,
 ): void {
-  const OVAL_PADDING = 7;
+  const OVAL_PADDING = 4;
 
   if (cities.length === 0) return;
 

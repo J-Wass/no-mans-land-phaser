@@ -13,7 +13,7 @@ export class Scout extends Unit {
       speed: 3,
       attackRange: 1,
       vision: 2,
-      upkeep: { [ResourceType.FOOD]: 1 },
+      upkeep: { [ResourceType.FOOD]: 1, [ResourceType.RAW_MATERIAL]: 1 },
     });
   }
 

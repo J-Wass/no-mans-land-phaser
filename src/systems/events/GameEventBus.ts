@@ -65,6 +65,8 @@ export type GameEventMap = {
   'territory:claimed':              { position: GridCoordinates; nationId: EntityId; tick: number; fromNationId?: EntityId };
   /** A building was constructed on a territory tile. */
   'territory:building-built':       { position: GridCoordinates; building: TerritoryBuildingType; tick: number };
+  /** A territory building was upgraded to the next level. */
+  'territory:building-upgraded':    { position: GridCoordinates; building: TerritoryBuildingType; newLevel: number; tick: number };
   /** A unit started conquering an enemy territory tile. */
   'territory:conquest-started':     { position: GridCoordinates; nationId: EntityId; needed: number; tick: number };
   /** Conquest progress update — emitted each tick while contested. */
@@ -77,6 +79,8 @@ export type GameEventMap = {
   'nation:research-started':   { nationId: EntityId; techId: TechId };
   /** TickEngine completed one game tick. */
   'game:tick':                 { tick: number };
+  /** Player toggled game speed (1 = normal, 2 = fast, 4 = very fast). */
+  'game:speed-change':         { speed: number };
   /** Player selected (or deselected) a unit. */
   'unit:selected':             { unit: Unit | null };
   /** Player highlighted a city (single-click) or deselected. */

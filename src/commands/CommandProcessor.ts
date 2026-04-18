@@ -12,12 +12,14 @@ import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import type {
   GameCommand, CommandResult,
   MoveUnitCommand, BuildTerritoryCommand, BuildCityBuildingCommand,
+  UpgradeTerritoryBuildingCommand,
   StartResearchCommand, CancelResearchCommand, StartCityProductionCommand,
   SetUnitBattleOrderCommand,
   DeclareWarCommand, ProposePeaceCommand, OfferTradeCommand,
 } from './GameCommand';
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 import { TERRITORY_BUILDING_MAP, TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { MAX_WALLS_LEVEL } from '@/systems/grid/Territory';
 import { CITY_BUILDING_MAP } from '@/systems/territory/CityBuilding';
 import { TECH_MAP } from '@/systems/research/TechTree';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
@@ -44,16 +46,17 @@ export class CommandProcessor {
 
   public dispatch(command: GameCommand): CommandResult {
     switch (command.type) {
-      case 'MOVE_UNIT':             return this.handleMoveUnit(command);
-      case 'BUILD_TERRITORY':       return this.handleBuildTerritory(command);
-      case 'BUILD_CITY_BUILDING':   return this.handleBuildCityBuilding(command);
-      case 'START_RESEARCH':        return this.handleStartResearch(command);
-      case 'CANCEL_RESEARCH':       return this.handleCancelResearch(command);
-      case 'START_CITY_PRODUCTION': return this.handleStartCityProduction(command);
-      case 'SET_UNIT_BATTLE_ORDER': return this.handleSetUnitBattleOrder(command);
-      case 'DECLARE_WAR':           return this.handleDeclareWar(command);
-      case 'PROPOSE_PEACE':         return this.handleProposePeace(command);
-      case 'OFFER_TRADE':           return this.handleOfferTrade(command);
+      case 'MOVE_UNIT':              return this.handleMoveUnit(command);
+      case 'BUILD_TERRITORY':        return this.handleBuildTerritory(command);
+      case 'BUILD_CITY_BUILDING':    return this.handleBuildCityBuilding(command);
+      case 'UPGRADE_TERRITORY':      return this.handleUpgradeTerritory(command);
+      case 'START_RESEARCH':         return this.handleStartResearch(command);
+      case 'CANCEL_RESEARCH':        return this.handleCancelResearch(command);
+      case 'START_CITY_PRODUCTION':  return this.handleStartCityProduction(command);
+      case 'SET_UNIT_BATTLE_ORDER':  return this.handleSetUnitBattleOrder(command);
+      case 'DECLARE_WAR':            return this.handleDeclareWar(command);
+      case 'PROPOSE_PEACE':          return this.handleProposePeace(command);
+      case 'OFFER_TRADE':            return this.handleOfferTrade(command);
     }
   }
 
@@ -162,6 +165,43 @@ export class CommandProcessor {
     return { success: true };
   }
 
+  // ── UPGRADE_TERRITORY ────────────────────────────────────────────────────
+
+  private handleUpgradeTerritory(command: UpgradeTerritoryBuildingCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const territory = this.gameState.getGrid().getTerritory(command.position);
+    if (!territory) return { success: false, reason: 'Territory not found' };
+    if (territory.getControllingNation() !== nation.getId())
+      return { success: false, reason: 'Territory not owned by your nation' };
+    if (!territory.hasBuilding(command.building))
+      return { success: false, reason: `${command.building} not yet built here` };
+
+    const def = TERRITORY_BUILDING_MAP.get(command.building);
+    if (!def) return { success: false, reason: 'Unknown building type' };
+
+    const currentLevel = territory.getBuildingLevel(command.building);
+    const maxLevel     = command.building === TerritoryBuildingType.WALLS ? MAX_WALLS_LEVEL : def.maxLevel;
+    if (currentLevel >= maxLevel)
+      return { success: false, reason: `Already at maximum level (${maxLevel})` };
+
+    if (!nation.getTreasury().hasResources(def.upgradeCost))
+      return { success: false, reason: 'Insufficient resources' };
+
+    nation.getTreasury().consumeResources(def.upgradeCost);
+    territory.upgradeBuildingLevel(command.building);
+    const newLevel = territory.getBuildingLevel(command.building);
+    this.eventBus.emit('territory:building-upgraded', {
+      position: command.position, building: command.building,
+      newLevel, tick: command.issuedAtTick,
+    });
+    return { success: true };
+  }
+
   // ── BUILD_CITY_BUILDING ───────────────────────────────────────────────────
 
   private handleBuildCityBuilding(command: BuildCityBuildingCommand): CommandResult {
@@ -258,6 +298,12 @@ export class CommandProcessor {
 
     if (entry.requiresBuilding && !city.hasBuilding(entry.requiresBuilding))
       return { success: false, reason: `Requires ${entry.requiresBuilding}` };
+
+    if (entry.requiresDeposit) {
+      const deposits = this.gameState.getNationActiveDeposits(nation.getId());
+      if (!deposits.has(entry.requiresDeposit))
+        return { success: false, reason: `Requires active ${entry.requiresDeposit} mine` };
+    }
 
     if (!nation.getTreasury().hasResources(entry.cost))
       return { success: false, reason: 'Insufficient resources' };

@@ -10,6 +10,10 @@ import type { Grid } from '@/systems/grid/Grid';
 import { coordsToKey } from '@/systems/grid/Grid';
 import type { UnitType, UnitStats } from '@/entities/units/Unit';
 import { stepCost } from '@/systems/movement/MovementCosts';
+import type { GameState } from '@/managers/GameState';
+
+/** Extra cost added per tile when entering enemy-controlled territory. */
+const ENEMY_TERRITORY_PENALTY = 12;
 
 interface AStarNode {
   coords: GridCoordinates;
@@ -26,8 +30,10 @@ export class Pathfinder {
   constructor(private grid: Grid) {}
 
   /**
-   * Find the lowest-cost path from `from` to `to` for a unit
-   * with the given type and stats.
+   * Find the lowest-cost path from `from` to `to` for a unit with the given type and stats.
+   *
+   * If `ownerNationId` and `gameState` are provided, entering enemy-controlled tiles
+   * carries an extra penalty so the path naturally avoids them when a detour is reasonable.
    *
    * @returns Array of GridCoordinates (excluding start, including dest),
    *          or null if no path exists.
@@ -36,12 +42,20 @@ export class Pathfinder {
     from: GridCoordinates,
     to: GridCoordinates,
     unitType: UnitType,
-    stats: UnitStats
+    stats: UnitStats,
+    ownerNationId?: string,
+    gameState?: GameState,
   ): GridCoordinates[] | null {
     const destTerritory = this.grid.getTerritory(to);
     if (!destTerritory) return null;
 
-    const destCost = stepCost(destTerritory.getTerrainType(), unitType, stats);
+    const ownerDeposits = ownerNationId && gameState
+      ? gameState.getNationActiveDeposits(ownerNationId)
+      : undefined;
+    const ownerCounts = ownerNationId && gameState
+      ? gameState.getNationActiveDepositCounts(ownerNationId)
+      : undefined;
+    const destCost = stepCost(destTerritory.getTerrainType(), unitType, stats, ownerDeposits, ownerCounts);
     if (!isFinite(destCost)) return null;
 
     const open: AStarNode[] = [];
@@ -95,8 +109,16 @@ export class Pathfinder {
         if (closed.has(neighborKey)) continue;
 
         const terrain = neighbor.getTerrainType();
-        const cost = stepCost(terrain, unitType, stats);
+        let cost = stepCost(terrain, unitType, stats, ownerDeposits, ownerCounts);
         if (!isFinite(cost)) continue; // impassable
+
+        // Penalise enemy-controlled tiles so the path prefers to go around them.
+        if (ownerNationId && gameState) {
+          const tOwner = neighbor.getControllingNation();
+          if (tOwner && tOwner !== ownerNationId) {
+            cost += ENEMY_TERRITORY_PENALTY;
+          }
+        }
 
         const tentativeG = current.g + cost;
         const existingG = gScore.get(neighborKey);

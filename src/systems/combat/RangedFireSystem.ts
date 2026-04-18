@@ -19,7 +19,7 @@ import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { EntityId, GridCoordinates } from '@/types/common';
 import type { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
-import { weaponTierDamageBonus, fireManaDamageFactor, lightningManaFactor } from '@/systems/resources/ResourceBonuses';
+import { weaponTierDamageBonus, fireManaDamageFactor } from '@/systems/resources/ResourceBonuses';
 
 /** Ticks between consecutive shots from a stationary ranged unit (2 s at TICK_RATE=10). */
 export const RANGED_FIRE_INTERVAL_TICKS = 20;
@@ -45,7 +45,8 @@ export class RangedFireSystem {
       if (!target) continue;
 
       const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
-      const damage   = this.calculateDamage(unit, deposits);
+      const counts   = gameState.getNationActiveDepositCounts(unit.getOwnerId());
+      const damage   = this.calculateDamage(unit, deposits, counts);
 
       if (target.type === 'unit') {
         target.unit.takeDamage(damage);
@@ -145,15 +146,18 @@ export class RangedFireSystem {
     return null;
   }
 
-  private calculateDamage(attacker: Unit, deposits: ReadonlySet<TerritoryResourceType>): number {
+  private calculateDamage(
+    attacker: Unit,
+    deposits: ReadonlySet<TerritoryResourceType>,
+    counts:   ReadonlyMap<TerritoryResourceType, number>,
+  ): number {
     const stats      = attacker.getStats();
     const baseDamage = stats.rangedDamage + weaponTierDamageBonus(deposits);
     const healthRatio  = attacker.getHealth() / stats.maxHealth;
     const healthFactor = 0.55 + 0.45 * healthRatio;
-    const fireFactor      = fireManaDamageFactor(deposits);
-    const lightningFactor = lightningManaFactor(deposits);
-    const randomness      = 0.9 + Math.random() * 0.2;
-    return Math.max(1, Math.round(baseDamage * healthFactor * fireFactor * lightningFactor * randomness));
+    const fireFactor = fireManaDamageFactor(deposits, counts);
+    const randomness = 0.9 + Math.random() * 0.2;
+    return Math.max(1, Math.round(baseDamage * healthFactor * fireFactor * randomness));
   }
 }
 

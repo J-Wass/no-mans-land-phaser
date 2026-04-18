@@ -8,9 +8,17 @@ import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 
 export const BASE_TERRITORY_HP  = 30;
-export const WALLS_HP_BONUS      = 50;
-export const WALLS_ATTACK_DAMAGE = 8;
+/** HP bonus per wall level (e.g. lvl 3 = +150 HP). */
+export const WALLS_HP_PER_LEVEL  = 50;
+/** Attack damage per wall level. lvl 1 = 8, each level +4. */
+export const WALLS_DMG_BASE      = 8;
+export const WALLS_DMG_PER_LEVEL = 4;
 export const BASE_ATTACK_DAMAGE  = 3;
+export const MAX_WALLS_LEVEL     = 5;
+
+/** Legacy alias kept so existing imports don't break. */
+export const WALLS_HP_BONUS      = WALLS_HP_PER_LEVEL;
+export const WALLS_ATTACK_DAMAGE = WALLS_DMG_BASE;
 
 export enum TerrainType {
   PLAINS   = 'PLAINS',
@@ -28,6 +36,7 @@ export interface TerritoryData {
   cityId:          EntityId | null;
   resourceDeposit: TerritoryResourceType | null;
   buildings:       TerritoryBuildingType[];
+  buildingLevels:  Partial<Record<TerritoryBuildingType, number>>;
   currentHealth:   number;
 }
 
@@ -42,6 +51,7 @@ export class Territory implements Serializable<TerritoryData> {
       cityId: null,
       resourceDeposit: null,
       buildings: [],
+      buildingLevels: {},
       currentHealth: BASE_TERRITORY_HP,
     };
   }
@@ -103,19 +113,48 @@ export class Territory implements Serializable<TerritoryData> {
   public addBuilding(b: TerritoryBuildingType): void {
     if (!this.hasBuilding(b)) {
       this.data.buildings.push(b);
-      this.data.currentHealth = this.getMaxHealth(); // fresh construction fully restores
+      this.data.buildingLevels = { ...this.data.buildingLevels, [b]: 1 };
+      this.data.currentHealth = this.getMaxHealth();
     }
   }
 
   public setBuildings(buildings: TerritoryBuildingType[]): void {
     this.data.buildings = [...buildings];
+    // Initialise any missing levels at 1
+    for (const b of buildings) {
+      if (!this.data.buildingLevels[b]) {
+        this.data.buildingLevels = { ...this.data.buildingLevels, [b]: 1 };
+      }
+    }
     this.data.currentHealth = this.getMaxHealth();
+  }
+
+  // ── Building levels ──────────────────────────────────────────────────────────
+
+  public getBuildingLevel(b: TerritoryBuildingType): number {
+    if (!this.hasBuilding(b)) return 0;
+    return this.data.buildingLevels[b] ?? 1;
+  }
+
+  public setBuildingLevel(b: TerritoryBuildingType, level: number): void {
+    this.data.buildingLevels = { ...this.data.buildingLevels, [b]: level };
+    this.data.currentHealth = this.getMaxHealth();
+  }
+
+  public upgradeBuildingLevel(b: TerritoryBuildingType): boolean {
+    if (!this.hasBuilding(b)) return false;
+    const current = this.getBuildingLevel(b);
+    if (b === TerritoryBuildingType.WALLS && current >= MAX_WALLS_LEVEL) return false;
+    this.data.buildingLevels = { ...this.data.buildingLevels, [b]: current + 1 };
+    this.data.currentHealth = this.getMaxHealth();
+    return true;
   }
 
   // ── Health (determined by wall level) ────────────────────────────────────────
 
   public getMaxHealth(): number {
-    return BASE_TERRITORY_HP + (this.hasBuilding(TerritoryBuildingType.WALLS) ? WALLS_HP_BONUS : 0);
+    const wallLvl = this.getBuildingLevel(TerritoryBuildingType.WALLS);
+    return BASE_TERRITORY_HP + wallLvl * WALLS_HP_PER_LEVEL;
   }
 
   public getHealth(): number { return this.data.currentHealth; }
@@ -133,7 +172,17 @@ export class Territory implements Serializable<TerritoryData> {
   }
 
   public getAttackDamage(): number {
-    return this.hasBuilding(TerritoryBuildingType.WALLS) ? WALLS_ATTACK_DAMAGE : BASE_ATTACK_DAMAGE;
+    const wallLvl = this.getBuildingLevel(TerritoryBuildingType.WALLS);
+    if (wallLvl === 0) return BASE_ATTACK_DAMAGE;
+    return WALLS_DMG_BASE + (wallLvl - 1) * WALLS_DMG_PER_LEVEL;
+  }
+
+  /** Range in tiles from which walls can fire at attackers (1 = adjacent only). */
+  public getWallsRange(): number {
+    const lvl = this.getBuildingLevel(TerritoryBuildingType.WALLS);
+    if (lvl >= 4) return 3;
+    if (lvl >= 2) return 2;
+    return 1;
   }
 
   public getData(): Readonly<TerritoryData> {
@@ -143,8 +192,9 @@ export class Territory implements Serializable<TerritoryData> {
   public toJSON(): TerritoryData {
     return {
       ...this.data,
-      coordinates: { ...this.data.coordinates },
-      buildings:   [...this.data.buildings],
+      coordinates:    { ...this.data.coordinates },
+      buildings:      [...this.data.buildings],
+      buildingLevels: { ...this.data.buildingLevels },
     };
   }
 }

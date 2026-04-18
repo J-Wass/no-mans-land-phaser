@@ -94,6 +94,9 @@ export class MovementSystem {
         continue;
       }
 
+      const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
+      const counts   = gameState.getNationActiveDepositCounts(unit.getOwnerId());
+
       // Resolve first-tick cost (ticksRemainingOnStep === 0 means just issued)
       if (state.ticksRemainingOnStep <= 0) {
         const nextCoords = state.path[0];
@@ -106,7 +109,7 @@ export class MovementSystem {
           this.states.delete(unitId);
           continue;
         }
-        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats());
+        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts);
         if (!isFinite(cost)) {
           // Path became invalid (terrain changed); cancel
           this.states.delete(unitId);
@@ -147,7 +150,7 @@ export class MovementSystem {
           if (nextNext !== undefined) {
             const territory = grid.getTerritory(nextNext);
             if (territory) {
-              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats());
+              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts);
               state.ticksRemainingOnStep = isFinite(cost) ? cost : 0;
             }
           }
@@ -177,6 +180,9 @@ export class MovementSystem {
         continue;
       }
 
+      const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
+      const counts   = gameState.getNationActiveDepositCounts(unit.getOwnerId());
+
       if (state.ticksRemainingOnStep <= 0) {
         const nextCoords = state.path[0];
         if (nextCoords === undefined) {
@@ -188,7 +194,7 @@ export class MovementSystem {
           this.states.delete(unitId);
           continue;
         }
-        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats());
+        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts);
         if (!isFinite(cost)) {
           this.states.delete(unitId);
           continue;
@@ -264,7 +270,7 @@ export class MovementSystem {
           if (nextNext !== undefined) {
             const territory = grid.getTerritory(nextNext);
             if (territory) {
-              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats());
+              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts);
               state.ticksRemainingOnStep = isFinite(cost) ? cost : 0;
             }
           }

@@ -161,6 +161,22 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     return result;
   }
 
+  /**
+   * Like getNationActiveDeposits but returns a count of active mines per deposit type.
+   * Useful for "further advantage" scaling where two mines of the same type give extra bonuses.
+   */
+  public getNationActiveDepositCounts(nationId: EntityId): Map<TerritoryResourceType, number> {
+    const result = new Map<TerritoryResourceType, number>();
+    const deposits = this.getNationActiveDeposits(nationId);
+    // Count active mines by iterating controlled territories again
+    for (const territory of this.grid.getTerritoriesByNation(nationId)) {
+      const deposit = territory.getResourceDeposit();
+      if (!deposit || !deposits.has(deposit)) continue;
+      result.set(deposit, (result.get(deposit) ?? 0) + 1);
+    }
+    return result;
+  }
+
   // ── Turn management ───────────────────────────────────────────────────────
   public getCurrentTurn(): number        { return this.currentTurn; }
   public getActiveNationId(): EntityId | null { return this.activeNationId; }
@@ -210,6 +226,13 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
       if (td.resourceDeposit !== null) territory.setResourceDeposit(td.resourceDeposit);
       // Restore buildings (may be missing in old saves — default to empty)
       territory.setBuildings((td as { buildings?: TerritoryBuildingType[] }).buildings ?? []);
+      // Restore building levels (may be missing in old saves — setBuildings defaults to level 1)
+      const savedLevels = (td as { buildingLevels?: Partial<Record<TerritoryBuildingType, number>> }).buildingLevels;
+      if (savedLevels) {
+        for (const [building, level] of Object.entries(savedLevels)) {
+          territory.setBuildingLevel(building as TerritoryBuildingType, level as number);
+        }
+      }
       // Restore health (may be missing in old saves — setBuildings already set it to max)
       const savedHp = (td as { currentHealth?: number }).currentHealth;
       if (savedHp !== undefined) territory.setHealth(savedHp);

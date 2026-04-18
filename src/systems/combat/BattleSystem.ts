@@ -11,7 +11,6 @@ import {
   weaponTierDamageBonus,
   fireManaDamageFactor,
   earthManaHPFactor,
-  lightningManaFactor,
 } from '@/systems/resources/ResourceBonuses';
 
 export const BATTLE_ROUND_TICKS = 1 * TICK_RATE;
@@ -126,8 +125,10 @@ export class BattleSystem {
       const terrain       = gameState.getGrid().getTerritory(battle.position)?.getTerrainType() ?? TerrainType.PLAINS;
       const depositsA     = gameState.getNationActiveDeposits(unitA.getOwnerId());
       const depositsB     = gameState.getNationActiveDeposits(unitB.getOwnerId());
-      const damageToUnitA = this.calculateDamage(unitB, unitA, terrain, battle.roundsElapsed, depositsB, depositsA);
-      const damageToUnitB = this.calculateDamage(unitA, unitB, terrain, battle.roundsElapsed, depositsA, depositsB);
+      const countsA       = gameState.getNationActiveDepositCounts(unitA.getOwnerId());
+      const countsB       = gameState.getNationActiveDepositCounts(unitB.getOwnerId());
+      const damageToUnitA = this.calculateDamage(unitB, unitA, terrain, battle.roundsElapsed, depositsB, depositsA, countsB, countsA);
+      const damageToUnitB = this.calculateDamage(unitA, unitB, terrain, battle.roundsElapsed, depositsA, depositsB, countsA, countsB);
 
       unitA.takeDamage(damageToUnitA);
       unitB.takeDamage(damageToUnitB);
@@ -257,9 +258,11 @@ export class BattleSystem {
     round: number,
     attackerDeposits: ReadonlySet<TerritoryResourceType>,
     defenderDeposits: ReadonlySet<TerritoryResourceType>,
+    attackerCounts:   ReadonlyMap<TerritoryResourceType, number>,
+    defenderCounts:   ReadonlyMap<TerritoryResourceType, number>,
   ): number {
-    const offense    = this.getOffenseScore(attacker, defender, terrain, round, attackerDeposits);
-    const mitigation = this.getMitigationScore(defender, attacker, terrain, defenderDeposits);
+    const offense    = this.getOffenseScore(attacker, defender, terrain, round, attackerDeposits, attackerCounts);
+    const mitigation = this.getMitigationScore(defender, attacker, terrain, defenderDeposits, defenderCounts);
     return Math.max(1, Math.round(offense * (1 - mitigation)));
   }
 
@@ -269,6 +272,7 @@ export class BattleSystem {
     terrain: TerrainType,
     round: number,
     attackerDeposits: ReadonlySet<TerritoryResourceType>,
+    attackerCounts:   ReadonlyMap<TerritoryResourceType, number>,
   ): number {
     const stats = attacker.getStats();
     const order = effectiveBattleOrder(attacker);
@@ -281,12 +285,10 @@ export class BattleSystem {
     const orderFactor   = getOrderAttackFactor(order, useRanged, round);
     const matchupFactor = getMatchupAttackFactor(attacker.getUnitType(), defender.getUnitType(), order, defender.getStats().armorType, useRanged);
     const terrainFactor = getTerrainAttackFactor(attacker.getUnitType(), terrain, order, useRanged);
-    // Mana bonuses as multipliers
-    const fireFactor      = fireManaDamageFactor(attackerDeposits);
-    const lightningFactor = lightningManaFactor(attackerDeposits);
-    const randomness      = 0.9 + this.random() * 0.2;
+    const fireFactor = fireManaDamageFactor(attackerDeposits, attackerCounts);
+    const randomness = 0.9 + this.random() * 0.2;
 
-    return baseDamage * healthFactor * orderFactor * matchupFactor * terrainFactor * fireFactor * lightningFactor * randomness;
+    return baseDamage * healthFactor * orderFactor * matchupFactor * terrainFactor * fireFactor * randomness;
   }
 
   private getMitigationScore(
@@ -294,13 +296,14 @@ export class BattleSystem {
     attacker: Unit,
     terrain: TerrainType,
     defenderDeposits: ReadonlySet<TerritoryResourceType>,
+    defenderCounts:   ReadonlyMap<TerritoryResourceType, number>,
   ): number {
     const order        = effectiveBattleOrder(defender);
     const base         = getOrderMitigation(order);
     const terrainBonus = getTerrainMitigation(defender.getUnitType(), terrain, order);
     const matchupBonus = getMatchupMitigation(defender.getUnitType(), attacker.getUnitType(), order);
-    // Earth mana grants bonus mitigation (+8%)
-    const earthBonus   = earthManaHPFactor(defenderDeposits) - 1.0;
+    // Earth mana grants bonus mitigation
+    const earthBonus   = earthManaHPFactor(defenderDeposits, defenderCounts) - 1.0;
     return clamp(base + terrainBonus + matchupBonus + earthBonus, 0, 0.65);
   }
 

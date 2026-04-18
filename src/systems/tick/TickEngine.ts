@@ -15,6 +15,9 @@ import { ProductionSystem } from '@/systems/production/ProductionSystem';
 import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { MAX_MORALE } from '@/entities/units/Unit';
 import { waterManaRegenBonus } from '@/systems/resources/ResourceBonuses';
+
+/** Ticks between water-mana heal pulses (same cadence as city heal). */
+const WATER_MANA_HEAL_INTERVAL_TICKS = TICK_RATE;
 import type { SavedSiegeState } from '@/types/gameSetup';
 import type { EntityId } from '@/types/common';
 import { TICK_RATE } from '@/config/constants';
@@ -58,6 +61,9 @@ export class TickEngine {
       this.healUnitsInCities();
       this.recoverMorale();
     }
+    if (this.currentTick % WATER_MANA_HEAL_INTERVAL_TICKS === 0) {
+      this.healUnitsWithWaterMana();
+    }
     this.eventBus.emit('game:tick', { tick: this.currentTick });
     return this.currentTick;
   }
@@ -95,9 +101,23 @@ export class TickEngine {
       const city = this.gameState.getCity(cityId);
       if (!city || city.getOwnerId() !== unit.getOwnerId()) continue;
 
-      const deposits  = this.gameState.getNationActiveDeposits(unit.getOwnerId());
-      const totalRate = CITY_HEAL_RATE + waterManaRegenBonus(deposits);
-      unit.heal(Math.ceil(unit.getStats().maxHealth * totalRate));
+      unit.heal(Math.ceil(unit.getStats().maxHealth * CITY_HEAL_RATE));
+    }
+  }
+
+  /** Heal all alive units of nations with active water mana mines, anywhere on the map. */
+  private healUnitsWithWaterMana(): void {
+    for (const unit of this.gameState.getAllUnits()) {
+      if (!unit.isAlive()) continue;
+      if (unit.isEngagedInBattle()) continue;
+      if (unit.getHealth() >= unit.getStats().maxHealth) continue;
+
+      const deposits = this.gameState.getNationActiveDeposits(unit.getOwnerId());
+      const counts   = this.gameState.getNationActiveDepositCounts(unit.getOwnerId());
+      const rate     = waterManaRegenBonus(deposits, counts);
+      if (rate > 0) {
+        unit.heal(Math.ceil(unit.getStats().maxHealth * rate));
+      }
     }
   }
 

@@ -19,7 +19,7 @@ import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TerrainType } from '@/systems/grid/Territory';
-import { TerritoryBuildingType, BUILDING_MAP_ICON } from '@/systems/territory/TerritoryBuilding';
+import { TerritoryBuildingType, BUILDING_MAP_ICON, TERRITORY_BUILDING_MAP } from '@/systems/territory/TerritoryBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { RESOURCE_EMOJI } from '@/scenes/CityMenuScene';
 import type { GridCoordinates } from '@/types/common';
@@ -56,6 +56,10 @@ const STANCE_ORDERS: Array<{ order: BattleOrder; label: string }> = [
   { order: 'CHARGE',    label: 'CHARGE'  },
 ];
 
+/** Ticks per in-game day (10 ticks/sec * 10 sec = 100 ticks = 1 day). */
+const TICKS_PER_DAY = 100;
+const SPEED_CYCLE = [1, 2, 4] as const;
+
 export class UIScene extends Phaser.Scene {
   private setup!:            GameSetup;
   private gameState!:        GameState;
@@ -68,9 +72,13 @@ export class UIScene extends Phaser.Scene {
   private selectedCity:          City | null            = null;
   private selectedTerritoryPos:  GridCoordinates | null = null;
 
+  // ── Game speed (cycles on button press, broadcast via eventBus) ────────────
+  private gameSpeed: typeof SPEED_CYCLE[number] = 1;
+
   // ── Dynamic text refs (updated every tick / frame) ─────────────────────────
   private tickText!:      Phaser.GameObjects.Text;
   private resourceText!:  Phaser.GameObjects.Text;
+  private speedBtnText:   Phaser.GameObjects.Text | null = null;
 
   // ── Info panel dynamic refs (updated in update()) ──────────────────────────
   private panelVisible    = false;
@@ -140,7 +148,8 @@ export class UIScene extends Phaser.Scene {
 
   private setupEventListeners(): void {
     this.eventBus.on('game:tick', ({ tick }) => {
-      if (this.tickText?.active) this.tickText.setText(`Tick ${tick}`);
+      const day = Math.floor(tick / TICKS_PER_DAY) + 1;
+      if (this.tickText?.active) this.tickText.setText(`Day ${day}`);
       this.refreshResources();
     });
 
@@ -229,9 +238,9 @@ export class UIScene extends Phaser.Scene {
       this.add.rectangle(W / 2, BAR_H, W, 1, 0x3344aa, 0.6).setOrigin(0.5, 0),
     );
 
-    // ── Left side: tick + difficulty ──────────────────────────────────────
+    // ── Left side: day counter + difficulty + speed toggle ────────────────
     this.tickText = this.track(
-      this.add.text(PAD, midY, 'Tick 0', {
+      this.add.text(PAD, midY, 'Day 1', {
         ...MONO, fontSize: fs(15, s), color: '#8899cc',
       }).setOrigin(0, 0.5),
     ) as Phaser.GameObjects.Text;
@@ -240,10 +249,33 @@ export class UIScene extends Phaser.Scene {
       easy: '#66cc66', medium: '#ddcc44', hard: '#ee6666', sandbox: '#88ccff',
     };
     this.track(
-      this.add.text(PAD + Math.round(80 * s), midY, this.setup.difficulty.toUpperCase(), {
+      this.add.text(PAD + Math.round(72 * s), midY, this.setup.difficulty.toUpperCase(), {
         ...MONO, fontSize: fs(13, s), color: diffColor[this.setup.difficulty], fontStyle: 'bold',
       }).setOrigin(0, 0.5),
     );
+
+    // Speed toggle button
+    const spdBtnW  = Math.round(46 * s);
+    const spdBtnH  = Math.round(26 * s);
+    const spdBtnX  = PAD + Math.round(175 * s) + spdBtnW / 2;
+    const spdBg = this.track(
+      this.add.rectangle(spdBtnX, midY, spdBtnW, spdBtnH, 0x1a1a3c)
+        .setStrokeStyle(1, 0x3355cc).setInteractive({ useHandCursor: true }),
+    ) as Phaser.GameObjects.Rectangle;
+    this.speedBtnText = this.track(
+      this.add.text(spdBtnX, midY, `${this.gameSpeed}x`, {
+        ...MONO, fontSize: fs(12, s), color: '#ffddaa', fontStyle: 'bold',
+      }).setOrigin(0.5),
+    ) as Phaser.GameObjects.Text;
+    spdBg.on('pointerover', () => spdBg.setFillStyle(0x2a2a50));
+    spdBg.on('pointerout',  () => spdBg.setFillStyle(0x1a1a3c));
+    spdBg.on('pointerup',   () => {
+      this.eventBus.emit('ui:click-consumed', {});
+      const idx = SPEED_CYCLE.indexOf(this.gameSpeed);
+      this.gameSpeed = SPEED_CYCLE[(idx + 1) % SPEED_CYCLE.length]!;
+      if (this.speedBtnText?.active) this.speedBtnText.setText(`${this.gameSpeed}x`);
+      this.eventBus.emit('game:speed-change', { speed: this.gameSpeed });
+    });
 
     // ── Right side: resources → research → menu ────────────────────────────
     const menuX     = W - PAD - BTN_W / 2;
@@ -469,17 +501,31 @@ export class UIScene extends Phaser.Scene {
 
     // ── Action row: OUTPOST — sits above stances
     if (hasActions) {
-      let ax = lx;
+      const ax = lx;
 
       if (hasOutpost) {
+        const outpostDef  = TERRITORY_BUILDING_MAP.get(TerritoryBuildingType.OUTPOST);
+        const outpostCost = outpostDef?.cost ?? {};
+        const costParts: string[] = [];
+        if (outpostCost[ResourceType.GOLD])         costParts.push(`${outpostCost[ResourceType.GOLD]}${RESOURCE_EMOJI[ResourceType.GOLD]}`);
+        if (outpostCost[ResourceType.RAW_MATERIAL]) costParts.push(`${outpostCost[ResourceType.RAW_MATERIAL]}${RESOURCE_EMOJI[ResourceType.RAW_MATERIAL]}`);
+        if (outpostCost[ResourceType.FOOD])         costParts.push(`${outpostCost[ResourceType.FOOD]}${RESOURCE_EMOJI[ResourceType.FOOD]}`);
+        const costStr = costParts.join(' ');
+
+        const oBtnW = Math.round(80 * s);
         const oBg = this.trackPanel(
-          this.add.rectangle(ax + BTN_W / 2, y + BTN_H / 2, BTN_W, BTN_H, 0x182818)
+          this.add.rectangle(ax + oBtnW / 2, y + BTN_H / 2, oBtnW, BTN_H, 0x182818)
             .setOrigin(0.5).setStrokeStyle(1, 0x44cc66).setInteractive({ useHandCursor: true }),
         ) as Phaser.GameObjects.Rectangle;
         this.trackPanel(
-          this.add.text(ax + BTN_W / 2, y + BTN_H / 2, '⚑ OUTPOST', {
+          this.add.text(ax + oBtnW / 2, y + BTN_H / 2 - Math.round(4 * s), '⚑ OUTPOST', {
             ...MONO, fontSize: fs(9, s), color: '#88ffaa',
-          }).setOrigin(0.5),
+          }).setOrigin(0.5, 1),
+        );
+        this.trackPanel(
+          this.add.text(ax + oBtnW / 2, y + BTN_H / 2 + Math.round(2 * s), costStr, {
+            ...MONO, fontSize: fs(8, s), color: '#aabb88',
+          }).setOrigin(0.5, 0),
         );
         oBg.on('pointerover', () => oBg.setFillStyle(0x243824));
         oBg.on('pointerout',  () => oBg.setFillStyle(0x182818));

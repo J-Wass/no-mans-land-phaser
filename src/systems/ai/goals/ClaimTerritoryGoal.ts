@@ -111,6 +111,7 @@ export class ClaimTerritoryGoal implements AIGoal {
     for (const unit of units) {
       const path = ctx.pathfinder.findPath(
         unit.position, target, unit.getUnitType(), unit.getStats(),
+        ctx.nationId, ctx.gameState,
       );
       if (path && path.length > 0) return { unitId: unit.id, path };
     }
