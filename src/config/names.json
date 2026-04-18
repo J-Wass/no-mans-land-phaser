@@ -1,0 +1,9 @@
+{
+  "nations": [
+    { "name": "Valdris",   "color": "#e63946", "cities": ["Valdrak",  "Stoneholt"] },
+    { "name": "Mirefall",  "color": "#457b9d", "cities": ["Mireby",   "Ashbridge"] },
+    { "name": "Thornwall", "color": "#2a9d8f", "cities": ["Grimholt", "Irongate"  ] },
+    { "name": "Dustmere",  "color": "#e9c46a", "cities": ["Sandkeep", "Ashford"   ] },
+    { "name": "Ironcroft", "color": "#f4a261", "cities": ["Coalfort", "Slagmere"  ] }
+  ]
+}
