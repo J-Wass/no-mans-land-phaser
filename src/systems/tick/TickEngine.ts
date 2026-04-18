@@ -12,10 +12,11 @@ import type { SavedBattleState } from '@/systems/combat/BattleSystem';
 import { CitySiegeSystem } from '@/systems/combat/CitySiegeSystem';
 import { RangedFireSystem } from '@/systems/combat/RangedFireSystem';
 import { ProductionSystem } from '@/systems/production/ProductionSystem';
-import { TerritoryConquestSystem } from '@/systems/territory/TerritoryConquestSystem';
+import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { MAX_MORALE } from '@/entities/units/Unit';
 import { waterManaRegenBonus } from '@/systems/resources/ResourceBonuses';
 import type { SavedSiegeState } from '@/types/gameSetup';
+import type { EntityId } from '@/types/common';
 import { TICK_RATE } from '@/config/constants';
 
 /** Ticks between city-healing pulses (1 s at TICK_RATE=10). */
@@ -31,11 +32,11 @@ const MORALE_RECOVERY_CITY     = 5;
 
 export class TickEngine {
   private currentTick = 0;
-  private readonly productionSystem       = new ProductionSystem();
-  private readonly battleSystem           = new BattleSystem();
-  private readonly citySiegeSystem        = new CitySiegeSystem();
-  private readonly rangedFireSystem       = new RangedFireSystem();
-  private readonly territoryConquestSystem = new TerritoryConquestSystem();
+  private readonly productionSystem        = new ProductionSystem();
+  private readonly battleSystem            = new BattleSystem();
+  private readonly citySiegeSystem         = new CitySiegeSystem();
+  private readonly rangedFireSystem        = new RangedFireSystem();
+  private readonly territoryBattleSystem   = new TerritoryBattleSystem();
 
   constructor(
     private gameState: GameState,
@@ -46,12 +47,12 @@ export class TickEngine {
   /** Advance one tick. Returns the new tick count. */
   public advance(): number {
     this.currentTick++;
-    this.movementSystem.tickWithBattles(this.gameState, this.eventBus, this.currentTick, this.battleSystem, this.citySiegeSystem);
+    this.movementSystem.tickWithBattles(this.gameState, this.eventBus, this.currentTick, this.battleSystem, this.citySiegeSystem, this.territoryBattleSystem);
     this.battleSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.citySiegeSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
+    this.territoryBattleSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.rangedFireSystem.tick(this.gameState, this.eventBus, this.currentTick);
     this.productionSystem.tick(this.gameState, this.eventBus, this.currentTick);
-    this.territoryConquestSystem.tick(this.gameState, this.eventBus, this.currentTick);
     this.sweepDeadUnits();
     if (this.currentTick % CITY_HEAL_INTERVAL_TICKS === 0) {
       this.healUnitsInCities();
@@ -141,6 +142,10 @@ export class TickEngine {
     this.currentTick = tick;
   }
 
+  public getBattleForUnit(unitId: EntityId): SavedBattleState | null {
+    return this.battleSystem.getBattleForUnit(unitId);
+  }
+
   public getBattleStates(): SavedBattleState[] {
     return this.battleSystem.toSavedStates();
   }
@@ -155,5 +160,13 @@ export class TickEngine {
 
   public restoreSiegeStates(saved: SavedSiegeState[]): void {
     this.citySiegeSystem.restore(saved, this.gameState);
+  }
+
+  public getTerritoryBattleAt(position: import('@/types/common').GridCoordinates) {
+    return this.territoryBattleSystem.getBattleAt(position);
+  }
+
+  public getTerritoryBattlesForDisplay() {
+    return this.territoryBattleSystem.getAllBattles();
   }
 }

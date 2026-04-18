@@ -22,22 +22,48 @@ import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 
 export class GameState implements Serializable<ReturnType<GameState['toJSON']>> {
-  private grid:          Grid;
-  private nations:       Map<EntityId, Nation>;
-  private cities:        Map<EntityId, City>;
-  private units:         Map<EntityId, Unit>;
-  private players:       Map<PlayerId, Player>;
-  private currentTurn:   number;
-  private activeNationId: EntityId | null;
+  private grid:             Grid;
+  private nations:          Map<EntityId, Nation>;
+  private cities:           Map<EntityId, City>;
+  private units:            Map<EntityId, Unit>;
+  private players:          Map<PlayerId, Player>;
+  private currentTurn:      number;
+  private activeNationId:   EntityId | null;
+  /** Next serial number to assign per unit type (starts at 100 → first serial = 101). */
+  private unitTypeCounters: Map<string, number>;
+  /** Tiles each nation has ever had line-of-sight on. */
+  private discoveredTiles:  Map<EntityId, Set<string>>;
 
   constructor(gridConfig: GridConfig) {
-    this.grid          = new Grid(gridConfig);
-    this.nations       = new Map();
-    this.cities        = new Map();
-    this.units         = new Map();
-    this.players       = new Map();
-    this.currentTurn   = 1;
-    this.activeNationId = null;
+    this.grid             = new Grid(gridConfig);
+    this.nations          = new Map();
+    this.cities           = new Map();
+    this.units            = new Map();
+    this.players          = new Map();
+    this.currentTurn      = 1;
+    this.activeNationId   = null;
+    this.unitTypeCounters = new Map();
+    this.discoveredTiles  = new Map();
+  }
+
+  /** Increment and return the next ordinal serial number for a unit type. */
+  public nextUnitSerial(type: string): number {
+    const current = this.unitTypeCounters.get(type) ?? 100;
+    const next = current + 1;
+    this.unitTypeCounters.set(type, next);
+    return next;
+  }
+
+  // ── Discovered tiles (fog of war) ─────────────────────────────────────────
+  public getDiscoveredTiles(nationId: EntityId): Set<string> {
+    let set = this.discoveredTiles.get(nationId);
+    if (!set) { set = new Set(); this.discoveredTiles.set(nationId, set); }
+    return set;
+  }
+
+  public markDiscovered(nationId: EntityId, tiles: Iterable<string>): void {
+    const set = this.getDiscoveredTiles(nationId);
+    for (const key of tiles) set.add(key);
   }
 
   public getGrid(): Grid { return this.grid; }
@@ -155,13 +181,18 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
 
   public toJSON() {
     return {
-      currentTurn:   this.currentTurn,
-      activeNationId: this.activeNationId,
-      grid:          this.grid.toJSON(),
-      nations:       Array.from(this.nations.values()).map(n => n.toJSON()),
-      cities:        Array.from(this.cities.values()).map(c => c.toJSON()),
-      units:         Array.from(this.units.values()).map(u => u.toJSON()),
-      players:       Array.from(this.players.values()).map(p => p.toJSON()),
+      currentTurn:      this.currentTurn,
+      activeNationId:   this.activeNationId,
+      grid:             this.grid.toJSON(),
+      nations:          Array.from(this.nations.values()).map(n => n.toJSON()),
+      cities:           Array.from(this.cities.values()).map(c => c.toJSON()),
+      units:            Array.from(this.units.values()).map(u => u.toJSON()),
+      players:          Array.from(this.players.values()).map(p => p.toJSON()),
+      unitTypeCounters: Object.fromEntries(this.unitTypeCounters),
+      discoveredTiles:  Array.from(this.discoveredTiles.entries()).map(([nationId, tiles]) => ({
+        nationId,
+        tiles: Array.from(tiles),
+      })),
     };
   }
 
@@ -179,6 +210,9 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
       if (td.resourceDeposit !== null) territory.setResourceDeposit(td.resourceDeposit);
       // Restore buildings (may be missing in old saves — default to empty)
       territory.setBuildings((td as { buildings?: TerritoryBuildingType[] }).buildings ?? []);
+      // Restore health (may be missing in old saves — setBuildings already set it to max)
+      const savedHp = (td as { currentHealth?: number }).currentHealth;
+      if (savedHp !== undefined) territory.setHealth(savedHp);
     }
 
     // Restore nations
@@ -220,8 +254,33 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
       state.addCity(city);
     }
 
-    state.currentTurn   = data.currentTurn;
+    state.currentTurn    = data.currentTurn;
     state.activeNationId = data.activeNationId;
+
+    // Restore unit type serial counters (may be absent in old saves)
+    const dataAny = data as { unitTypeCounters?: Record<string, number>; discoveredTiles?: Array<{ nationId: string; tiles: string[] }> };
+    if (dataAny.unitTypeCounters) {
+      for (const [type, count] of Object.entries(dataAny.unitTypeCounters)) {
+        state.unitTypeCounters.set(type, count);
+      }
+    } else {
+      // Derive counters from max serial on existing units
+      for (const unit of state.units.values()) {
+        const s = unit.getUnitSerial();
+        if (s > 0) {
+          const cur = state.unitTypeCounters.get(unit.getUnitType()) ?? 100;
+          if (s > cur) state.unitTypeCounters.set(unit.getUnitType(), s);
+        }
+      }
+    }
+
+    // Restore discovered tiles per nation
+    if (dataAny.discoveredTiles) {
+      for (const { nationId, tiles } of dataAny.discoveredTiles) {
+        state.discoveredTiles.set(nationId, new Set(tiles));
+      }
+    }
+
     return state;
   }
 }

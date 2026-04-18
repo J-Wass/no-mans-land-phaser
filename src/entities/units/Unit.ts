@@ -38,6 +38,53 @@ export const MAX_MORALE        = 100;
 export const MORALE_LOW        = 30;   // refuses ADVANCE/CHARGE below this
 export const MORALE_ROUT       = 10;   // auto-retreats below this
 
+export const XP_VETERAN = 5;
+export const XP_ELITE   = 15;
+
+// Group name shown in the unit's full name
+const RECRUIT_GROUP: Record<UnitType, string> = {
+  [UnitType.INFANTRY]:       'Battalion',
+  [UnitType.SCOUT]:          'Regiment',
+  [UnitType.HEAVY_INFANTRY]: 'Battalion',
+  [UnitType.CAVALRY]:        'Squadron',
+  [UnitType.LONGBOWMAN]:     'Regiment',
+  [UnitType.CROSSBOWMAN]:    'Regiment',
+  [UnitType.CATAPULT]:       'Battery',
+  [UnitType.TREBUCHET]:      'Battery',
+};
+
+const ELITE_GROUP: Record<UnitType, string> = {
+  [UnitType.INFANTRY]:       'Legion',
+  [UnitType.SCOUT]:          'Corp',
+  [UnitType.HEAVY_INFANTRY]: 'Legion',
+  [UnitType.CAVALRY]:        'Wing',
+  [UnitType.LONGBOWMAN]:     'Corp',
+  [UnitType.CROSSBOWMAN]:    'Corp',
+  [UnitType.CATAPULT]:       'Train',
+  [UnitType.TREBUCHET]:      'Train',
+};
+
+const UNIT_TYPE_DISPLAY: Record<UnitType, string> = {
+  [UnitType.INFANTRY]:       'Infantry',
+  [UnitType.SCOUT]:          'Scout',
+  [UnitType.HEAVY_INFANTRY]: 'Heavy Infantry',
+  [UnitType.CAVALRY]:        'Cavalry',
+  [UnitType.LONGBOWMAN]:     'Longbowman',
+  [UnitType.CROSSBOWMAN]:    'Crossbowman',
+  [UnitType.CATAPULT]:       'Catapult',
+  [UnitType.TREBUCHET]:      'Trebuchet',
+};
+
+function ordinalSuffix(n: number): string {
+  const mod10  = n % 10;
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  if (mod10 === 1) return `${n}st`;
+  if (mod10 === 2) return `${n}nd`;
+  if (mod10 === 3) return `${n}rd`;
+  return `${n}th`;
+}
+
 export interface UnitData {
   id: EntityId;
   type: UnitType;
@@ -53,6 +100,10 @@ export interface UnitData {
   battlesEngaged: number;
   homeCityId: EntityId | null;
   preferredTargetId: EntityId | null;
+  xp: number;
+  veteranLevel: number;       // 0=Recruit, 1=Veteran, 2=Elite
+  unitSerial: number;         // ordinal number (101, 102, …); 0 = no serial
+  retreatCooldownUntilTick: number;
 }
 
 export abstract class Unit implements GameEntity, Serializable<UnitData> {
@@ -81,6 +132,10 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
       battlesEngaged: 0,
       homeCityId: null,
       preferredTargetId: null,
+      xp: 0,
+      veteranLevel: 0,
+      unitSerial: 0,
+      retreatCooldownUntilTick: 0,
     };
   }
 
@@ -207,6 +262,60 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
     this.data.currentHealth = Math.max(0, Math.min(this.data.stats.maxHealth, amount));
   }
 
+  // ── XP / rank ──────────────────────────────────────────────────────────────
+
+  public getXP(): number { return this.data.xp; }
+
+  public addXP(amount: number): void {
+    this.data.xp += amount;
+    if (this.data.veteranLevel < 1 && this.data.xp >= XP_VETERAN) this.data.veteranLevel = 1;
+    if (this.data.veteranLevel < 2 && this.data.xp >= XP_ELITE)   this.data.veteranLevel = 2;
+  }
+
+  public setXP(amount: number): void {
+    this.data.xp = Math.max(0, amount);
+  }
+
+  public getVeteranLevel(): number { return this.data.veteranLevel; }
+
+  public setVeteranLevel(level: number): void {
+    this.data.veteranLevel = Math.max(0, Math.min(2, level));
+  }
+
+  public getRankLabel(): string {
+    switch (this.data.veteranLevel) {
+      case 1:  return 'Veteran';
+      case 2:  return 'Elite';
+      default: return 'Recruit';
+    }
+  }
+
+  public getXPToNextLevel(): number {
+    if (this.data.veteranLevel >= 2) return 0;
+    return (this.data.veteranLevel >= 1 ? XP_ELITE : XP_VETERAN) - this.data.xp;
+  }
+
+  // ── Serial / display name ──────────────────────────────────────────────────
+
+  public getUnitSerial(): number { return this.data.unitSerial; }
+
+  public setUnitSerial(n: number): void { this.data.unitSerial = n; }
+
+  public getFullName(): string {
+    const type = this.data.type;
+    const group = this.data.veteranLevel >= 2 ? ELITE_GROUP[type] : RECRUIT_GROUP[type];
+    if (this.data.unitSerial === 0) return UNIT_TYPE_DISPLAY[type];
+    return `${ordinalSuffix(this.data.unitSerial)} ${UNIT_TYPE_DISPLAY[type]} ${group}`;
+  }
+
+  // ── Retreat cooldown ───────────────────────────────────────────────────────
+
+  public getRetreatCooldownUntilTick(): number { return this.data.retreatCooldownUntilTick; }
+
+  public setRetreatCooldownUntilTick(tick: number): void {
+    this.data.retreatCooldownUntilTick = tick;
+  }
+
   public abstract getCost(): ResourceCost;
 
   /** Per-tick-interval upkeep cost. Deducted by ProductionSystem every UPKEEP_INTERVAL ticks. */
@@ -222,7 +331,7 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
     return {
       ...this.data,
       position: { ...this.data.position },
-      stats: { ...this.data.stats },
+      stats:    { ...this.data.stats },
     };
   }
 }

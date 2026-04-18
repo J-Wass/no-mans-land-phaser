@@ -33,7 +33,6 @@ export const RESOURCE_EMOJI: Record<ResourceType, string> = {
   [ResourceType.GOLD]:         '🪙',
   [ResourceType.RESEARCH]:     '🔍',
   [ResourceType.HAPPINESS]:    '🙂',
-  [ResourceType.CORRUPTION]:   '⚠️',
 };
 
 // ── Palette ───────────────────────────────────────────────────────────────────

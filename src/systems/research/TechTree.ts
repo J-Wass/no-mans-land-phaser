@@ -6,7 +6,7 @@
 
 export type TechId =
   // Society
-  | 'writing' | 'hunting' | 'masonry' | 'trade' | 'education' | 'law' | 'the_wheel'
+  | 'writing' | 'hunting' | 'masonry' | 'trade' | 'education' | 'the_wheel'
   // Science
   | 'scientific_method' | 'mathematics' | 'physics' | 'chemistry' | 'biology'
   | 'animal_domestication' | 'iron_working' | 'steel_working' | 'mechanization' | 'kinematics'
@@ -36,12 +36,11 @@ const T = (
 /** Full tech catalog — display order within each branch is top to bottom. */
 export const TECH_CATALOG: TechNode[] = [
   // ── Society ──────────────────────────────────────────────────────────────────
-  T('writing',              'Writing',              'society', [],                                    10, 'Unlocks Trade, Education, Law'),
+  T('writing',              'Writing',              'society', [],                                    10, 'Unlocks Trade, Education'),
   T('hunting',              'Hunting',              'society', [],                                    10, 'Unlocks Longbowman; req. for Ancient Rituals'),
   T('masonry',              'Masonry',              'society', [],                                    10, 'Unlocks Barracks, Walls, Farms, Workshop, Fort, Copper Mine'),
   T('trade',                'Trade',                'society', ['writing'],                           15, 'Unlocks Market (city)'),
   T('education',            'Education',            'society', ['writing'],                           15, 'Unlocks School (city)'),
-  T('law',                  'Law',                  'society', ['writing'],                           15, 'Unlocks Courthouse; contributes to The Elements'),
   T('the_wheel',            'The Wheel',            'society', ['masonry'],                           20, 'Contributes to Catapult & Trebuchet'),
 
   // ── Science ──────────────────────────────────────────────────────────────────
@@ -59,7 +58,7 @@ export const TECH_CATALOG: TechNode[] = [
   // ── Arcane ───────────────────────────────────────────────────────────────────
   T('ancient_rituals',      'Ancient Rituals',      'arcane',  ['hunting', 'masonry'],               20, 'Foundation of the arcane branch'),
   T('mana_studies',         'Mana Studies',         'arcane',  ['ancient_rituals', 'physics'],        25, 'Unlocks Mana Mine (territory)'),
-  T('the_elements',         'The Elements',         'arcane',  ['mana_studies', 'chemistry', 'law'], 30, 'Unlocks Seer Tower; advanced elemental mastery'),
+  T('the_elements',         'The Elements',         'arcane',  ['mana_studies', 'chemistry'],        30, 'Unlocks Seer Tower; advanced elemental mastery'),
 ];
 
 export const TECH_MAP = new Map<TechId, TechNode>(TECH_CATALOG.map(t => [t.id, t]));

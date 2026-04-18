@@ -13,7 +13,6 @@ describe('ResourceStorage', () => {
     expect(storage.getAmount(ResourceType.FOOD)).toBe(0);
     expect(storage.getAmount(ResourceType.RAW_MATERIAL)).toBe(0);
     expect(storage.getAmount(ResourceType.HAPPINESS)).toBe(0);
-    expect(storage.getAmount(ResourceType.CORRUPTION)).toBe(0);
     expect(storage.getAmount(ResourceType.RESEARCH)).toBe(0);
   });
 

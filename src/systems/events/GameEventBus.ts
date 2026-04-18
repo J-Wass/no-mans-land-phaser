@@ -32,6 +32,8 @@ export type GameEventMap = {
     damageToUnitA: number;
     damageToUnitB: number;
     momentum: number;
+    landA: number;
+    landB: number;
     tick: number;
   };
   'battle:ended':              {
@@ -83,8 +85,6 @@ export type GameEventMap = {
   'territory:highlighted':     { position: GridCoordinates | null };
   /** A UIScene interactive element consumed a click — GameScene should ignore it. */
   'ui:click-consumed':         Record<string, never>;
-  /** Player clicked FIRE on a ranged unit — GameScene should enter target-selection mode. */
-  'ui:ranged-targeting':       { unitId: EntityId };
 };
 
 export class GameEventBus {

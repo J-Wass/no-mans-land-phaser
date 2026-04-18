@@ -42,7 +42,7 @@ describe('BattleSystem', () => {
 
     movementSystem.issueOrder(attacker, [{ row: 0, col: 1 }]);
     for (let tick = 1; tick <= 5; tick++) {
-      movementSystem.tickWithBattles(gameState, eventBus, tick, battleSystem, new CitySiegeSystem());
+      movementSystem.tickWithBattles(gameState, eventBus, tick, battleSystem, new CitySiegeSystem(), { startBattle: () => null, tick: () => {}, getBattleAt: () => null, getAllBattles: () => [] } as never);
     }
 
     expect(handler).toHaveBeenCalledTimes(1);

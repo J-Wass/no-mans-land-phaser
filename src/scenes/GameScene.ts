@@ -17,6 +17,7 @@ import { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import { DiplomaticStatus } from '@/types/diplomacy';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
+import { VisionSystem } from '@/systems/vision/VisionSystem';
 
 const WATER_BORDER = 10;
 const GRID_SIZE    = 25;
@@ -73,11 +74,16 @@ export class GameScene extends Phaser.Scene {
   private aiSystem!: AISystem;
   private diplomacySystem!: DiplomacySystem;
 
+  private visionSystem!: VisionSystem;
+  private fogGraphic!: Phaser.GameObjects.Graphics;
+  /** Unidentified-contact markers: tile key → text object */
+  private contactMarkers: Map<string, Phaser.GameObjects.Text> = new Map();
+  /** Tiles visible this frame — used to cull borders/conquest overlays */
+  private currentVisible: Set<string> = new Set();
+
   private uiClickConsumed = false;
   private stanceBadges: Map<string, Phaser.GameObjects.Container> = new Map();
   private minZoom = 0.25;
-  private targetingUnitId: string | null = null;   // ranged target-selection mode
-  private targetingGraphic!: Phaser.GameObjects.Graphics;
 
   // Double-click detection for city/territory menus
   private lastClickMs     = 0;
@@ -116,15 +122,16 @@ export class GameScene extends Phaser.Scene {
     this.citySprites.clear();
     this.cityLabels.clear();
     this.cityDots.clear();
+    this.contactMarkers.clear();
     this.selectedUnitId = null;
     this.selectedCityId = null;
     this.selectedTerritory = null;
-    this.targetingUnitId = null;
     this.tickAccumulator = 0;
     this.activeConquests.clear();
 
     this.movementSystem = new MovementSystem();
-    this.pathfinder = new Pathfinder(this.gameState.getGrid());
+    this.visionSystem   = new VisionSystem();
+    this.pathfinder     = new Pathfinder(this.gameState.getGrid());
     this.eventBus = new GameEventBus();
     this.tickEngine = new TickEngine(this.gameState, this.movementSystem, this.eventBus);
     this.diplomacySystem  = new DiplomacySystem(this.gameState, this.eventBus);
@@ -158,14 +165,13 @@ export class GameScene extends Phaser.Scene {
     this.territoryGraphic = this.add.graphics().setDepth(28);
     this.conquestGraphic  = this.add.graphics().setDepth(29);
     this.rangeGraphic     = this.add.graphics().setDepth(30);
-    this.pathGraphic      = this.add.graphics().setDepth(100);
+    this.fogGraphic       = this.add.graphics().setDepth(95); // above cities (50-74), below units (300+)
+    this.healthBarGraphic = this.add.graphics().setDepth(90); // below fog
+    this.pathGraphic      = this.add.graphics().setDepth(92); // below fog
     this.selectionGraphic = this.add.graphics().setDepth(200);
-    this.healthBarGraphic = this.add.graphics().setDepth(500);
-    this.targetingGraphic = this.add.graphics().setDepth(210);
 
     this.createCitySprites();
     this.createUnitSprites();
-    this.drawTerritoryBorders();
 
     this.eventBus.on('unit:step-complete', ({ unitId, to }) => {
       this.moveSpriteTo(unitId, to);
@@ -191,11 +197,6 @@ export class GameScene extends Phaser.Scene {
       this.time.delayedCall(130, () => {
         if (sprite.active) sprite.setFillStyle(baseColor);
       });
-    });
-
-    // Enter ranged target-selection mode when UIScene requests it
-    this.eventBus.on('ui:ranged-targeting', ({ unitId }) => {
-      this.targetingUnitId = unitId;
     });
 
     // Auto-show order popup when a local-player unit enters any battle
@@ -257,11 +258,8 @@ export class GameScene extends Phaser.Scene {
         ease: 'Cubic.Out',
         onComplete: () => flash.destroy(),
       });
-      this.drawTerritoryBorders();
     });
 
-    this.eventBus.on('territory:claimed', () => this.drawTerritoryBorders());
-    this.eventBus.on('territory:building-built', () => this.drawTerritoryBorders());
 
     this.eventBus.on('territory:conquest-started', ({ position, nationId, needed }) => {
       const posKey = `${position.row},${position.col}`;
@@ -305,11 +303,6 @@ export class GameScene extends Phaser.Scene {
     this.setupMouseControls();
 
     this.input.keyboard!.on('keydown-ESC', () => {
-      if (this.targetingUnitId) {
-        // Cancel ranged target-selection mode first; don't open pause
-        this.targetingUnitId = null;
-        return;
-      }
       this.scene.launch('PauseScene', {
         gameState:       this.gameState,
         tickEngine:      this.tickEngine,
@@ -339,10 +332,11 @@ export class GameScene extends Phaser.Scene {
     this.drawPaths();
     this.drawSelection();
     this.drawUnitHealthBars();
+    this.drawCityHealthBars();
     this.drawConquestOverlay();
     this.updateRangeOverlay();
-    this.drawTargetingReticle();
     this.updateStanceBadges();
+    this.updateFog();
   }
 
   private setupMouseControls(): void {
@@ -558,7 +552,124 @@ export class GameScene extends Phaser.Scene {
     this.unitSprites.delete(unitId);
     this.unitLabels.delete(unitId);
     this.unitColors.delete(unitId);
-    if (this.targetingUnitId === unitId) this.targetingUnitId = null;
+  }
+
+  private updateFog(): void {
+    const localPlayer = this.gameState.getLocalPlayer();
+    if (!localPlayer) return;
+    const nationId = localPlayer.getControlledNationId();
+    const nation = this.gameState.getNation(nationId);
+    if (!nation) return;
+
+    const vision = this.visionSystem.compute(this.gameState, nationId);
+    this.currentVisible = vision.visible;
+    this.drawTerritoryBorders();
+
+    const grid = this.gameState.getGrid();
+    const { rows, cols } = grid.getSize();
+
+    // ── Fog graphic: black for undiscovered, dark overlay for discovered-not-visible ──
+    this.fogGraphic.clear();
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const key = `${r},${c}`;
+        const x   = c * TILE_SIZE;
+        const y   = r * TILE_SIZE;
+
+        if (vision.visible.has(key)) {
+          // Fully visible — no fog
+        } else if (vision.discovered.has(key)) {
+          // Discovered but not currently visible
+          this.fogGraphic.fillStyle(0x000000, 0.5);
+          this.fogGraphic.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        } else {
+          // Never seen — solid black
+          this.fogGraphic.fillStyle(0x000000, 1);
+          this.fogGraphic.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        }
+      }
+    }
+
+    // ── City sprite visibility ────────────────────────────────────────────────
+    for (const city of this.gameState.getAllCities()) {
+      const key = `${city.position.row},${city.position.col}`;
+      const isVisible = vision.visible.has(key) || vision.discovered.has(key);
+      this.citySprites.get(city.id)?.setVisible(isVisible);
+      this.cityLabels.get(city.id)?.setVisible(isVisible);
+      this.cityDots.get(city.id)?.setVisible(isVisible);
+    }
+
+    // ── Enemy unit visibility + unidentified contact markers ─────────────────
+    const activeContactKeys = new Set<string>();
+
+    for (const unit of this.gameState.getAllUnits()) {
+      if (!unit.isAlive()) continue;
+      const isOwnUnit = unit.getOwnerId() === nationId;
+      const key = `${unit.position.row},${unit.position.col}`;
+
+      if (isOwnUnit) {
+        // Own units always visible
+        this.unitSprites.get(unit.id)?.setVisible(true);
+        this.unitLabels.get(unit.id)?.setVisible(true);
+        continue;
+      }
+
+      const vis = this.visionSystem.unitVisibility(
+        unit, vision.visible, vision.nearVisible, this.gameState, nationId,
+      );
+
+      if (vis === 'visible') {
+        this.unitSprites.get(unit.id)?.setVisible(true);
+        this.unitLabels.get(unit.id)?.setVisible(true);
+      } else if (vis === 'near') {
+        // Hide actual sprite; show unidentified contact marker
+        this.unitSprites.get(unit.id)?.setVisible(false);
+        this.unitLabels.get(unit.id)?.setVisible(false);
+        this.showContactMarker(unit, key, activeContactKeys);
+      } else {
+        this.unitSprites.get(unit.id)?.setVisible(false);
+        this.unitLabels.get(unit.id)?.setVisible(false);
+      }
+    }
+
+    // Remove stale contact markers
+    for (const [key, marker] of this.contactMarkers) {
+      if (!activeContactKeys.has(key)) {
+        marker.destroy();
+        this.contactMarkers.delete(key);
+      }
+    }
+  }
+
+  private showContactMarker(
+    unit: Unit,
+    key: string,
+    activeKeys: Set<string>,
+  ): void {
+    activeKeys.add(key);
+    if (!this.contactMarkers.has(key)) {
+      const cx = unit.position.col * TILE_SIZE + TILE_SIZE / 2;
+      const cy = unit.position.row * TILE_SIZE + TILE_SIZE / 2;
+      const armorType = unit.getStats().armorType;
+      const label = armorType === 'heavy' ? '? HEAVY' : '? LIGHT';
+      const marker = this.add.text(cx, cy, label, {
+        fontSize: '9px',
+        color: '#ffaa44',
+        fontFamily: 'monospace',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5).setDepth(96);
+      this.contactMarkers.set(key, marker);
+    } else {
+      // Update position in case unit moved within near-visible zone
+      const marker = this.contactMarkers.get(key)!;
+      marker.setPosition(
+        unit.position.col * TILE_SIZE + TILE_SIZE / 2,
+        unit.position.row * TILE_SIZE + TILE_SIZE / 2,
+      );
+    }
   }
 
   private drawPaths(): void {
@@ -660,20 +771,84 @@ export class GameScene extends Phaser.Scene {
         const maxHealth = unit.getStats().maxHealth;
         const ratio = maxHealth > 0 ? unit.getHealth() / maxHealth : 0;
 
-        const barWidth = 24;
+        const barWidth  = 24;
         const barHeight = 4;
         const x = unit.position.col * TILE_SIZE + TILE_SIZE / 2 - barWidth / 2;
-        const y = unit.position.row * TILE_SIZE - 10 - index * 7;
+        const y = unit.position.row * TILE_SIZE - 10 - index * 14; // 14px spacing to fit 2 bars
 
+        // HP bar
         this.healthBarGraphic.fillStyle(0x000000, 1);
         this.healthBarGraphic.fillRect(x, y, barWidth, barHeight);
-
         this.healthBarGraphic.fillStyle(teamColor, 1);
         this.healthBarGraphic.fillRect(x, y, Math.max(0, Math.round(barWidth * ratio)), barHeight);
-
         this.healthBarGraphic.lineStyle(1, 0x000000, 1);
         this.healthBarGraphic.strokeRect(x, y, barWidth, barHeight);
+
+        // Land bar — shown only for units actively in battle
+        if (unit.isEngagedInBattle()) {
+          const battle = this.tickEngine.getBattleForUnit(unit.id);
+          if (battle) {
+            const landVal  = unit.id === battle.unitAId ? battle.landA : battle.landB;
+            const landRatio = Math.max(0, landVal) / 100;
+            const ly = y - barHeight - 2;
+            const landColor = landVal > 60 ? 0x7755ff : landVal > 30 ? 0xaa66ff : 0xff4455;
+
+            this.healthBarGraphic.fillStyle(0x000000, 0.8);
+            this.healthBarGraphic.fillRect(x, ly, barWidth, barHeight);
+            this.healthBarGraphic.fillStyle(landColor, 1);
+            this.healthBarGraphic.fillRect(x, ly, Math.max(0, Math.round(barWidth * landRatio)), barHeight);
+            this.healthBarGraphic.lineStyle(1, 0x000000, 0.6);
+            this.healthBarGraphic.strokeRect(x, ly, barWidth, barHeight);
+          }
+        }
       });
+    }
+  }
+
+  private drawCityHealthBars(): void {
+    for (const city of this.gameState.getAllCities()) {
+      const pos = city.position;
+      if (!this.currentVisible.has(`${pos.row},${pos.col}`)) continue;
+
+      const ratio    = city.getMaxHealth() > 0 ? city.getHealth() / city.getMaxHealth() : 0;
+      const nation   = this.gameState.getNation(city.getOwnerId());
+      const color    = parseInt((nation?.getColor() ?? '#ffffff').replace('#', ''), 16);
+      const barW     = TILE_SIZE - 8;
+      const barH     = 4;
+      const x        = pos.col * TILE_SIZE + 4;
+      const y        = pos.row * TILE_SIZE + TILE_SIZE - barH - 3;
+
+      this.healthBarGraphic.fillStyle(0x000000, 0.8);
+      this.healthBarGraphic.fillRect(x, y, barW, barH);
+      this.healthBarGraphic.fillStyle(color, 1);
+      this.healthBarGraphic.fillRect(x, y, Math.max(0, Math.round(barW * ratio)), barH);
+      this.healthBarGraphic.lineStyle(1, 0x000000, 0.7);
+      this.healthBarGraphic.strokeRect(x, y, barW, barH);
+    }
+
+    // Territory HP bars — only shown while actively under attack
+    const grid = this.gameState.getGrid();
+    for (const battle of this.tickEngine.getTerritoryBattlesForDisplay()) {
+      const pos = battle.position;
+      if (!this.currentVisible.has(`${pos.row},${pos.col}`)) continue;
+
+      const territory = grid.getTerritory(pos);
+      if (!territory) continue;
+
+      const maxHp = territory.getMaxHealth();
+      const ratio  = maxHp > 0 ? territory.getHealth() / maxHp : 0;
+      const barW   = TILE_SIZE - 8;
+      const barH   = 4;
+      const x      = pos.col * TILE_SIZE + 4;
+      const y      = pos.row * TILE_SIZE + TILE_SIZE - barH - 3;
+      const color  = ratio > 0.5 ? 0x44cc88 : ratio > 0.25 ? 0xffaa22 : 0xff4444;
+
+      this.healthBarGraphic.fillStyle(0x000000, 0.8);
+      this.healthBarGraphic.fillRect(x, y, barW, barH);
+      this.healthBarGraphic.fillStyle(color, 1);
+      this.healthBarGraphic.fillRect(x, y, Math.max(0, Math.round(barW * ratio)), barH);
+      this.healthBarGraphic.lineStyle(1, 0x000000, 0.7);
+      this.healthBarGraphic.strokeRect(x, y, barW, barH);
     }
   }
 
@@ -686,26 +861,6 @@ export class GameScene extends Phaser.Scene {
     if (!this.gameState.getGrid().isValidCoordinate(target)) return;
 
     // ── Ranged target-selection mode ─────────────────────────────────────────
-    if (this.targetingUnitId) {
-      const localPlayer = this.gameState.getLocalPlayer();
-      const localNation = localPlayer
-        ? this.gameState.getNation(localPlayer.getControlledNationId())
-        : null;
-      const clickedEnemy = this.getUnitAt(target);
-      if (clickedEnemy && localNation && clickedEnemy.getOwnerId() !== localNation.getId()) {
-        void this.networkAdapter.sendCommand({
-          type:         'SET_RANGED_TARGET',
-          playerId:     localPlayer!.getId(),
-          unitId:       this.targetingUnitId,
-          targetId:     clickedEnemy.id,
-          issuedAtTick: 0,
-        });
-      }
-      // Any click ends targeting mode (confirmed or cancelled)
-      this.targetingUnitId = null;
-      return;
-    }
-
     // Double-click detection for city/territory menus
     const now = Date.now();
     const targetKey = `${row},${col}`;
@@ -1004,6 +1159,8 @@ export class GameScene extends Phaser.Scene {
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
+        if (!this.currentVisible.has(`${r},${c}`)) continue;
+
         const territory = grid.getTerritory({ row: r, col: c });
         if (!territory) continue;
 
@@ -1044,6 +1201,7 @@ export class GameScene extends Phaser.Scene {
     this.conquestGraphic.clear();
 
     for (const [posKey, { progress, needed, nationId }] of this.activeConquests) {
+      if (!this.currentVisible.has(posKey)) continue;
       const [rowStr, colStr] = posKey.split(',');
       const row = parseInt(rowStr ?? '0', 10);
       const col = parseInt(colStr ?? '0', 10);
@@ -1121,29 +1279,6 @@ export class GameScene extends Phaser.Scene {
     if (!this.selectedUnitId) return;
     const unit = this.gameState.getUnit(this.selectedUnitId);
     if (unit) this.drawRangeOverlay(unit);
-  }
-
-  /** Draw a pulsing red reticle around the targeting unit while in target-selection mode. */
-  private drawTargetingReticle(): void {
-    this.targetingGraphic.clear();
-    if (!this.targetingUnitId) return;
-
-    const unit = this.gameState.getUnit(this.targetingUnitId);
-    if (!unit) { this.targetingUnitId = null; return; }
-
-    const cx = unit.position.col * TILE_SIZE + TILE_SIZE / 2;
-    const cy = unit.position.row * TILE_SIZE + TILE_SIZE / 2;
-    const r  = TILE_SIZE * 0.42;
-    const pulse = 0.55 + 0.45 * Math.sin(this.time.now / 220);
-    this.targetingGraphic.lineStyle(2, 0xff3322, pulse);
-    this.targetingGraphic.strokeCircle(cx, cy, r);
-    // Four cardinal tick marks
-    const tick = TILE_SIZE * 0.15;
-    this.targetingGraphic.lineStyle(2, 0xff5544, pulse);
-    this.targetingGraphic.lineBetween(cx, cy - r - 1, cx, cy - r - tick);
-    this.targetingGraphic.lineBetween(cx, cy + r + 1, cx, cy + r + tick);
-    this.targetingGraphic.lineBetween(cx - r - 1, cy, cx - r - tick, cy);
-    this.targetingGraphic.lineBetween(cx + r + 1, cy, cx + r + tick, cy);
   }
 
   /** Show/update small stance badge above any local-player unit currently in battle. */

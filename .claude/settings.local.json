@@ -28,7 +28,8 @@
       "Bash(grep -v \"^$\")",
       "Bash(wmic memphysical *)",
       "Bash(wmic memorydevice *)",
-      "Bash(wmic MEMORYQUERY *)"
+      "Bash(wmic MEMORYQUERY *)",
+      "Bash(xargs ls *)"
     ],
     "deny": [],
     "ask": []

@@ -13,7 +13,6 @@ const PREFERRED: CityBuildingType[] = [
   CityBuildingType.WALLS,
   CityBuildingType.MARKET,
   CityBuildingType.SCHOOL,
-  CityBuildingType.COURTHOUSE,
   CityBuildingType.HOUSING,
 ];
 

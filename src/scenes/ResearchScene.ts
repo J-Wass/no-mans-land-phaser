@@ -260,13 +260,16 @@ export class ResearchScene extends Phaser.Scene {
         row.subLabel.setText('✓ Researched').setColor(C_DONE);
       } else if (isActive) {
         row.subLabel.setText('● Researching…').setColor(C_ACTIVE);
-      } else if (row.node.requires.length > 0) {
-        const reqStr = row.node.requires.map(r => r.replace(/_/g, ' ')).join(', ');
-        const allMet = row.node.requires.every(r => nation?.hasResearched(r));
-        row.subLabel.setText(`Req: ${reqStr}`).setColor(allMet ? '#7a7a9a' : '#774444');
       } else {
         const secs = (row.node.ticks / TICK_RATE).toFixed(0);
-        row.subLabel.setText(`${secs}s`).setColor(DIM);
+        const costStr = `🔍 ${row.node.researchCost} · ${secs}s`;
+        if (row.node.requires.length > 0) {
+          const reqStr = row.node.requires.map(r => r.replace(/_/g, ' ')).join(', ');
+          const allMet = row.node.requires.every(r => nation?.hasResearched(r));
+          row.subLabel.setText(`Req: ${reqStr}  ${costStr}`).setColor(allMet ? '#7a7a9a' : '#774444');
+        } else {
+          row.subLabel.setText(costStr).setColor(DIM);
+        }
       }
 
       if (row.btn && row.btnText) {

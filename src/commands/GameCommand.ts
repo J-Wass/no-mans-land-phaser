@@ -79,14 +79,6 @@ export interface ProposePeaceCommand {
   issuedAtTick:    number;
 }
 
-export interface SetRangedTargetCommand {
-  type:         'SET_RANGED_TARGET';
-  playerId:     PlayerId;
-  unitId:       EntityId;
-  targetId:     EntityId | null;  // null = clear (revert to auto)
-  issuedAtTick: number;
-}
-
 export interface OfferTradeCommand {
   type:            'OFFER_TRADE';
   playerId:        PlayerId;
@@ -106,7 +98,6 @@ export type GameCommand =
   | CancelResearchCommand
   | StartCityProductionCommand
   | SetUnitBattleOrderCommand
-  | SetRangedTargetCommand
   | DeclareWarCommand
   | ProposePeaceCommand
   | OfferTradeCommand;

@@ -31,9 +31,9 @@ describe('TickEngine', () => {
   it('passes correct tick number to movementSystem.tick', () => {
     const spy = jest.spyOn(movementSystem, 'tickWithBattles');
     tickEngine.advance(); // tick 1
-    expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 1, expect.anything(), expect.anything());
+    expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 1, expect.anything(), expect.anything(), expect.anything());
     tickEngine.advance(); // tick 2
-    expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 2, expect.anything(), expect.anything());
+    expect(spy).toHaveBeenLastCalledWith(gameState, eventBus, 2, expect.anything(), expect.anything(), expect.anything());
   });
 
   it('emits game:tick event on each advance', () => {

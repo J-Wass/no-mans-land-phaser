@@ -27,8 +27,6 @@ const TERRAIN_GOLD_INTERVAL    = 80;  // desert: +1 gold per 8s
 
 /** How often upkeep is drained — once every 3 seconds at TICK_RATE=10. */
 const UPKEEP_INTERVAL      = 30;
-/** How often corruption drains gold — once every 5 seconds. */
-const CORRUPTION_INTERVAL  = 50;
 
 let unitSerial = 1000;
 
@@ -102,6 +100,7 @@ export class ProductionSystem {
           const unitId = `unit-city-${++unitSerial}`;
           const unit   = spawnUnit(orderSnapshot.unitType, unitId, city.getOwnerId(), spawnPos);
           unit.setHomeCityId(city.id);
+          unit.setUnitSerial(gameState.nextUnitSerial(orderSnapshot.unitType));
           gameState.addUnit(unit);
           eventBus.emit('city:unit-spawned', {
             cityId: city.id, unitId, unitType: orderSnapshot.unitType,
@@ -132,24 +131,6 @@ export class ProductionSystem {
         const nation = gameState.getNation(unit.getOwnerId());
         if (!nation) continue;
         nation.getTreasury().consumeResources(unit.getUpkeep());
-      }
-    }
-
-    // ── Corruption drain ──────────────────────────────────────────────────────
-    // Corruption = 10% per extra city beyond the first (max 60%).
-    // Every CORRUPTION_INTERVAL ticks, drain gold proportional to how much was
-    // earned in that window (cityCount * interval/GOLD_INTERVAL gold earned → drain %).
-    if (currentTick % CORRUPTION_INTERVAL === 0 && currentTick > 0) {
-      for (const nation of gameState.getAllNations()) {
-        const cityCount  = gameState.getAllCities().filter(c => c.getOwnerId() === nation.getId()).length;
-        const corruptPct = Math.min(60, Math.max(0, (cityCount - 1) * 10));
-        if (corruptPct === 0) continue;
-        // Gold earned per city per window = CORRUPTION_INTERVAL / GOLD_INTERVAL
-        const goldPerCity    = CORRUPTION_INTERVAL / GOLD_INTERVAL;
-        const drainAmount    = Math.round(cityCount * goldPerCity * (corruptPct / 100));
-        if (drainAmount > 0) {
-          nation.getTreasury().consumeResources({ [ResourceType.GOLD]: drainAmount });
-        }
       }
     }
 

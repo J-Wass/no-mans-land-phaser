@@ -11,6 +11,7 @@ import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { BattleSystem } from '@/systems/combat/BattleSystem';
 import type { CitySiegeSystem } from '@/systems/combat/CitySiegeSystem';
+import type { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import type { SavedMovementState } from '@/types/gameSetup';
 import { stepCost } from './MovementCosts';
 import type { UnitMovementState } from './MovementState';
@@ -161,6 +162,7 @@ export class MovementSystem {
     currentTick: number,
     battleSystem: BattleSystem,
     citySiegeSystem: CitySiegeSystem,
+    territoryBattleSystem: TerritoryBattleSystem,
   ): void {
     const grid = gameState.getGrid();
 
@@ -235,6 +237,18 @@ export class MovementSystem {
           if (city && city.getOwnerId() !== unit.getOwnerId()) {
             citySiegeSystem.startSiege(unit, city, nextCoords, currentTick, this, eventBus);
             continue;
+          }
+        }
+
+        // Check for enemy-owned non-city territory
+        if (territory) {
+          const tOwner = territory.getControllingNation();
+          if (tOwner && tOwner !== unit.getOwnerId() && !territory.getCityId()) {
+            const unitNation = gameState.getNation(unit.getOwnerId());
+            if (unitNation?.isAtWar(tOwner)) {
+              territoryBattleSystem.startBattle(unit, territory, nextCoords, currentTick, this, eventBus);
+              continue;
+            }
           }
         }
 

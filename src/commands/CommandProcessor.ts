@@ -13,7 +13,7 @@ import type {
   GameCommand, CommandResult,
   MoveUnitCommand, BuildTerritoryCommand, BuildCityBuildingCommand,
   StartResearchCommand, CancelResearchCommand, StartCityProductionCommand,
-  SetUnitBattleOrderCommand, SetRangedTargetCommand,
+  SetUnitBattleOrderCommand,
   DeclareWarCommand, ProposePeaceCommand, OfferTradeCommand,
 } from './GameCommand';
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
@@ -51,7 +51,6 @@ export class CommandProcessor {
       case 'CANCEL_RESEARCH':       return this.handleCancelResearch(command);
       case 'START_CITY_PRODUCTION': return this.handleStartCityProduction(command);
       case 'SET_UNIT_BATTLE_ORDER': return this.handleSetUnitBattleOrder(command);
-      case 'SET_RANGED_TARGET':     return this.handleSetRangedTarget(command);
       case 'DECLARE_WAR':           return this.handleDeclareWar(command);
       case 'PROPOSE_PEACE':         return this.handleProposePeace(command);
       case 'OFFER_TRADE':           return this.handleOfferTrade(command);
@@ -298,29 +297,6 @@ export class CommandProcessor {
       battleOrder: command.battleOrder,
       tick: command.issuedAtTick,
     });
-    return { success: true };
-  }
-
-  // ── SET_RANGED_TARGET ─────────────────────────────────────────────────────
-
-  private handleSetRangedTarget(command: SetRangedTargetCommand): CommandResult {
-    const player = this.gameState.getPlayer(command.playerId);
-    if (!player) return { success: false, reason: 'Player not found' };
-
-    const nation = this.gameState.getNation(player.getControlledNationId());
-    if (!nation) return { success: false, reason: 'Nation not found' };
-
-    const unit = this.gameState.getUnit(command.unitId);
-    if (!unit || unit.getOwnerId() !== nation.getId())
-      return { success: false, reason: 'Unit not found or not owned' };
-
-    if (command.targetId !== null) {
-      const target = this.gameState.getUnit(command.targetId);
-      if (!target || !target.isAlive())
-        return { success: false, reason: 'Target not found or dead' };
-    }
-
-    unit.setPreferredTargetId(command.targetId);
     return { success: true };
   }
 

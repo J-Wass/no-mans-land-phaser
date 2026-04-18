@@ -78,6 +78,11 @@ export class UIScene extends Phaser.Scene {
   private hpText:         Phaser.GameObjects.Text      | null = null;
   private hpBarW          = 0;
   private moraleFillRect: Phaser.GameObjects.Rectangle | null = null;
+  private landFillRect:   Phaser.GameObjects.Rectangle | null = null;
+  private landText:       Phaser.GameObjects.Text      | null = null;
+  private battleLandA     = 100;
+  private battleLandB     = 100;
+  private battleUnitAId   = '';   // tracks which unit is "A" in the active battle
   private moraleText:     Phaser.GameObjects.Text      | null = null;
   private moraleWarnText: Phaser.GameObjects.Text      | null = null;
   private infoLineText:   Phaser.GameObjects.Text      | null = null;
@@ -164,6 +169,22 @@ export class UIScene extends Phaser.Scene {
     this.eventBus.on('unit:destroyed', ({ unitId }) => {
       if (this.selectedUnit?.id === unitId) {
         this.selectedUnit = null;
+        this.rebuildInfoPanel();
+      }
+    });
+
+    // Track land values for the selected unit's active battle
+    this.eventBus.on('battle:round-resolved', ({ unitAId, unitBId, landA, landB }) => {
+      if (this.selectedUnit?.id === unitAId) {
+        this.battleLandA = landA; this.battleLandB = landB; this.battleUnitAId = unitAId;
+      } else if (this.selectedUnit?.id === unitBId) {
+        this.battleLandA = landA; this.battleLandB = landB; this.battleUnitAId = unitAId;
+      }
+    });
+
+    // Rebuild panel when a battle involving the selected unit ends (removes land bar)
+    this.eventBus.on('battle:ended', ({ winnerUnitId, loserUnitId }) => {
+      if (this.selectedUnit?.id === winnerUnitId || this.selectedUnit?.id === loserUnitId) {
         this.rebuildInfoPanel();
       }
     });
@@ -315,6 +336,8 @@ export class UIScene extends Phaser.Scene {
     this.moraleText     = null;
     this.moraleWarnText = null;
     this.infoLineText   = null;
+    this.landFillRect   = null;
+    this.landText       = null;
     this.panelVisible   = false;
   }
 
@@ -332,12 +355,12 @@ export class UIScene extends Phaser.Scene {
     const BTN_GAP = Math.round(4 * s);
 
     const stats      = unit.getStats();
-    const isRanged   = stats.attackRange > 1 && stats.rangedDamage > 0;
+    const inBattle   = unit.isEngagedInBattle();
     const territory0 = this.gameState.getGrid().getTerritory(unit.position);
     const terrain0   = territory0?.getTerrainType();
     const unclaimed0 = territory0?.getControllingNation() === null;
     const hasOutpost = unclaimed0 && terrain0 !== TerrainType.WATER && terrain0 !== TerrainType.MOUNTAIN;
-    const hasActions = isRanged || hasOutpost;
+    const hasActions = hasOutpost;
 
     // Width must fit 5 stance buttons; action row buttons are narrower
     const stanceRowW  = STANCE_ORDERS.length * BTN_W + (STANCE_ORDERS.length - 1) * BTN_GAP;
@@ -348,6 +371,7 @@ export class UIScene extends Phaser.Scene {
       + ROW_H                                   // header
       + ROW_H                                   // HP bar
       + ROW_H                                   // morale bar
+      + (inBattle ? ROW_H : 0)                 // land bar (only during battle)
       + Math.round(ROW_H * 0.75)               // info line
       + STAT_ROW                                // combat stats row
       + STAT_ROW                                // armor row
@@ -398,6 +422,12 @@ export class UIScene extends Phaser.Scene {
     this.buildMoraleBar(lx, y, BAR_W, BAR_H, s, panelW);
     y += ROW_H;
 
+    // ── Land bar (battle ground control) ────────────────────────────────────
+    if (inBattle) {
+      this.buildLandBar(lx, y, BAR_W, BAR_H, s);
+      y += ROW_H;
+    }
+
     // ── Info line: battles + home city ──────────────────────────────────────
     this.infoLineText = this.trackPanel(
       this.add.text(lx, y + Math.round(ROW_H * 0.35), '', {
@@ -437,48 +467,9 @@ export class UIScene extends Phaser.Scene {
     );
     y += STAT_ROW;
 
-    // ── Action row: FIRE toggle (ranged units) + OUTPOST — sits above stances
+    // ── Action row: OUTPOST — sits above stances
     if (hasActions) {
       let ax = lx;
-
-      if (isRanged) {
-        // Ranged units auto-fire every ~1 s at any enemy in range, UNLESS on CHARGE order.
-        // CHARGE means "close into melee" — ranged fire is suppressed while charging.
-        // This button toggles between ranged-fire mode and melee-charge mode.
-        const firingNow  = curOrder !== 'CHARGE';
-        const fireFill   = firingNow ? 0x0f2a44 : 0x101828;
-        const fireStroke = firingNow ? 0x2299cc : 0x1e2e3e;
-        const fireLabel  = firingNow ? '🏹 FIRE' : '🏹 OFF';
-        const fireColor  = firingNow ? '#55ccff' : '#335566';
-        const fireBg = this.trackPanel(
-          this.add.rectangle(ax + BTN_W / 2, y + BTN_H / 2, BTN_W, BTN_H, fireFill)
-            .setOrigin(0.5).setStrokeStyle(1, fireStroke).setInteractive({ useHandCursor: true }),
-        ) as Phaser.GameObjects.Rectangle;
-        this.trackPanel(
-          this.add.text(ax + BTN_W / 2, y + BTN_H / 2, fireLabel, {
-            ...MONO, fontSize: fs(9, s), color: fireColor,
-          }).setOrigin(0.5),
-        );
-        fireBg.on('pointerover', () => fireBg.setFillStyle(fireFill + 0x0d0d0d));
-        fireBg.on('pointerout',  () => fireBg.setFillStyle(fireFill));
-        fireBg.on('pointerup',   () => {
-          this.eventBus.emit('ui:click-consumed', {});
-          if (firingNow) {
-            // Already firing — enter target-selection mode so player picks a specific enemy
-            this.eventBus.emit('ui:ranged-targeting', { unitId: unit.id });
-          } else {
-            // On CHARGE (melee mode) — switch back to HOLD so ranged fire re-enables
-            void this.networkAdapter.sendCommand({
-              type: 'SET_UNIT_BATTLE_ORDER',
-              playerId: this.playerId,
-              unitId: unit.id,
-              battleOrder: 'HOLD',
-              issuedAtTick: 0,
-            });
-          }
-        });
-        ax += BTN_W + BTN_GAP;
-      }
 
       if (hasOutpost) {
         const oBg = this.trackPanel(
@@ -614,6 +605,28 @@ export class UIScene extends Phaser.Scene {
     ) as Phaser.GameObjects.Text;
   }
 
+  private buildLandBar(lx: number, y: number, barW: number, barH: number, s: number): void {
+    this.trackPanel(
+      this.add.text(lx, y + barH / 2 + Math.round(4 * s), 'Land', {
+        ...MONO, fontSize: fs(11, s), color: '#7766aa',
+      }).setOrigin(0, 0.5),
+    );
+    const barX = lx + Math.round(44 * s);
+    this.trackPanel(
+      this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), barW, barH, 0x111828)
+        .setOrigin(0, 0.5),
+    );
+    this.landFillRect = this.trackPanel(
+      this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), 1, barH, 0xaa88ff)
+        .setOrigin(0, 0.5),
+    ) as Phaser.GameObjects.Rectangle;
+    this.landText = this.trackPanel(
+      this.add.text(barX + barW + Math.round(6 * s), y + barH / 2 + Math.round(4 * s), '', {
+        ...MONO, fontSize: fs(11, s), color: '#aaaacc',
+      }).setOrigin(0, 0.5),
+    ) as Phaser.GameObjects.Text;
+  }
+
   private buildCityPanel(): void {
     const city = this.selectedCity!;
     const H    = this.scale.height;
@@ -709,21 +722,6 @@ export class UIScene extends Phaser.Scene {
       }).setOrigin(0, 0.5),
     );
     y += ROW_H;
-
-    // Corruption line
-    const ownerNation = this.gameState.getNation(city.getOwnerId());
-    if (ownerNation) {
-      const cityCount  = this.gameState.getAllCities().filter(c => c.getOwnerId() === ownerNation.getId()).length;
-      const corruptPct = Math.min(60, Math.max(0, (cityCount - 1) * 10));
-      const corruptStr = corruptPct > 0
-        ? `Corruption: ${corruptPct}%  (-${corruptPct}% gold)`
-        : 'Corruption: none';
-      this.trackPanel(
-        this.add.text(lx, y + ROW_H * 0.4, corruptStr, {
-          ...MONO, fontSize: fs(11, s), color: corruptPct > 0 ? '#ff9944' : '#3a6644',
-        }).setOrigin(0, 0.5),
-      );
-    }
 
     this.panelVisible = false; // no per-frame updates needed for city panel
   }
@@ -844,13 +842,27 @@ export class UIScene extends Phaser.Scene {
       }
     }
 
+    // Land bar (shown when in battle)
+    if (this.landFillRect && this.landText) {
+      const barW      = this.hpBarW;
+      const unitLand  = this.selectedUnit?.id === this.battleUnitAId ? this.battleLandA : this.battleLandB;
+      const fill      = Math.max(1, Math.round(barW * Math.max(0, unitLand) / 100));
+      const landColor = unitLand > 60 ? 0x7755ff : unitLand > 30 ? 0xaa88ff : 0xff5566;
+      this.landFillRect.setSize(fill, this.landFillRect.height).setFillStyle(landColor);
+      this.landText.setText(`${Math.round(unitLand)}`);
+    }
+
     // Info line
     if (this.infoLineText) {
       const battles  = unit.getBattlesEngaged();
       const homeId   = unit.getHomeCityId();
       const homeName = homeId ? (this.gameState.getCity(homeId)?.getName() ?? '—') : '—';
       const engStr   = unit.isEngagedInBattle() ? '  ⚔ IN BATTLE' : '';
-      this.infoLineText.setText(`Battles: ${battles}  Home: ${homeName}${engStr}`);
+      const rank     = unit.getRankLabel();
+      const xp       = unit.getXP();
+      const toNext   = unit.getXPToNextLevel();
+      const xpStr    = toNext > 0 ? `  ${rank} XP:${xp}/${xp + toNext}` : `  ★ ${rank}`;
+      this.infoLineText.setText(`Battles:${battles}  Home:${homeName}${engStr}${xpStr}`);
     }
   }
 
@@ -897,15 +909,5 @@ function resolveArmorTier(
 }
 
 function unitDisplayName(unit: Unit): string {
-  switch (unit.getUnitType()) {
-    case 'INFANTRY':       return 'Infantry';
-    case 'SCOUT':          return 'Scout';
-    case 'HEAVY_INFANTRY': return 'Heavy Infantry';
-    case 'CAVALRY':        return 'Cavalry';
-    case 'LONGBOWMAN':     return 'Longbowman';
-    case 'CROSSBOWMAN':    return 'Crossbowman';
-    case 'CATAPULT':       return 'Catapult';
-    case 'TREBUCHET':      return 'Trebuchet';
-    default:               return 'Unit';
-  }
+  return unit.getFullName();
 }

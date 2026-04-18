@@ -12,6 +12,7 @@ import { Nation } from '@/entities/nations/Nation';
 import { Player } from '@/entities/players/Player';
 import { Infantry } from '@/entities/units/Infantry';
 import { Scout } from '@/entities/units/Scout';
+import { UnitType } from '@/entities/units/Unit';
 import { City } from '@/entities/cities/City';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
@@ -157,6 +158,8 @@ export class BootScene extends Phaser.Scene {
 
       const infantry = new Infantry(`unit-inf-${i + 1}`,   cfg.id, pair.infantry);
       const scout    = new Scout(   `unit-scout-${i + 1}`, cfg.id, pair.scout);
+      infantry.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY));
+      scout.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT));
 
       takenPositions.push(pair.infantry, pair.scout);
 

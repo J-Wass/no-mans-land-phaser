@@ -5,7 +5,12 @@
 import type { GridCoordinates, EntityId } from '@/types/common';
 import type { Serializable } from '@/types/serializable';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
-import type { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+
+export const BASE_TERRITORY_HP  = 30;
+export const WALLS_HP_BONUS      = 50;
+export const WALLS_ATTACK_DAMAGE = 8;
+export const BASE_ATTACK_DAMAGE  = 3;
 
 export enum TerrainType {
   PLAINS   = 'PLAINS',
@@ -23,6 +28,7 @@ export interface TerritoryData {
   cityId:          EntityId | null;
   resourceDeposit: TerritoryResourceType | null;
   buildings:       TerritoryBuildingType[];
+  currentHealth:   number;
 }
 
 export class Territory implements Serializable<TerritoryData> {
@@ -36,6 +42,7 @@ export class Territory implements Serializable<TerritoryData> {
       cityId: null,
       resourceDeposit: null,
       buildings: [],
+      currentHealth: BASE_TERRITORY_HP,
     };
   }
 
@@ -94,11 +101,39 @@ export class Territory implements Serializable<TerritoryData> {
   }
 
   public addBuilding(b: TerritoryBuildingType): void {
-    if (!this.hasBuilding(b)) this.data.buildings.push(b);
+    if (!this.hasBuilding(b)) {
+      this.data.buildings.push(b);
+      this.data.currentHealth = this.getMaxHealth(); // fresh construction fully restores
+    }
   }
 
   public setBuildings(buildings: TerritoryBuildingType[]): void {
     this.data.buildings = [...buildings];
+    this.data.currentHealth = this.getMaxHealth();
+  }
+
+  // ── Health (determined by wall level) ────────────────────────────────────────
+
+  public getMaxHealth(): number {
+    return BASE_TERRITORY_HP + (this.hasBuilding(TerritoryBuildingType.WALLS) ? WALLS_HP_BONUS : 0);
+  }
+
+  public getHealth(): number { return this.data.currentHealth; }
+
+  public takeDamage(amount: number): void {
+    this.data.currentHealth = Math.max(0, this.data.currentHealth - amount);
+  }
+
+  public heal(amount: number): void {
+    this.data.currentHealth = Math.min(this.getMaxHealth(), this.data.currentHealth + amount);
+  }
+
+  public setHealth(amount: number): void {
+    this.data.currentHealth = Math.max(0, Math.min(this.getMaxHealth(), amount));
+  }
+
+  public getAttackDamage(): number {
+    return this.hasBuilding(TerritoryBuildingType.WALLS) ? WALLS_ATTACK_DAMAGE : BASE_ATTACK_DAMAGE;
   }
 
   public getData(): Readonly<TerritoryData> {
@@ -109,7 +144,7 @@ export class Territory implements Serializable<TerritoryData> {
     return {
       ...this.data,
       coordinates: { ...this.data.coordinates },
-      buildings: [...this.data.buildings],
+      buildings:   [...this.data.buildings],
     };
   }
 }

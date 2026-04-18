@@ -57,6 +57,9 @@ export class BattleSystem {
     if (!attacker.isAlive() || !defender.isAlive()) return null;
     if (attacker.getOwnerId() === defender.getOwnerId()) return null;
     if (attacker.isEngagedInBattle() || defender.isEngagedInBattle()) return null;
+    // Prevent immediate re-engagement after a retreat
+    if (attacker.getRetreatCooldownUntilTick() > currentTick) return null;
+    if (defender.getRetreatCooldownUntilTick() > currentTick) return null;
 
     const battleId = `battle-${++this.battleSerial}`;
     const battle: BattleState = {
@@ -152,6 +155,8 @@ export class BattleSystem {
         damageToUnitA,
         damageToUnitB,
         momentum: battle.momentum,
+        landA: battle.landA,
+        landB: battle.landB,
         tick: currentTick,
       });
 
@@ -356,6 +361,18 @@ export class BattleSystem {
     movementSystem.cancelOrder(battle.unitAId);
     movementSystem.cancelOrder(battle.unitBId);
 
+    // ── XP awards ────────────────────────────────────────────────────────────
+    if (winner?.isAlive()) {
+      if (loser && !loser.isAlive()) {
+        winner.addXP(3); // kill
+      } else if (loser?.isAlive()) {
+        winner.addXP(2); // enemy retreated / routed / lost land
+        loser.addXP(1);  // survived by retreating
+        // Retreat cooldown — prevents immediate re-engagement for 2 seconds
+        loser.setRetreatCooldownUntilTick(currentTick + 20);
+      }
+    }
+
     if (loser) {
       if (!loser.isAlive()) {
         gameState.removeUnit(loser.id);
@@ -400,28 +417,52 @@ export class BattleSystem {
     winner: Unit | null,
     battle: BattleState,
   ): GridCoordinates | null {
-    const preferred = loser.id === battle.attackerId ? battle.attackerOrigin : battle.defenderOrigin;
+    const origin = loser.id === battle.attackerId ? battle.attackerOrigin : battle.defenderOrigin;
     const occupied = new Set(
       gameState.getAllUnits()
-        .filter(unit => unit.id !== loser.id && (!winner || unit.id !== winner.id))
-        .map(unit => `${unit.position.row},${unit.position.col}`),
+        .filter(u => u.id !== loser.id && (!winner || u.id !== winner.id))
+        .map(u => `${u.position.row},${u.position.col}`),
     );
 
-    const candidates: GridCoordinates[] = [
-      preferred,
+    const isValid = (c: GridCoordinates): boolean => {
+      const territory = gameState.getGrid().getTerritory(c);
+      if (!territory) return false;
+      if (territory.getTerrainType() === TerrainType.WATER || territory.getTerrainType() === TerrainType.MOUNTAIN) return false;
+      if (occupied.has(`${c.row},${c.col}`)) return false;
+      if (winner && c.row === winner.position.row && c.col === winner.position.col) return false;
+      return true;
+    };
+
+    // Direction of retreat: away from battle position, towards origin
+    const dr = Math.sign(origin.row - battle.position.row);
+    const dc = Math.sign(origin.col - battle.position.col);
+
+    // Try 2-tile hop in retreat direction first, then 1-tile, then adjacent
+    if (dr !== 0 || dc !== 0) {
+      const step1: GridCoordinates = { row: battle.position.row + dr, col: battle.position.col + dc };
+      const step2: GridCoordinates = { row: step1.row + dr, col: step1.col + dc };
+      if (isValid(step2)) return step2;
+      if (isValid(step1)) return step1;
+    }
+
+    // Fallback: orthogonal adjacents sorted by distance from winner (prefer farther)
+    const adjacents: GridCoordinates[] = [
       { row: battle.position.row - 1, col: battle.position.col },
       { row: battle.position.row + 1, col: battle.position.col },
-      { row: battle.position.row, col: battle.position.col - 1 },
-      { row: battle.position.row, col: battle.position.col + 1 },
+      { row: battle.position.row,     col: battle.position.col - 1 },
+      { row: battle.position.row,     col: battle.position.col + 1 },
     ];
 
-    for (const candidate of candidates) {
-      const territory = gameState.getGrid().getTerritory(candidate);
-      if (!territory) continue;
-      if (territory.getTerrainType() === TerrainType.WATER || territory.getTerrainType() === TerrainType.MOUNTAIN) continue;
-      if (occupied.has(`${candidate.row},${candidate.col}`)) continue;
-      if (winner && candidate.row === winner.position.row && candidate.col === winner.position.col) continue;
-      return { ...candidate };
+    if (winner) {
+      adjacents.sort((a, b) => {
+        const da = Math.abs(a.row - winner.position.row) + Math.abs(a.col - winner.position.col);
+        const db = Math.abs(b.row - winner.position.row) + Math.abs(b.col - winner.position.col);
+        return db - da; // prefer farther from winner
+      });
+    }
+
+    for (const candidate of adjacents) {
+      if (isValid(candidate)) return { ...candidate };
     }
 
     return null;
