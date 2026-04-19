@@ -1,103 +1,98 @@
 /**
- * WarConfirmScene — lightweight confirmation popup.
- *
- * Shown when a unit is ordered to cross neutral territory or attack a neutral
- * nation.  If the player confirms, the pending move is dispatched and war is
- * auto-declared when the unit enters the foreign tile.  If they cancel, the
- * order is dropped silently.
+ * WarConfirmScene - lightweight confirmation popup.
  */
 
 import Phaser from 'phaser';
 import { UI } from '@/config/uiTheme';
+import {
+  createBackdrop,
+  createButton,
+  createPanelSizer,
+  createText,
+  getUiMetrics,
+} from '@/utils/rexUiHelpers';
 
 export interface WarConfirmSceneData {
-  /** Display names of the nations that would be drawn into war. */
   nationNames: string[];
-  /** Called only if the player presses "Declare War & Move". */
   onConfirm: () => void;
 }
-
-const { PANEL, HEADER, ACCENT, BTN, BTN_HOV, RED_BTN, RED_H, DIM, LT, WHITE } = UI;
 
 export class WarConfirmScene extends Phaser.Scene {
   private onConfirm!: () => void;
 
-  constructor() { super({ key: 'WarConfirmScene' }); }
+  constructor() {
+    super({ key: 'WarConfirmScene' });
+  }
 
   init(data: WarConfirmSceneData): void {
     this.onConfirm = data.onConfirm;
-    // Store nation names for create()
     this.data.set('nationNames', data.nationNames);
   }
 
   create(): void {
-    const nationNames: string[] = this.data.get('nationNames') as string[];
+    const nationNames = this.data.get('nationNames') as string[];
+    const metrics = getUiMetrics(this);
+    const cx = metrics.width / 2;
+    const cy = metrics.height / 2;
+    const panelWidth = Math.min(Math.round(metrics.width * 0.86), Math.round(560 * metrics.scale));
+    const panelHeight = Math.min(Math.round(metrics.height * 0.72), Math.round((250 + nationNames.length * 42) * metrics.scale));
 
-    const W  = this.scale.width;
-    const H  = this.scale.height;
-    const cx = W / 2;
-    const cy = H / 2;
+    createBackdrop(this, 0.76);
 
-    const PW = 420;
-    const PH = 200 + nationNames.length * 22;
-    const py = cy - PH / 2;
+    const panel = createPanelSizer(this, metrics, panelWidth, panelHeight, 'y', UI.PANEL);
+    panel.add(createText(this, 'DECLARE WAR?', metrics, 'heading', {
+      fontFamily: UI.FONT_DISPLAY,
+      fontStyle: 'bold',
+      color: UI.DANGER,
+    }), { align: 'center' });
 
-    // Block clicks behind the panel
-    this.add.rectangle(0, 0, W, H, 0x000000, 0.45).setOrigin(0, 0).setInteractive();
+    panel.add(createText(this, 'Moving this unit will pull the following nations into open conflict.', metrics, 'body', {
+      color: UI.DIM,
+      align: 'center',
+      wordWrap: { width: panelWidth - metrics.pad * 2 },
+    }).setOrigin(0.5), { align: 'center' });
 
-    this.add.rectangle(cx, cy, PW, PH, PANEL).setStrokeStyle(2, 0xdd4422);
-
-    // ── Header ────────────────────────────────────────────────────────────────
-    this.add.rectangle(cx, py + 25, PW, 50, HEADER).setOrigin(0.5);
-    this.add.text(cx, py + 25, '⚔  DECLARE WAR?', {
-      fontSize: '18px', color: '#ff7755', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-
-    // ── Body ──────────────────────────────────────────────────────────────────
-    let y = py + 70;
-    this.add.text(cx, y, 'Moving this unit will declare war on:', {
-      fontSize: '13px', color: DIM, fontFamily: 'monospace',
-    }).setOrigin(0.5);
-    y += 24;
-
-    for (const name of nationNames) {
-      this.add.text(cx, y, `• ${name}`, {
-        fontSize: '15px', color: '#ffcc66', fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-      y += 22;
-    }
-
-    y += 12;
-
-    // ── Buttons ───────────────────────────────────────────────────────────────
-    const BTN_W = 170; const BTN_H = 38;
-
-    // Cancel
-    const cancelBg = this.add.rectangle(cx - BTN_W / 2 - 10, y + BTN_H / 2, BTN_W, BTN_H, BTN)
-      .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-    this.add.text(cx - BTN_W / 2 - 10, y + BTN_H / 2, 'CANCEL', {
-      fontSize: '14px', color: LT, fontFamily: 'monospace',
-    }).setOrigin(0.5);
-    cancelBg.on('pointerover', () => cancelBg.setFillStyle(BTN_HOV));
-    cancelBg.on('pointerout',  () => cancelBg.setFillStyle(BTN));
-    cancelBg.on('pointerup',   () => this.scene.stop('WarConfirmScene'));
-
-    // Confirm (declare war)
-    const confirmBg = this.add.rectangle(cx + BTN_W / 2 + 10, y + BTN_H / 2, BTN_W, BTN_H, RED_BTN)
-      .setStrokeStyle(1, 0xcc2200).setInteractive({ useHandCursor: true });
-    this.add.text(cx + BTN_W / 2 + 10, y + BTN_H / 2, 'DECLARE WAR & MOVE', {
-      fontSize: '12px', color: '#ff9977', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    confirmBg.on('pointerover', () => confirmBg.setFillStyle(RED_H));
-    confirmBg.on('pointerout',  () => confirmBg.setFillStyle(RED_BTN));
-    confirmBg.on('pointerup',   () => {
-      this.scene.stop('WarConfirmScene');
-      this.onConfirm();
+    const list = this.rexUI.add.sizer({
+      orientation: 'y',
+      space: { item: metrics.smallGap },
     });
 
-    // ESC = cancel
-    this.input.keyboard!.once('keydown-ESC', () => this.scene.stop('WarConfirmScene'));
+    nationNames.forEach((name) => {
+      list.add(createText(this, `- ${name}`, metrics, 'body', {
+        fontFamily: UI.FONT_DATA,
+        color: UI.GOLD_C,
+        fontStyle: 'bold',
+      }), { align: 'center' });
+    });
 
-    void (WHITE); // suppress unused import lint
+    panel.add(list, { expand: true, align: 'center' });
+
+    const actionRow = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      space: { item: metrics.gap },
+    });
+
+    const buttonWidth = metrics.stacked
+      ? panelWidth - metrics.pad * 2
+      : Math.round((panelWidth - metrics.pad * 2 - metrics.gap) / 2);
+
+    const cancelButton = createButton(this, metrics, 'CANCEL', () => this.scene.stop('WarConfirmScene'), {
+      variant: 'secondary',
+      width: buttonWidth,
+    });
+    const confirmButton = createButton(this, metrics, 'DECLARE WAR & MOVE', () => {
+      this.scene.stop('WarConfirmScene');
+      this.onConfirm();
+    }, {
+      variant: 'danger',
+      width: buttonWidth,
+    });
+
+    actionRow.add(cancelButton.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    actionRow.add(confirmButton.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    panel.add(actionRow, { expand: true });
+
+    panel.setPosition(cx, cy).layout();
+    this.input.keyboard?.once('keydown-ESC', () => this.scene.stop('WarConfirmScene'));
   }
 }

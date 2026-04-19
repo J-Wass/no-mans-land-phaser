@@ -5,17 +5,19 @@
 
 import Phaser from 'phaser';
 import { SaveSystem } from '@/systems/save/SaveSystem';
-import { DEFAULT_SCENARIO_ID, getScenarioById } from '@/config/scenarios';
+import { DEFAULT_SCENARIO_ID, SCENARIOS, getScenarioById } from '@/config/scenarios';
 import { normalizeGameSetup } from '@/types/gameSetup';
 import type { Difficulty, GameSetup } from '@/types/gameSetup';
-
-const BG        = 0x0d0d1a;
-const PANEL     = 0x1a1a2e;
-const ACCENT    = 0x4444aa;
-const SELECTED  = 0x6655cc;
-const HOVER     = 0x333366;
-const TEXT_DIM  = '#666688';
-const BTN_TEXT  = '#e0e0ff';
+import { UI } from '@/config/uiTheme';
+import {
+  colorString,
+  createButton,
+  createPanelSizer,
+  createText,
+  fitPanel,
+  getUiMetrics,
+  type ButtonParts,
+} from '@/utils/rexUiHelpers';
 
 export class MenuScene extends Phaser.Scene {
   private setup: GameSetup = normalizeGameSetup({
@@ -25,117 +27,202 @@ export class MenuScene extends Phaser.Scene {
     scenarioId: DEFAULT_SCENARIO_ID,
   });
 
-  private opponentBtns: Array<{ bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text; value: number }> = [];
-  private diffBtns: Array<{ bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text; value: Difficulty }> = [];
+  private scenarioBtns: Array<{ button: ButtonParts; value: string }> = [];
+  private opponentBtns: Array<{ button: ButtonParts; value: number }> = [];
+  private diffBtns: Array<{ button: ButtonParts; value: Difficulty }> = [];
+  private standardSummaryText: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super({ key: 'MenuScene' });
   }
 
+  init(): void {
+    this.scenarioBtns = [];
+    this.opponentBtns = [];
+    this.diffBtns = [];
+    this.standardSummaryText = null;
+  }
+
   create(): void {
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const cx = W / 2;
+    const metrics = getUiMetrics(this);
     const scenario = getScenarioById(this.setup.scenarioId);
+    const cx = metrics.width / 2;
+    const cy = metrics.height / 2;
 
-    this.add.rectangle(0, 0, W, H, BG).setOrigin(0, 0);
-    this.add.rectangle(0, 0, W, 6, SELECTED).setOrigin(0, 0);
+    this.add.rectangle(0, 0, metrics.width, metrics.height, UI.BG).setOrigin(0, 0);
+    this.add.rectangle(0, 0, metrics.width, Math.max(6, Math.round(metrics.scale * 6)), UI.ACCENT_SOFT).setOrigin(0, 0);
 
-    this.add.text(cx, 140, 'NO MAN\'S LAND', {
-      fontSize: '64px', color: '#ffffff',
-      fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.add.text(cx, 210, 'LAND', {
-      fontSize: '64px', color: '#8877ff',
-      fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.add.text(cx, 275, 'Choose your skirmish, or jump into a preset scenario.', {
-      fontSize: '16px', color: TEXT_DIM,
-      fontFamily: 'monospace',
-    }).setOrigin(0.5);
+    const size = fitPanel(metrics.width, metrics.height, 0.9, 1160, 920);
+    const root = createPanelSizer(this, metrics, size.width, size.height, 'y', UI.PANEL);
 
-    this.add.rectangle(cx, 315, 400, 1, ACCENT).setOrigin(0.5, 0.5);
+    root.add(this.buildHeader(metrics), { expand: true });
+    root.add(this.buildModeSplit(metrics, size.width, scenario?.name ?? 'No scenario configured', scenario
+      ? `${scenario.description}\nPlayer: ${scenario.playerNation.name} vs ${scenario.opponentNation.name}`
+      : 'Add a scenario preset in src/config/scenarios.json to enable scenario mode.'), { expand: true });
+    root.add(this.buildLoadArea(metrics, size.width), { expand: true });
+    root.add(createText(this, 'v0.1', metrics, 'caption', {
+      fontFamily: UI.FONT_DATA,
+      color: UI.MUTED,
+    }).setOrigin(1, 1), { align: 'right' });
 
-    this.add.text(cx, 360, 'OPPONENTS', {
-      fontSize: '15px', color: TEXT_DIM, fontFamily: 'monospace', letterSpacing: 3,
-    }).setOrigin(0.5);
+    root.setPosition(cx, cy).layout();
 
-    const opponentCounts = [1, 2, 3, 4];
-    const btnW = 76;
-    const btnH = 44;
-    const gap = 16;
-    const totalOpW = opponentCounts.length * btnW + (opponentCounts.length - 1) * gap;
-    const opStartX = cx - totalOpW / 2 + btnW / 2;
+    this.refreshScenarioBtns();
+    this.refreshOpponentBtns();
+    this.refreshDiffBtns();
+  }
 
-    opponentCounts.forEach((n, i) => {
-      const bx = opStartX + i * (btnW + gap);
-      const bg = this.add.rectangle(bx, 405, btnW, btnH, PANEL)
-        .setStrokeStyle(1, ACCENT)
-        .setInteractive({ useHandCursor: true });
-      const text = this.add.text(bx, 405, String(n), {
-        fontSize: '20px', color: BTN_TEXT, fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-
-      bg.on('pointerover', () => { if (this.setup.opponentCount !== n) bg.setFillStyle(HOVER); });
-      bg.on('pointerout',  () => { if (this.setup.opponentCount !== n) bg.setFillStyle(PANEL); });
-      bg.on('pointerup',   () => { this.setup.opponentCount = n; this.refreshOpponentBtns(); });
-
-      this.opponentBtns.push({ bg, text, value: n });
+  private buildHeader(metrics: ReturnType<typeof getUiMetrics>): Phaser.GameObjects.GameObject {
+    const header = this.rexUI.add.sizer({
+      orientation: 'y',
+      space: { item: metrics.smallGap },
     });
 
-    this.add.text(cx, 465, 'DIFFICULTY', {
-      fontSize: '15px', color: TEXT_DIM, fontFamily: 'monospace', letterSpacing: 3,
-    }).setOrigin(0.5);
+    header.add(createText(this, 'NO MAN\'S LAND', metrics, 'title', {
+      fontFamily: UI.FONT_DISPLAY,
+      fontStyle: 'bold',
+      color: UI.WHITE,
+    }).setOrigin(0.5), { align: 'center' });
 
-    const difficulties: Array<{ label: string; value: Difficulty }> = [
-      { label: 'EASY', value: 'easy' },
-      { label: 'MEDIUM', value: 'medium' },
-      { label: 'HARD', value: 'hard' },
-      { label: 'SANDBOX', value: 'sandbox' },
-    ];
-    const dBtnW = 105;
-    const totalDW = difficulties.length * dBtnW + (difficulties.length - 1) * gap;
-    const dStartX = cx - totalDW / 2 + dBtnW / 2;
+    header.add(createText(this, 'Choose a preset scenario on the left, or set up a standard match on the right.', metrics, 'body', {
+      color: UI.DIM,
+      align: 'center',
+      wordWrap: { width: Math.min(720, Math.round(metrics.width * 0.6)) },
+    }).setOrigin(0.5), { align: 'center' });
 
-    difficulties.forEach(({ label, value }, i) => {
-      const bx = dStartX + i * (dBtnW + gap);
-      const bg = this.add.rectangle(bx, 510, dBtnW, btnH, PANEL)
-        .setStrokeStyle(1, ACCENT)
-        .setInteractive({ useHandCursor: true });
-      const text = this.add.text(bx, 510, label, {
-        fontSize: '16px', color: BTN_TEXT, fontFamily: 'monospace',
-      }).setOrigin(0.5);
+    return header;
+  }
 
-      bg.on('pointerover', () => { if (this.setup.difficulty !== value) bg.setFillStyle(HOVER); });
-      bg.on('pointerout',  () => { if (this.setup.difficulty !== value) bg.setFillStyle(PANEL); });
-      bg.on('pointerup',   () => { this.setup.difficulty = value; this.refreshDiffBtns(); });
+  private buildChoiceCard<T extends number | Difficulty>(
+    metrics: ReturnType<typeof getUiMetrics>,
+    panelWidth: number,
+    title: string,
+    options: Array<{ label: string; value: T }>,
+    onClick: (value: T) => void,
+    sink: Array<{ button: ButtonParts; value: T }>,
+  ): Phaser.GameObjects.GameObject {
+    const cardWidth = metrics.stacked ? panelWidth - metrics.pad * 2 : Math.round((panelWidth - metrics.pad * 3) / 2);
+    const card = createPanelSizer(this, metrics, cardWidth, Math.round(190 * metrics.scale), 'y', UI.PANEL_ALT);
+    card.add(createText(this, title.toUpperCase(), metrics, 'caption', {
+      color: colorString(UI.ACCENT_SOFT),
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+      letterSpacing: 1,
+    }), { align: 'left' });
 
-      this.diffBtns.push({ bg, text, value });
+    const buttonRow = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      space: { item: metrics.smallGap },
     });
 
-    this.add.rectangle(cx, 555, 400, 1, ACCENT).setOrigin(0.5, 0.5);
+    options.forEach(({ label, value }) => {
+      const button = createButton(this, metrics, label, () => onClick(value), {
+        variant: 'secondary',
+        width: metrics.stacked ? cardWidth - metrics.pad * 2 : Math.round((cardWidth - metrics.pad * 2 - metrics.smallGap * (options.length - 1)) / options.length),
+        height: Math.round(metrics.buttonHeight * 0.92),
+      });
+      buttonRow.add(button.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+      sink.push({ button, value });
+    });
 
-    this.add.text(cx, 584, 'SCENARIO', {
-      fontSize: '15px', color: TEXT_DIM, fontFamily: 'monospace', letterSpacing: 3,
-    }).setOrigin(0.5);
+    card.add(buttonRow, { expand: true });
+    card.add(createText(this, title === 'Opponents'
+      ? 'Higher counts widen the front and increase late-game pressure.'
+      : 'Difficulty adjusts AI aggression, expansion pace, and economy pressure.', metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: cardWidth - metrics.pad * 2 },
+    }), { expand: true });
 
-    this.add.rectangle(cx, 627, 520, 68, PANEL).setStrokeStyle(1, ACCENT);
-    this.add.text(cx, 607, scenario?.name ?? 'No scenario configured', {
-      fontSize: '18px', color: '#ffffff', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.add.text(cx, 635,
-      scenario
-        ? `${scenario.description}\nPlayer: ${scenario.playerNation.name} vs ${scenario.opponentNation.name}`
-        : 'Add a scenario preset in src/config/scenarios.json to enable scenario mode.',
-      {
-        fontSize: '13px',
-        color: '#9ba4d9',
-        fontFamily: 'monospace',
-        align: 'center',
-        wordWrap: { width: 470 },
-      }).setOrigin(0.5);
+    return card;
+  }
 
-    this.makeActionButton(cx, 705, 320, 56, 'START SCENARIO', 0x234425, 0x2e5d35, () => {
+  private buildModeSplit(
+    metrics: ReturnType<typeof getUiMetrics>,
+    panelWidth: number,
+    title: string,
+    description: string,
+  ): Phaser.GameObjects.GameObject {
+    const cardRow = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      space: { item: metrics.gap },
+    });
+    const cardWidth = metrics.stacked
+      ? panelWidth - metrics.pad * 2
+      : Math.round((panelWidth - metrics.pad * 3) / 2);
+    const hasScenario = Boolean(getScenarioById(this.setup.scenarioId));
+
+    cardRow.add(this.buildScenarioSide(
+      metrics,
+      cardWidth,
+      title,
+      description,
+      hasScenario,
+    ), { proportion: 1, expand: true });
+
+    cardRow.add(this.buildStandardMatchSide(
+      metrics,
+      cardWidth,
+    ), { proportion: 1, expand: true });
+
+    return cardRow;
+  }
+
+  private buildScenarioSide(
+    metrics: ReturnType<typeof getUiMetrics>,
+    cardWidth: number,
+    title: string,
+    description: string,
+    enabled: boolean,
+  ): Phaser.GameObjects.GameObject {
+    const cardHeight = metrics.stacked ? Math.round(340 * metrics.scale) : Math.round(430 * metrics.scale);
+    const card = createPanelSizer(this, metrics, cardWidth, cardHeight, 'y', UI.PANEL_ALT);
+    card.add(createText(this, 'SCENARIO PICKER', metrics, 'caption', {
+      color: colorString(UI.ACCENT_SOFT),
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+    }), { align: 'left' });
+    card.add(createText(this, title, metrics, 'heading', {
+      fontFamily: UI.FONT_DISPLAY,
+      fontStyle: 'bold',
+      color: UI.WHITE,
+      wordWrap: { width: cardWidth - metrics.pad * 2 },
+    }));
+
+    const pickerRow = this.rexUI.add.sizer({
+      orientation: 'y',
+      space: { item: metrics.smallGap },
+    });
+    pickerRow.add(createText(this, SCENARIOS.length > 1 ? 'Choose a preset scenario.' : 'Current preset scenario.', metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: cardWidth - metrics.pad * 2 },
+    }), { align: 'left' });
+
+    const buttonRow = this.rexUI.add.sizer({
+      orientation: 'y',
+      space: { item: metrics.smallGap },
+    });
+    SCENARIOS.forEach((scenario) => {
+      const button = createButton(this, metrics, scenario.name.toUpperCase(), () => {
+        this.setup.scenarioId = scenario.id;
+        this.scene.restart();
+      }, {
+        variant: 'secondary',
+        width: cardWidth - metrics.pad * 2,
+        height: Math.round(metrics.buttonHeight * 0.9),
+      });
+      this.scenarioBtns.push({ button, value: scenario.id });
+      buttonRow.add(button.root, { expand: true });
+    });
+    pickerRow.add(buttonRow, { expand: true });
+    card.add(pickerRow, { expand: true });
+
+    card.add(createText(this, description, metrics, 'body', {
+      color: UI.DIM,
+      wordWrap: { width: cardWidth - metrics.pad * 2 },
+      lineSpacing: Math.max(4, Math.round(metrics.scale * 4)),
+    }), { proportion: 1, expand: true });
+
+    const button = createButton(this, metrics, enabled ? 'START SCENARIO' : 'SCENARIO UNAVAILABLE', () => {
       this.scene.start('BootScene', {
         setup: {
           ...this.setup,
@@ -144,9 +231,68 @@ export class MenuScene extends Phaser.Scene {
           scenarioId: this.setup.scenarioId ?? DEFAULT_SCENARIO_ID,
         },
       });
-    }, !scenario);
+    }, {
+      variant: 'primary',
+      width: cardWidth - metrics.pad * 2,
+      enabled,
+    });
+    card.add(button.root, { expand: true });
+    return card;
+  }
 
-    this.makeActionButton(cx, 775, 320, 56, 'START SKIRMISH', 0x1a4422, 0x33aa55, () => {
+  private buildStandardMatchSide(
+    metrics: ReturnType<typeof getUiMetrics>,
+    cardWidth: number,
+  ): Phaser.GameObjects.GameObject {
+    const cardHeight = metrics.stacked ? Math.round(420 * metrics.scale) : Math.round(430 * metrics.scale);
+    const card = createPanelSizer(this, metrics, cardWidth, cardHeight, 'y', UI.PANEL_ALT);
+    card.add(createText(this, 'STANDARD MATCH', metrics, 'caption', {
+      color: colorString(UI.ACCENT_SOFT),
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+    }), { align: 'left' });
+    card.add(createText(this, 'Custom Setup', metrics, 'heading', {
+      fontFamily: UI.FONT_DISPLAY,
+      fontStyle: 'bold',
+      color: UI.WHITE,
+    }));
+    card.add(createText(this, 'Tune the opponent count and difficulty, then launch a normal match.', metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: cardWidth - metrics.pad * 2 },
+    }), { expand: true });
+
+    card.add(this.buildChoiceCard<number>(metrics, cardWidth, 'Opponents', [
+      { label: '1', value: 1 },
+      { label: '2', value: 2 },
+      { label: '3', value: 3 },
+      { label: '4', value: 4 },
+    ], (value) => {
+      this.setup.opponentCount = value;
+      this.refreshOpponentBtns();
+    }, this.opponentBtns), { expand: true });
+
+    card.add(this.buildChoiceCard<Difficulty>(metrics, cardWidth, 'Difficulty', [
+      { label: 'EASY', value: 'easy' },
+      { label: 'MEDIUM', value: 'medium' },
+      { label: 'HARD', value: 'hard' },
+      { label: 'SANDBOX', value: 'sandbox' },
+    ], (value) => {
+      this.setup.difficulty = value;
+      this.refreshDiffBtns();
+    }, this.diffBtns), { expand: true });
+
+    this.standardSummaryText = createText(this,
+      this.getStandardMatchSummary(),
+      metrics,
+      'body',
+      {
+        color: UI.WHITE,
+        fontFamily: UI.FONT_DATA,
+        fontStyle: 'bold',
+      });
+    card.add(this.standardSummaryText, { expand: true });
+
+    const button = createButton(this, metrics, 'START STANDARD MATCH', () => {
       this.scene.start('BootScene', {
         setup: {
           ...this.setup,
@@ -154,69 +300,77 @@ export class MenuScene extends Phaser.Scene {
           scenarioId: null,
         },
       });
+    }, {
+      variant: 'success',
+      width: cardWidth - metrics.pad * 2,
     });
-
-    const firstSaveSlot = SaveSystem.listSlots().find(summary => !!summary.saveData)?.slot ?? null;
-    const hasSave = firstSaveSlot !== null;
-    this.makeActionButton(cx, 845, 320, 48, 'LOAD GAME', hasSave ? 0x1a2244 : 0x111122,
-      hasSave ? 0x3355aa : PANEL, () => {
-        if (!firstSaveSlot) return;
-        const saveData = SaveSystem.load(firstSaveSlot);
-        if (!saveData) return;
-        this.scene.start('GameScene', {
-          saveData,
-          setup: saveData.setup,
-        });
-      }, !hasSave);
-
-    this.refreshOpponentBtns();
-    this.refreshDiffBtns();
-
-    this.add.text(W - 8, H - 8, 'v0.1', {
-      fontSize: '11px', color: TEXT_DIM, fontFamily: 'monospace',
-    }).setOrigin(1, 1);
+    card.add(button.root, { expand: true });
+    return card;
   }
 
-  private makeActionButton(
-    x: number, y: number, w: number, h: number,
-    label: string,
-    colorNormal: number,
-    colorHover: number,
-    onClick: () => void,
-    disabled = false,
-  ): void {
-    const bg = this.add.rectangle(x, y, w, h, colorNormal)
-      .setStrokeStyle(1, disabled ? 0x333355 : ACCENT);
-    this.add.text(x, y, label, {
-      fontSize: '18px',
-      color: disabled ? TEXT_DIM : BTN_TEXT,
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+  private buildLoadArea(
+    metrics: ReturnType<typeof getUiMetrics>,
+    panelWidth: number,
+  ): Phaser.GameObjects.GameObject {
+    const firstSaveSlot = SaveSystem.listSlots().find(summary => !!summary.saveData)?.slot ?? null;
+    const row = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      space: { item: metrics.gap },
+    });
 
-    if (!disabled) {
-      bg.setInteractive({ useHandCursor: true });
-      bg.on('pointerover', () => { bg.setFillStyle(colorHover); });
-      bg.on('pointerout',  () => { bg.setFillStyle(colorNormal); });
-      bg.on('pointerup',   onClick);
-    }
+    row.add(createText(this, 'Or continue from your last local save.', metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: panelWidth - metrics.pad * 6 },
+    }), { proportion: 1, expand: true, align: 'center' });
+
+    const loadButton = createButton(this, metrics, 'LOAD SAVED GAME', () => {
+      if (!firstSaveSlot) return;
+      const saveData = SaveSystem.load(firstSaveSlot);
+      if (!saveData) return;
+      this.scene.start('GameScene', {
+        saveData,
+        setup: saveData.setup,
+      });
+    }, {
+      variant: 'secondary',
+      width: metrics.stacked ? panelWidth - metrics.pad * 2 : Math.round(240 * metrics.scale),
+      enabled: firstSaveSlot !== null,
+    });
+
+    row.add(loadButton.root, { align: 'center' });
+    return row;
   }
 
   private refreshOpponentBtns(): void {
     for (const btn of this.opponentBtns) {
       const active = btn.value === this.setup.opponentCount;
-      btn.bg.setFillStyle(active ? SELECTED : PANEL);
-      btn.bg.setStrokeStyle(1, active ? 0x9988ff : ACCENT);
-      btn.text.setColor(active ? '#ffffff' : BTN_TEXT);
+      btn.button.background.setFillStyle(active ? UI.BTN_ACTIVE : UI.BTN)
+        .setStrokeStyle(2, active ? UI.ACCENT_SOFT : UI.ACCENT, 0.9);
+      btn.button.text.setColor(active ? UI.WHITE : UI.LT);
+    }
+    this.standardSummaryText?.setText(this.getStandardMatchSummary());
+  }
+
+  private refreshScenarioBtns(): void {
+    for (const btn of this.scenarioBtns) {
+      const active = btn.value === (this.setup.scenarioId ?? DEFAULT_SCENARIO_ID);
+      btn.button.background.setFillStyle(active ? UI.BTN_ACTIVE : UI.BTN)
+        .setStrokeStyle(2, active ? UI.ACCENT_SOFT : UI.ACCENT, 0.9);
+      btn.button.text.setColor(active ? UI.WHITE : UI.LT);
     }
   }
 
   private refreshDiffBtns(): void {
     for (const btn of this.diffBtns) {
       const active = btn.value === this.setup.difficulty;
-      btn.bg.setFillStyle(active ? SELECTED : PANEL);
-      btn.bg.setStrokeStyle(1, active ? 0x9988ff : ACCENT);
-      btn.text.setColor(active ? '#ffffff' : BTN_TEXT);
+      btn.button.background.setFillStyle(active ? UI.BTN_ACTIVE : UI.BTN)
+        .setStrokeStyle(2, active ? UI.ACCENT_SOFT : UI.ACCENT, 0.9);
+      btn.button.text.setColor(active ? UI.WHITE : UI.LT);
     }
+    this.standardSummaryText?.setText(this.getStandardMatchSummary());
+  }
+
+  private getStandardMatchSummary(): string {
+    return `${this.setup.opponentCount} Opponent${this.setup.opponentCount === 1 ? '' : 's'}  |  ${this.setup.difficulty.toUpperCase()}`;
   }
 }

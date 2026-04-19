@@ -15,6 +15,7 @@ import type { Territory } from '@/systems/grid/Territory';
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
+import type { UnitMovementState } from '@/systems/movement/MovementState';
 import { BATTLE_ROUND_TICKS } from '@/systems/combat/BattleSystem';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { TerrainType } from '@/systems/grid/Territory';
@@ -28,6 +29,7 @@ export interface TerritoryBattleState {
   unitId:          EntityId;
   position:        GridCoordinates;
   attackerOrigin:  GridCoordinates;
+  pendingMovement: UnitMovementState | null;
   ticksUntilRound: number;
   roundsElapsed:   number;
 }
@@ -43,6 +45,7 @@ export class TerritoryBattleSystem {
   public startBattle(
     unit:           Unit,
     territory:      Territory,
+    attackerOrigin: GridCoordinates,
     position:       GridCoordinates,
     currentTick:    number,
     movementSystem: MovementSystem,
@@ -54,18 +57,19 @@ export class TerritoryBattleSystem {
     const posKey = `${position.row},${position.col}`;
     if (this.battles.has(posKey)) return null;
 
+    const pausedMovement = movementSystem.pauseOrder(unit.id);
     const battleId = `tbattle-${++this.battleSerial}`;
     const battle: TerritoryBattleState = {
       id:              battleId,
       unitId:          unit.id,
       position:        { ...position },
-      attackerOrigin:  { ...unit.position },
+      attackerOrigin:  { ...attackerOrigin },
+      pendingMovement: pausedMovement,
       ticksUntilRound: BATTLE_ROUND_TICKS,
       roundsElapsed:   0,
     };
 
     unit.setEngagedInBattle(true);
-    movementSystem.cancelOrder(unit.id);
     this.battles.set(posKey, battle);
 
     eventBus.emit('territory:conquest-started', {
@@ -192,7 +196,6 @@ export class TerritoryBattleSystem {
   ): void {
     const unit = gameState.getUnit(battle.unitId);
     unit?.setEngagedInBattle(false);
-    movementSystem.cancelOrder(battle.unitId);
     this.battles.delete(posKey);
 
     if (reason === 'conquered' && victor) {
@@ -211,6 +214,16 @@ export class TerritoryBattleSystem {
 
         this.claimAdjacentImpassable(gameState, battle.position, victor.getOwnerId());
       }
+
+      if (battle.pendingMovement?.path.length) {
+        movementSystem.resumeOrder(battle.pendingMovement);
+      } else if (battle.pendingMovement) {
+        eventBus.emit('unit:move-complete', {
+          unitId: battle.unitId,
+          destination: { ...battle.position },
+          tick: currentTick,
+        });
+      }
     } else if (reason === 'retreat' && unit) {
       territory: {
         const territory = gameState.getGrid().getTerritory(battle.position);
@@ -222,6 +235,7 @@ export class TerritoryBattleSystem {
         unit.moveTo(retreatTo);
         eventBus.emit('unit:step-complete', { unitId: unit.id, from, to: retreatTo, tick: currentTick });
       }
+      eventBus.emit('territory:conquest-cancelled', { position: { ...battle.position }, tick: currentTick });
     } else {
       // unit destroyed — territory stays; cancel conquest overlay
       eventBus.emit('territory:conquest-cancelled', { position: { ...battle.position }, tick: currentTick });

@@ -1,26 +1,37 @@
 /**
- * Shared UI color palette for all overlay / modal scenes.
- * Import and destructure to keep scene code clean:
- *   import { UI } from '@/config/uiTheme';
- *   const { BG, PANEL, ACCENT, ... } = UI;
+ * Shared UI tokens for responsive rexUI scenes and in-game HUD widgets.
  */
 
 export const UI = {
-  // ── Backgrounds ─────────────────────────────────────────────────────────────
-  BG:      0x06071a,   // semi-transparent backdrop (deep navy, not black)
-  PANEL:   0x181b30,   // main panel fill — lighter slate navy
-  HEADER:  0x1e2248,   // header bar fill
+  BG: 0x050914,
+  PANEL: 0x101827,
+  PANEL_ALT: 0x162235,
+  HEADER: 0x1a2942,
+  SURFACE: 0x1b2b44,
+  SURFACE_HI: 0x243a5a,
+  ACCENT: 0x64a8ff,
+  ACCENT_SOFT: 0x8dd7ff,
+  BTN: 0x1b2b44,
+  BTN_HOV: 0x274066,
+  BTN_ACTIVE: 0x315b8f,
+  RED_BTN: 0x5a2424,
+  RED_H: 0x7e3232,
+  GREEN_BTN: 0x1f4633,
+  GREEN_H: 0x2a6245,
+  WARN_BTN: 0x5c4520,
+  WARN_H: 0x7b5c2c,
+  SHADOW: 0x02050b,
 
-  // ── Interactive ──────────────────────────────────────────────────────────────
-  ACCENT:  0x5577ff,   // border / highlight colour — cleaner blue
-  BTN:     0x222644,   // normal button fill
-  BTN_HOV: 0x2e3464,   // button hover fill
-  RED_BTN: 0x501e1e,   // close / cancel button
-  RED_H:   0x922828,   // close / cancel hover
+  DIM: '#8fa2c6',
+  MUTED: '#6d80a4',
+  LT: '#eef4ff',
+  WHITE: '#ffffff',
+  GOLD_C: '#ffd166',
+  SUCCESS: '#7fe7a6',
+  DANGER: '#ff9d92',
+  WARNING: '#ffd991',
 
-  // ── Text ─────────────────────────────────────────────────────────────────────
-  DIM:    '#8a8aaa',   // secondary / muted text — noticeably lighter than before
-  LT:     '#eeeeff',   // primary light text
-  WHITE:  '#ffffff',
-  GOLD_C: '#ffd700',
+  FONT_DISPLAY: '"Trebuchet MS", "Verdana", sans-serif',
+  FONT_BODY: '"Trebuchet MS", "Verdana", sans-serif',
+  FONT_DATA: '"Consolas", "Courier New", monospace',
 } as const;

@@ -44,6 +44,7 @@ export interface SavedSiegeState {
   cityId: string;
   position: { row: number; col: number };
   attackerOrigin: { row: number; col: number };
+  pendingPath?: Array<{ row: number; col: number }>;
   ticksUntilRound: number;
   roundsElapsed: number;
 }

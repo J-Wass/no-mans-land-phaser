@@ -1,6 +1,5 @@
 /**
- * PauseScene — in-game overlay for save / load / return to menu.
- * Launched on top of GameScene+UIScene; pauses both while open.
+ * PauseScene - in-game overlay for save / load / return to menu.
  */
 
 import Phaser from 'phaser';
@@ -11,24 +10,31 @@ import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import type { GameSetup, GameSaveData } from '@/types/gameSetup';
 import { SaveSystem } from '@/systems/save/SaveSystem';
 import { UI } from '@/config/uiTheme';
+import {
+  colorString,
+  createBackdrop,
+  createButton,
+  createPanelSizer,
+  createScrollablePanel,
+  createText,
+  fitPanel,
+  getUiMetrics,
+} from '@/utils/rexUiHelpers';
 
 export interface PauseSceneData {
-  gameState:       GameState;
-  tickEngine:      TickEngine;
-  movementSystem:  MovementSystem;
+  gameState: GameState;
+  tickEngine: TickEngine;
+  movementSystem: MovementSystem;
   diplomacySystem: DiplomacySystem;
-  setup:           GameSetup;
+  setup: GameSetup;
 }
 
-const { BG: OVERLAY, PANEL: PANEL_BG, ACCENT, BTN: BTN_NORM, BTN_HOV, LT: TEXT_LT } = UI;
-const GREENISH = 0x204020;
-
 export class PauseScene extends Phaser.Scene {
-  private gameState!:       GameState;
-  private tickEngine!:      TickEngine;
-  private movementSystem!:  MovementSystem;
+  private gameState!: GameState;
+  private tickEngine!: TickEngine;
+  private movementSystem!: MovementSystem;
   private diplomacySystem!: DiplomacySystem;
-  private setup!:           GameSetup;
+  private setup!: GameSetup;
   private feedbackText!: Phaser.GameObjects.Text;
 
   constructor() {
@@ -36,52 +42,226 @@ export class PauseScene extends Phaser.Scene {
   }
 
   init(data: PauseSceneData): void {
-    this.gameState       = data.gameState;
-    this.tickEngine      = data.tickEngine;
-    this.movementSystem  = data.movementSystem;
+    this.gameState = data.gameState;
+    this.tickEngine = data.tickEngine;
+    this.movementSystem = data.movementSystem;
     this.diplomacySystem = data.diplomacySystem;
-    this.setup           = data.setup;
+    this.setup = data.setup;
   }
 
   create(): void {
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const cx = W / 2;
-    const cy = H / 2;
+    const metrics = getUiMetrics(this);
+    const cx = metrics.width / 2;
+    const cy = metrics.height / 2;
+    const size = fitPanel(metrics.width, metrics.height, 0.92, 1180, 980);
 
-    // Pause the game scenes
     this.scene.pause('GameScene');
     this.scene.pause('UIScene');
 
-    // Semi-transparent backdrop
-    this.add.rectangle(0, 0, W, H, OVERLAY, 0.65).setOrigin(0, 0)
-      .setInteractive(); // block clicks falling through
+    createBackdrop(this, 0.78);
 
-    // Panel
-    const panelW = 760; const panelH = 640;
-    this.add.rectangle(cx, cy, panelW, panelH, PANEL_BG)
-      .setStrokeStyle(1, ACCENT);
-
-    // Title
-    this.add.text(cx, cy - 286, 'PAUSED', {
-      fontSize: '32px', color: '#ffffff',
-      fontFamily: 'monospace', fontStyle: 'bold',
+    const root = createPanelSizer(this, metrics, size.width, size.height, 'y', UI.PANEL);
+    root.add(this.buildHeader(metrics, size.width), { expand: true });
+    root.add(this.buildTopActions(metrics, size.width), { expand: true });
+    root.add(this.buildSlotsSection(metrics, size.width, size.height), { proportion: 1, expand: true });
+    root.add(this.buildTransferRow(metrics, size.width), { expand: true });
+    this.feedbackText = createText(this, '', metrics, 'body', {
+      color: UI.SUCCESS,
+      align: 'center',
+      wordWrap: { width: size.width - metrics.pad * 2 },
     }).setOrigin(0.5);
+    root.add(this.feedbackText, { align: 'center' });
+    root.setPosition(cx, cy).layout();
 
-    this.add.rectangle(cx, cy - 252, 220, 1, ACCENT);
+    this.input.keyboard?.once('keydown-ESC', () => this.resume());
+  }
 
-    this.buildTopButtons(cx, cy - 210);
-    this.buildSaveSlots(cx, cy - 128);
-    this.buildTransferButtons(cx, cy + 222);
+  private buildHeader(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+    const header = this.rexUI.add.sizer({
+      orientation: 'x',
+      width: panelWidth - metrics.pad * 2,
+      space: { item: metrics.gap },
+    });
+    const left = this.rexUI.add.sizer({
+      orientation: 'y',
+      space: { item: metrics.smallGap },
+    });
+    left.add(createText(this, 'Paused', metrics, 'heading', {
+      fontFamily: UI.FONT_DISPLAY,
+      fontStyle: 'bold',
+      color: UI.WHITE,
+    }));
+    left.add(createText(this, 'Manage saves, import or export files, or jump back to the main menu.', metrics, 'body', {
+      color: UI.DIM,
+      wordWrap: { width: panelWidth - metrics.pad * 6 },
+    }));
+    header.add(left, { proportion: 1, expand: true });
+    const resumeButton = createButton(this, metrics, 'RESUME', () => this.resume(), {
+      variant: 'primary',
+      width: Math.round(140 * metrics.scale),
+    });
+    header.add(resumeButton.root, { align: 'center' });
+    return header;
+  }
 
-    // Feedback line (save confirmation, errors)
-    this.feedbackText = this.add.text(cx, cy + 282, '', {
-      fontSize: '14px', color: '#66ee88',
-      fontFamily: 'monospace',
-    }).setOrigin(0.5);
+  private buildTopActions(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+    const row = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      width: panelWidth - metrics.pad * 2,
+      space: { item: metrics.gap },
+    });
+    const buttonWidth = metrics.stacked
+      ? panelWidth - metrics.pad * 2
+      : Math.round((panelWidth - metrics.pad * 2 - metrics.gap) / 2);
 
-    // ESC also resumes
-    this.input.keyboard!.once('keydown-ESC', () => this.resume());
+    const localButton = createButton(this, metrics, 'LOCAL SLOTS', () => void 0, {
+      variant: 'ghost',
+      width: buttonWidth,
+      enabled: false,
+    });
+    localButton.text.setColor(colorString(UI.ACCENT_SOFT));
+    const menuButton = createButton(this, metrics, 'MAIN MENU', () => this.goToMenu(), {
+      variant: 'danger',
+      width: buttonWidth,
+    });
+
+    row.add(localButton.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    row.add(menuButton.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    return row;
+  }
+
+  private buildSlotsSection(
+    metrics: ReturnType<typeof getUiMetrics>,
+    panelWidth: number,
+    panelHeight: number,
+  ): Phaser.GameObjects.GameObject {
+    const wrapper = createPanelSizer(this, metrics, panelWidth - metrics.pad * 2, Math.round(panelHeight * 0.56), 'y', UI.PANEL_ALT);
+    wrapper.add(createText(this, 'Save Slots', metrics, 'caption', {
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+      color: colorString(UI.ACCENT_SOFT),
+    }));
+    wrapper.add(createText(this, 'All 10 slots live locally in this browser profile.', metrics, 'caption', {
+      color: UI.DIM,
+    }));
+
+    const content = this.rexUI.add.sizer({
+      orientation: 'y',
+      width: panelWidth - metrics.pad * 4,
+      space: { item: metrics.smallGap },
+    });
+
+    SaveSystem.listSlots().forEach(({ slot, saveData }) => {
+      content.add(this.buildSlotRow(metrics, panelWidth - metrics.pad * 5, slot, saveData), { expand: true });
+    });
+
+    const scrollPanel = createScrollablePanel(
+      this,
+      metrics,
+      panelWidth - metrics.pad * 2,
+      Math.round(panelHeight * 0.42),
+      content,
+      UI.PANEL,
+    );
+    wrapper.add(scrollPanel, { proportion: 1, expand: true });
+    return wrapper;
+  }
+
+  private buildSlotRow(
+    metrics: ReturnType<typeof getUiMetrics>,
+    width: number,
+    slot: number,
+    saveData: GameSaveData | null,
+  ): Phaser.GameObjects.GameObject {
+    const row = this.rexUI.add.sizer({
+      width,
+      height: Math.round((metrics.stacked ? 190 : 96) * metrics.scale),
+      orientation: metrics.stacked ? 'y' : 'x',
+      space: {
+        left: metrics.smallGap,
+        right: metrics.smallGap,
+        top: metrics.smallGap,
+        bottom: metrics.smallGap,
+        item: metrics.gap,
+      },
+    });
+    row.addBackground(this.rexUI.add.roundRectangle(0, 0, width, Math.round((metrics.stacked ? 190 : 96) * metrics.scale), metrics.radius, UI.PANEL, 1)
+      .setStrokeStyle(2, 0x2f4b74, 0.85));
+
+    const info = this.rexUI.add.sizer({
+      orientation: 'y',
+      width: metrics.stacked ? width - metrics.pad * 2 : Math.round(width * 0.6),
+      space: { item: metrics.smallGap },
+    });
+    info.add(createText(this, `Slot ${slot}`, metrics, 'body', {
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+      color: UI.WHITE,
+    }));
+    info.add(createText(this, saveData
+      ? `${new Date(saveData.savedAt).toLocaleString()}  |  Day ${Math.floor(saveData.currentTick / 100) + 1}  |  ${saveData.setup.gameMode}`
+      : 'Empty slot', metrics, 'caption', {
+      color: saveData ? UI.DIM : UI.MUTED,
+      wordWrap: { width: width - metrics.pad * 4 },
+    }));
+
+    const actions = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'x' : 'x',
+      space: { item: metrics.smallGap },
+    });
+    const buttonWidth = metrics.stacked
+      ? Math.round((width - metrics.pad * 2 - metrics.smallGap) / 2)
+      : Math.round(118 * metrics.scale);
+    const saveButton = createButton(this, metrics, 'SAVE', () => this.saveGame(slot), {
+      variant: 'primary',
+      width: buttonWidth,
+      height: Math.round(metrics.buttonHeight * 0.82),
+    });
+    const loadButton = createButton(this, metrics, 'LOAD', () => this.loadGame(slot), {
+      variant: saveData ? 'success' : 'secondary',
+      width: buttonWidth,
+      height: Math.round(metrics.buttonHeight * 0.82),
+      enabled: !!saveData,
+    });
+    actions.add(saveButton.root);
+    actions.add(loadButton.root);
+
+    row.add(info, { proportion: 1, expand: true });
+    row.add(actions, { align: 'center' });
+    return row;
+  }
+
+  private buildTransferRow(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+    const wrapper = this.rexUI.add.sizer({
+      orientation: 'y',
+      width: panelWidth - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+    wrapper.add(createText(this, 'Export or import a save file to move progress between computers.', metrics, 'caption', {
+      color: UI.DIM,
+      align: 'center',
+      wordWrap: { width: panelWidth - metrics.pad * 4 },
+    }).setOrigin(0.5), { align: 'center' });
+
+    const row = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      space: { item: metrics.gap },
+    });
+    const buttonWidth = metrics.stacked
+      ? panelWidth - metrics.pad * 2
+      : Math.round((panelWidth - metrics.pad * 2 - metrics.gap) / 2);
+    const exportButton = createButton(this, metrics, 'EXPORT FILE', () => this.exportSave(), {
+      variant: 'secondary',
+      width: buttonWidth,
+    });
+    const importButton = createButton(this, metrics, 'IMPORT FILE', () => { void this.importSave(); }, {
+      variant: 'secondary',
+      width: buttonWidth,
+    });
+    row.add(exportButton.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    row.add(importButton.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    wrapper.add(row, { expand: true });
+    return wrapper;
   }
 
   private resume(): void {
@@ -90,119 +270,25 @@ export class PauseScene extends Phaser.Scene {
     this.scene.stop('PauseScene');
   }
 
-  private buildTopButtons(cx: number, y: number): void {
-    const btnW = 150;
-    const btnH = 40;
-    const gap = 18;
-    const buttons: Array<{ label: string; x: number; action: () => void; color?: number }> = [
-      { label: 'RESUME', x: cx - btnW - gap, action: () => this.resume() },
-      { label: 'MAIN MENU', x: cx + btnW + gap, action: () => this.goToMenu(), color: 0x2a1010 },
-    ];
-
-    buttons.unshift({ label: 'LOCAL SLOTS', x: cx, action: () => void 0, color: 0x101828 });
-
-    buttons.forEach((btn, index) => {
-      const interactive = index !== 1;
-      const bg = this.add.rectangle(btn.x, y, btnW, btnH, btn.color ?? BTN_NORM)
-        .setStrokeStyle(1, ACCENT);
-      if (interactive) bg.setInteractive({ useHandCursor: true });
-      this.add.text(btn.x, y, btn.label, {
-        fontSize: '16px', color: TEXT_LT,
-        fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-      if (interactive) {
-        bg.on('pointerover', () => bg.setFillStyle(BTN_HOV));
-        bg.on('pointerout', () => bg.setFillStyle(btn.color ?? BTN_NORM));
-        bg.on('pointerup', btn.action);
-      }
-    });
-  }
-
-  private buildSaveSlots(cx: number, startY: number): void {
-    const rowH = 42;
-    const labelX = cx - 274;
-    const metaX = cx - 160;
-    const saveX = cx + 188;
-    const loadX = cx + 286;
-    const slots = SaveSystem.listSlots();
-
-    this.add.text(labelX, startY - 34, 'Slot', {
-      fontSize: '14px', color: '#8ea6d8', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0, 0.5);
-    this.add.text(metaX, startY - 34, 'Saved State', {
-      fontSize: '14px', color: '#8ea6d8', fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0, 0.5);
-
-    slots.forEach(({ slot, saveData }, index) => {
-      const y = startY + index * rowH;
-      const bgColor = index % 2 === 0 ? 0x11182a : 0x0c1321;
-      this.add.rectangle(cx, y, 680, 34, bgColor, 0.92).setStrokeStyle(1, 0x22365c, 0.6);
-      this.add.text(labelX, y, `Slot ${slot}`, {
-        fontSize: '14px', color: '#dbe6ff', fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0, 0.5);
-
-      const meta = saveData
-        ? `${new Date(saveData.savedAt).toLocaleString()}  Day ${Math.floor(saveData.currentTick / 100) + 1}  ${saveData.setup.gameMode}`
-        : 'Empty';
-      this.add.text(metaX, y, meta, {
-        fontSize: '13px', color: saveData ? '#aebdde' : '#5d6d88', fontFamily: 'monospace',
-      }).setOrigin(0, 0.5);
-
-      this.makeSlotButton(saveX, y, 'SAVE', 74, 28, () => this.saveGame(slot), BTN_NORM);
-      this.makeSlotButton(loadX, y, 'LOAD', 74, 28, () => this.loadGame(slot), saveData ? GREENISH : 0x1a1f2a, !!saveData);
-    });
-  }
-
-  private buildTransferButtons(cx: number, y: number): void {
-    this.makeSlotButton(cx - 110, y, 'EXPORT FILE', 150, 34, () => this.exportSave(), 0x20324a, true);
-    this.makeSlotButton(cx + 110, y, 'IMPORT FILE', 150, 34, () => { void this.importSave(); }, 0x20324a, true);
-    this.add.text(cx, y - 34, 'All 10 slots live in local storage. Export/import moves a save between computers.', {
-      fontSize: '13px', color: '#9eb0d0', fontFamily: 'monospace',
-    }).setOrigin(0.5);
-  }
-
-  private makeSlotButton(
-    x: number,
-    y: number,
-    label: string,
-    w: number,
-    h: number,
-    onClick: () => void,
-    fill: number,
-    enabled = true,
-  ): void {
-    const bg = this.add.rectangle(x, y, w, h, fill)
-      .setStrokeStyle(1, ACCENT);
-    this.add.text(x, y, label, {
-      fontSize: '13px', color: enabled ? TEXT_LT : '#667088',
-      fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-    if (!enabled) return;
-    bg.setInteractive({ useHandCursor: true });
-    bg.on('pointerover', () => bg.setFillStyle(BTN_HOV));
-    bg.on('pointerout', () => bg.setFillStyle(fill));
-    bg.on('pointerup', onClick);
-  }
-
   private saveGame(slot: number): void {
     const movementStates = Array.from(this.movementSystem.getAllStates()).map(
-      ([unitId, s]) => ({ unitId, path: [...s.path], ticksRemainingOnStep: s.ticksRemainingOnStep })
+      ([unitId, state]) => ({ unitId, path: [...state.path], ticksRemainingOnStep: state.ticksRemainingOnStep }),
     );
 
     const saveData: GameSaveData = {
-      version:        1,
-      savedAt:        Date.now(),
-      setup:          this.setup,
-      currentTick:    this.tickEngine.getCurrentTick(),
-      state:          this.gameState.toJSON() as Record<string, unknown>,
+      version: 1,
+      savedAt: Date.now(),
+      setup: this.setup,
+      currentTick: this.tickEngine.getCurrentTick(),
+      state: this.gameState.toJSON() as Record<string, unknown>,
       movementStates,
-      battleStates:   this.tickEngine.getBattleStates(),
-      siegeStates:    this.tickEngine.getSiegeStates(),
+      battleStates: this.tickEngine.getBattleStates(),
+      siegeStates: this.tickEngine.getSiegeStates(),
       peaceCooldowns: this.diplomacySystem.toSavedState(),
     };
 
     SaveSystem.save(slot, saveData);
-    this.showFeedback(`Saved to slot ${slot}.`, '#88ff88');
+    this.showFeedback(`Saved to slot ${slot}.`, UI.SUCCESS);
     this.scene.restart({
       gameState: this.gameState,
       tickEngine: this.tickEngine,
@@ -215,7 +301,7 @@ export class PauseScene extends Phaser.Scene {
   private loadGame(slot: number): void {
     const saveData = SaveSystem.load(slot);
     if (!saveData) {
-      this.showFeedback(`Slot ${slot} is empty.`, '#ff8888');
+      this.showFeedback(`Slot ${slot} is empty.`, UI.DANGER);
       return;
     }
     this.scene.stop('UIScene');
@@ -226,12 +312,12 @@ export class PauseScene extends Phaser.Scene {
   private exportSave(): void {
     const slot = SaveSystem.listSlots().find(summary => summary.saveData)?.slot;
     if (!slot) {
-      this.showFeedback('Save a slot before exporting.', '#ff8888');
+      this.showFeedback('Save a slot before exporting.', UI.DANGER);
       return;
     }
     const saveData = SaveSystem.load(slot);
     if (!saveData) {
-      this.showFeedback('No save found to export.', '#ff8888');
+      this.showFeedback('No save found to export.', UI.DANGER);
       return;
     }
 
@@ -242,7 +328,7 @@ export class PauseScene extends Phaser.Scene {
     link.download = `phaser-rts-save-slot-${slot}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    this.showFeedback(`Exported slot ${slot} to file.`, '#88ff88');
+    this.showFeedback(`Exported slot ${slot}.`, UI.SUCCESS);
   }
 
   private async importSave(): Promise<void> {
@@ -258,7 +344,7 @@ export class PauseScene extends Phaser.Scene {
         if (parsed.version !== 1) throw new Error('Unsupported save version');
         const targetSlot = SaveSystem.listSlots().find(summary => !summary.saveData)?.slot ?? 10;
         SaveSystem.save(targetSlot, parsed);
-        this.showFeedback(`Imported save into slot ${targetSlot}.`, '#88ff88');
+        this.showFeedback(`Imported save into slot ${targetSlot}.`, UI.SUCCESS);
         this.scene.restart({
           gameState: this.gameState,
           tickEngine: this.tickEngine,
@@ -267,7 +353,7 @@ export class PauseScene extends Phaser.Scene {
           setup: this.setup,
         });
       } catch {
-        this.showFeedback('Import failed.', '#ff8888');
+        this.showFeedback('Import failed.', UI.DANGER);
       }
     };
     input.click();
@@ -279,8 +365,8 @@ export class PauseScene extends Phaser.Scene {
     this.scene.start('MenuScene');
   }
 
-  private showFeedback(msg: string, color: string): void {
-    this.feedbackText.setText(msg).setColor(color);
-    this.time.delayedCall(2000, () => { this.feedbackText.setText(''); });
+  private showFeedback(message: string, color: string): void {
+    this.feedbackText.setText(message).setColor(color);
+    this.time.delayedCall(2200, () => this.feedbackText.setText(''));
   }
 }

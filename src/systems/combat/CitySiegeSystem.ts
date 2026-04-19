@@ -16,6 +16,7 @@ import type { City } from '@/entities/cities/City';
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
+import type { UnitMovementState } from '@/systems/movement/MovementState';
 import type { SavedSiegeState } from '@/types/gameSetup';
 import { BATTLE_ROUND_TICKS } from '@/systems/combat/BattleSystem';
 import { TerrainType } from '@/systems/grid/Territory';
@@ -38,6 +39,7 @@ export class CitySiegeSystem {
   public startSiege(
     unit: Unit,
     city: City,
+    attackerOrigin: GridCoordinates,
     position: GridCoordinates,
     currentTick: number,
     movementSystem: MovementSystem,
@@ -46,19 +48,20 @@ export class CitySiegeSystem {
     if (!unit.isAlive() || !city.isAlive()) return null;
     if (unit.isEngagedInBattle()) return null;
 
+    const pausedMovement = movementSystem.pauseOrder(unit.id);
     const siegeId = `siege-${++this.siegeSerial}`;
     const siege: SiegeState = {
       id:              siegeId,
       unitId:          unit.id,
       cityId:          city.id,
       position:        { ...position },
-      attackerOrigin:  { ...unit.position },
+      attackerOrigin:  { ...attackerOrigin },
+      pendingPath:     pausedMovement?.path.map(step => ({ ...step })) ?? [],
       ticksUntilRound: BATTLE_ROUND_TICKS,
       roundsElapsed:   0,
     };
 
     unit.setEngagedInBattle(true);
-    movementSystem.cancelOrder(unit.id);
     this.sieges.set(siegeId, siege);
 
     eventBus.emit('city:siege-started', {
@@ -186,6 +189,7 @@ export class CitySiegeSystem {
         ...s,
         position:       { ...s.position },
         attackerOrigin: { ...s.attackerOrigin },
+        pendingPath:    s.pendingPath?.map(step => ({ ...step })) ?? [],
       });
       const suffix = Number.parseInt(s.id.replace('siege-', ''), 10);
       if (Number.isFinite(suffix)) this.siegeSerial = Math.max(this.siegeSerial, suffix);
@@ -205,7 +209,6 @@ export class CitySiegeSystem {
   ): void {
     const unit = gameState.getUnit(siege.unitId);
     unit?.setEngagedInBattle(false);
-    movementSystem.cancelOrder(siege.unitId);
     this.sieges.delete(siege.id);
 
     if (reason === 'conquered' && victor) {
@@ -233,6 +236,17 @@ export class CitySiegeSystem {
           tick:     currentTick,
         });
       }
+
+      const pendingMovement = this.getPendingMovement(siege);
+      if (pendingMovement) {
+        movementSystem.resumeOrder(pendingMovement);
+      } else if (siege.pendingPath !== undefined) {
+        eventBus.emit('unit:move-complete', {
+          unitId: siege.unitId,
+          destination: { ...siege.position },
+          tick: currentTick,
+        });
+      }
     } else if (reason === 'retreat' && unit) {
       // Move unit back toward its origin (or any free adjacent tile)
       const retreatTo = this.findRetreatTile(gameState, unit, siege);
@@ -247,6 +261,15 @@ export class CitySiegeSystem {
         });
       }
     }
+  }
+
+  private getPendingMovement(siege: SiegeState): UnitMovementState | null {
+    if (!siege.pendingPath || siege.pendingPath.length === 0) return null;
+    return {
+      unitId: siege.unitId,
+      path: siege.pendingPath.map(step => ({ ...step })),
+      ticksRemainingOnStep: 0,
+    };
   }
 
   private findRetreatTile(

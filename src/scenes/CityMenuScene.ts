@@ -1,7 +1,5 @@
 /**
- * CityMenuScene — production management overlay for a single city.
- * Tabs: UNITS (train units) | BUILDINGS (construct city buildings).
- * Launched on top of GameScene (game keeps ticking while open).
+ * CityMenuScene - production management overlay for a single city.
  */
 
 import Phaser from 'phaser';
@@ -17,372 +15,112 @@ import type { CityBuildingDef } from '@/systems/territory/CityBuilding';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TICK_RATE } from '@/config/constants';
 import { UI } from '@/config/uiTheme';
+import {
+  colorString,
+  createBackdrop,
+  createButton,
+  createPanelSizer,
+  createScrollablePanel,
+  createText,
+  fitPanel,
+  getUiMetrics,
+  setButtonEnabled,
+  type ButtonParts,
+} from '@/utils/rexUiHelpers';
 import { formatCost } from '@/utils/uiHelpers';
 
 export interface CityMenuSceneData {
-  city:           City;
-  gameState:      GameState;
+  city: City;
+  gameState: GameState;
   networkAdapter: NetworkAdapter;
-  eventBus:       GameEventBus;
+  eventBus: GameEventBus;
 }
 
-// ── Resource emoji map ────────────────────────────────────────────────────────
 export const RESOURCE_EMOJI: Record<ResourceType, string> = {
-  [ResourceType.FOOD]:         '🍎',
-  [ResourceType.RAW_MATERIAL]: '🪨',
-  [ResourceType.GOLD]:         '🪙',
-  [ResourceType.RESEARCH]:     '🔍',
+  [ResourceType.FOOD]: 'F',
+  [ResourceType.RAW_MATERIAL]: 'M',
+  [ResourceType.GOLD]: 'G',
+  [ResourceType.RESEARCH]: 'R',
 };
-
-// ── Palette ───────────────────────────────────────────────────────────────────
-const { BG, PANEL, HEADER, ACCENT, BTN, BTN_HOV, RED_BTN, RED_H, DIM, LT, WHITE, GOLD_C } = UI;
-const TAB_ACT = 0x2a2e60;
-
-const PW = 860; const PH = 620;
-const ROW_H = 38;
 
 type Tab = 'units' | 'buildings';
 
+type UnitRow = {
+  entry: CatalogEntry;
+  button: ButtonParts;
+  costLabel: Phaser.GameObjects.Text;
+  statusLabel: Phaser.GameObjects.Text;
+};
+
+type BuildingRow = {
+  def: CityBuildingDef;
+  button: ButtonParts;
+  costLabel: Phaser.GameObjects.Text;
+  statusLabel: Phaser.GameObjects.Text;
+};
+
 export class CityMenuScene extends Phaser.Scene {
-  private city!:             City;
-  private gameState!:        GameState;
+  private city!: City;
+  private gameState!: GameState;
   private networkAdapter!: NetworkAdapter;
-  private eventBus!:         GameEventBus;
-  private playerId!:         string;
+  private eventBus!: GameEventBus;
+  private playerId!: string;
 
   private activeTab: Tab = 'units';
+  private unitRows: UnitRow[] = [];
+  private buildingRows: BuildingRow[] = [];
+  private currentOrderLabel!: Phaser.GameObjects.Text;
+  private progressBar!: Phaser.GameObjects.Rectangle;
+  private progressBg!: Phaser.GameObjects.Rectangle;
+  private resourceTexts: Partial<Record<ResourceType, Phaser.GameObjects.Text>> = {};
+  private unitPanel!: Phaser.GameObjects.GameObject & { setVisible(value: boolean): unknown };
+  private buildingPanel!: Phaser.GameObjects.GameObject & { setVisible(value: boolean): unknown };
+  private tabButtons!: Record<Tab, ButtonParts>;
 
-  private progressBar!:         Phaser.GameObjects.Rectangle;
-  private progressBg!:          Phaser.GameObjects.Rectangle;
-  private progressLabel!:       Phaser.GameObjects.Text;
-  private currentOrderLabel!:   Phaser.GameObjects.Text;
-  private resourceTexts:        Partial<Record<ResourceType, Phaser.GameObjects.Text>> = {};
-
-  private unitRows: Array<{
-    entry:     CatalogEntry;
-    btn:       Phaser.GameObjects.Rectangle;
-    btnText:   Phaser.GameObjects.Text;
-    costLabel: Phaser.GameObjects.Text;
-    container: Phaser.GameObjects.GameObject[];
-    baseY:     number;
-  }> = [];
-
-  private buildingRows: Array<{
-    def:       CityBuildingDef;
-    btn:       Phaser.GameObjects.Rectangle;
-    btnText:   Phaser.GameObjects.Text;
-    costLabel: Phaser.GameObjects.Text;
-    container: Phaser.GameObjects.GameObject[];
-    baseY:     number;
-  }> = [];
-
-  private tabUnitsBtn!:     Phaser.GameObjects.Rectangle;
-  private tabBuildingsBtn!: Phaser.GameObjects.Rectangle;
-  private hoverHintText!:   Phaser.GameObjects.Text;
-  private listViewportTop   = 0;
-  private listViewportBottom = 0;
-  private unitScrollOffset  = 0;
-  private buildingScrollOffset = 0;
-  private unitScrollMax     = 0;
-  private buildingScrollMax = 0;
-
-  constructor() { super({ key: 'CityMenuScene' }); }
+  constructor() {
+    super({ key: 'CityMenuScene' });
+  }
 
   init(data: CityMenuSceneData): void {
-    this.city             = data.city;
-    this.gameState        = data.gameState;
+    this.city = data.city;
+    this.gameState = data.gameState;
     this.networkAdapter = data.networkAdapter;
-    this.eventBus         = data.eventBus;
-    this.unitRows         = [];
-    this.buildingRows     = [];
-    this.resourceTexts    = {};
-    this.activeTab        = 'units';
-    this.listViewportTop  = 0;
-    this.listViewportBottom = 0;
-    this.unitScrollOffset = 0;
-    this.buildingScrollOffset = 0;
-    this.unitScrollMax    = 0;
-    this.buildingScrollMax = 0;
-
-    const lp   = this.gameState.getLocalPlayer();
-    this.playerId = lp?.getId() ?? '';
+    this.eventBus = data.eventBus;
+    this.playerId = this.gameState.getLocalPlayer()?.getId() ?? '';
+    this.activeTab = 'units';
+    this.unitRows = [];
+    this.buildingRows = [];
+    this.resourceTexts = {};
   }
 
   create(): void {
-    const W  = this.scale.width;
-    const H  = this.scale.height;
-    const cx = W / 2;
-    const cy = H / 2 - 28;
-    const px = cx - PW / 2;
-    const py = cy - PH / 2;
+    const metrics = getUiMetrics(this);
+    const cx = metrics.width / 2;
+    const cy = metrics.height / 2;
+    const size = fitPanel(metrics.width, metrics.height, 0.94, 1320, 980);
 
-    this.add.rectangle(0, 0, W, H, BG, 0.5).setOrigin(0, 0).setInteractive();
-    this.add.rectangle(cx, cy, PW, PH, PANEL).setStrokeStyle(1, ACCENT);
+    createBackdrop(this, 0.78);
 
-    // Hover hint — shown when mousing over a locked/unavailable row
-    this.hoverHintText = this.add.text(cx, py + PH - 11, '', {
-      fontSize: '12px', color: '#aa99cc', fontFamily: 'monospace', fontStyle: 'italic',
-    }).setOrigin(0.5).setDepth(10);
+    const root = createPanelSizer(this, metrics, size.width, size.height, 'y', UI.PANEL);
+    root.add(this.buildHeader(metrics, size.width), { expand: true });
+    root.add(this.buildOverview(metrics, size.width), { expand: true });
+    root.add(this.buildTabs(metrics, size.width), { expand: true });
+    root.add(this.buildListArea(metrics, size.width, size.height), { proportion: 1, expand: true });
+    root.setPosition(cx, cy).layout();
 
-    // ── Header ────────────────────────────────────────────────────────────────
-    const HDR_H = 50;
-    this.add.rectangle(cx, py + HDR_H / 2, PW, HDR_H, HEADER).setOrigin(0.5);
-
-    const nation      = this.gameState.getNation(this.city.getOwnerId());
-    const nationColor = nation ? parseInt(nation.getColor().replace('#', ''), 16) : 0xffffff;
-    this.add.circle(px + 26, py + HDR_H / 2, 9, nationColor);
-    this.add.text(px + 46, py + HDR_H / 2, this.city.getName(), {
-      fontSize: '20px', color: WHITE, fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0, 0.5);
-    this.add.text(px + 300, py + HDR_H / 2, `— ${nation?.getName() ?? ''}`, {
-      fontSize: '15px', color: DIM, fontFamily: 'monospace',
-    }).setOrigin(0, 0.5);
-
-    const builtStr = this.city.getBuildings().join('  ');
-    this.add.text(px + 480, py + HDR_H / 2, builtStr, {
-      fontSize: '13px', color: '#55dd99', fontFamily: 'monospace',
-    }).setOrigin(0, 0.5);
-
-    // Close
-    const closeBg = this.add.rectangle(px + PW - 30, py + HDR_H / 2, 48, 36, RED_BTN)
-      .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-    this.add.text(px + PW - 30, py + HDR_H / 2, '✕', {
-      fontSize: '18px', color: '#ff9999', fontFamily: 'monospace',
-    }).setOrigin(0.5);
-    closeBg.on('pointerup',   () => this.close());
-    closeBg.on('pointerover', () => closeBg.setFillStyle(RED_H));
-    closeBg.on('pointerout',  () => closeBg.setFillStyle(RED_BTN));
-    this.input.keyboard!.once('keydown-ESC', () => this.close());
-
-    // ── Current production ────────────────────────────────────────────────────
-    const secY = py + HDR_H + 12;
-    this.add.text(px + 18, secY, 'CURRENT PRODUCTION', {
-      fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2,
-    });
-    this.currentOrderLabel = this.add.text(px + 18, secY + 26, '— Idle —', {
-      fontSize: '16px', color: DIM, fontFamily: 'monospace', fontStyle: 'bold',
-    });
-
-    const barW = PW / 2 - 44;
-    this.progressBg  = this.add.rectangle(px + 18, secY + 58, barW, 16, 0x1a1e3a)
-      .setOrigin(0, 0.5).setStrokeStyle(1, ACCENT);
-    this.progressBar = this.add.rectangle(px + 18, secY + 58, 0, 12, ACCENT)
-      .setOrigin(0, 0.5);
-    this.progressLabel = this.add.text(px + 18 + barW / 2, secY + 58, '', {
-      fontSize: '12px', color: LT, fontFamily: 'monospace',
-    }).setOrigin(0.5);
-
-    const cancelBg = this.add.rectangle(px + 80, secY + 86, 132, 30, RED_BTN)
-      .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-    this.add.text(px + 80, secY + 86, 'CANCEL', {
-      fontSize: '13px', color: '#ff9999', fontFamily: 'monospace',
-    }).setOrigin(0.5);
-    cancelBg.on('pointerup',   () => { this.city.cancelOrder(); this.refresh(); });
-    cancelBg.on('pointerover', () => cancelBg.setFillStyle(RED_H));
-    cancelBg.on('pointerout',  () => cancelBg.setFillStyle(RED_BTN));
-
-    // ── Nation resources ──────────────────────────────────────────────────────
-    const resX = px + PW / 2 + 18;
-    this.add.text(resX, secY, 'NATION RESOURCES', {
-      fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2,
-    });
-    const shown: Array<{ type: ResourceType; color: string }> = [
-      { type: ResourceType.FOOD,         color: '#88dd88' },
-      { type: ResourceType.RAW_MATERIAL, color: '#ddaa66' },
-      { type: ResourceType.GOLD,         color: GOLD_C    },
-      { type: ResourceType.RESEARCH,     color: '#99bbff' },
-    ];
-    shown.forEach(({ type, color }, i) => {
-      this.add.text(resX,      secY + 26 + i * 22, `${RESOURCE_EMOJI[type]}`, {
-        fontSize: '17px', fontFamily: 'monospace',
-      });
-      this.add.text(resX + 32, secY + 26 + i * 22,
-        `${ResourceType[type as keyof typeof ResourceType] ?? type}`, {
-          fontSize: '13px', color: DIM, fontFamily: 'monospace',
-        });
-      this.resourceTexts[type] = this.add.text(resX + 164, secY + 26 + i * 22, '0', {
-        fontSize: '15px', color, fontFamily: 'monospace', fontStyle: 'bold',
-      });
-    });
-
-    // ── Tabs ──────────────────────────────────────────────────────────────────
-    const tabY = secY + 124;
-    this.add.rectangle(cx, tabY, PW - 16, 1, ACCENT).setOrigin(0.5, 0);
-
-    const tabH = 34;
-    const tabW = 132;
-    this.tabUnitsBtn = this.add.rectangle(px + tabW / 2 + 18, tabY + tabH / 2, tabW, tabH, TAB_ACT)
-      .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-    this.add.text(px + tabW / 2 + 18, tabY + tabH / 2, 'UNITS', {
-      fontSize: '13px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
-    }).setOrigin(0.5);
-
-    this.tabBuildingsBtn = this.add.rectangle(px + tabW * 1.5 + 28, tabY + tabH / 2, tabW, tabH, BTN)
-      .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-    this.add.text(px + tabW * 1.5 + 28, tabY + tabH / 2, 'BUILDINGS', {
-      fontSize: '13px', color: DIM, fontFamily: 'monospace',
-    }).setOrigin(0.5);
-
-    this.tabUnitsBtn.on('pointerup',     () => this.switchTab('units'));
-    this.tabBuildingsBtn.on('pointerup', () => this.switchTab('buildings'));
-
-    // ── List area ─────────────────────────────────────────────────────────────
-    const listTop   = tabY + tabH + 6;
-    const rowStartY = listTop + 4;
-    this.listViewportTop = rowStartY + 4;
-    this.listViewportBottom = py + PH - 42;
-
-    // Column headers
-    const unitHdr  = this.add.container(0, 0);
-    const buildHdr = this.add.container(0, 0);
-    unitHdr.add([
-      this.add.text(px + 18,  listTop, 'UNIT',  { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 }),
-      this.add.text(px + 310, listTop, 'COST',  { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 }),
-      this.add.text(px + 540, listTop, 'TIME',  { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 }),
-      this.add.text(px + 620, listTop, 'STATS', { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 }),
-    ]);
-    buildHdr.add([
-      this.add.text(px + 18,  listTop, 'BUILDING', { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 }),
-      this.add.text(px + 310, listTop, 'COST',     { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 }),
-      this.add.text(px + 540, listTop, 'TIME',     { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 }),
-      this.add.text(px + 620, listTop, 'PERKS',    { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 }),
-    ]);
-    buildHdr.setVisible(false);
-
-    // ── Unit rows ─────────────────────────────────────────────────────────────
-    PRODUCTION_CATALOG.forEach((entry, i) => {
-      const ry = rowStartY + i * ROW_H + 18;
-      const rowBg = this.add.rectangle(cx, ry + ROW_H / 2 - 2, PW - 10, ROW_H - 2, 0)
-        .setOrigin(0.5).setInteractive({ useHandCursor: true });
-      rowBg.on('pointerover', () => {
-        rowBg.setFillStyle(0x1e2240);
-        const hint = this.getLockReasonForUnit(entry);
-        if (hint) this.hoverHintText.setText(hint).setVisible(true);
-      });
-      rowBg.on('pointerout', () => {
-        rowBg.setFillStyle(0);
-        this.hoverHintText.setVisible(false);
-      });
-
-      const nameText  = this.add.text(px + 18, ry + ROW_H / 2,
-        entry.label, { fontSize: '15px', color: LT, fontFamily: 'monospace' }).setOrigin(0, 0.5);
-      const costLabel = this.add.text(px + 310, ry + ROW_H / 2,
-        formatCost(entry.cost as Record<string, number>), { fontSize: '14px', color: DIM, fontFamily: 'monospace' }).setOrigin(0, 0.5);
-      const secs      = (entry.ticks / TICK_RATE).toFixed(1);
-      const timeText  = this.add.text(px + 540, ry + ROW_H / 2,
-        `${secs}s`, { fontSize: '14px', color: DIM, fontFamily: 'monospace' }).setOrigin(0, 0.5);
-      const detText   = this.add.text(px + 620, ry + ROW_H / 2,
-        entry.detail, { fontSize: '12px', color: '#9090aa', fontFamily: 'monospace' }).setOrigin(0, 0.5);
-
-      const btnX    = px + PW - 58;
-      const btn     = this.add.rectangle(btnX, ry + ROW_H / 2, 84, 26, BTN)
-        .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-      const btnText = this.add.text(btnX, ry + ROW_H / 2, 'BUILD', {
-        fontSize: '13px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-
-      btn.on('pointerover', () => { if (btn.getData('enabled')) btn.setFillStyle(BTN_HOV); });
-      btn.on('pointerout',  () => { if (btn.getData('enabled')) btn.setFillStyle(BTN); });
-      btn.on('pointerup',   () => { if (btn.getData('enabled')) this.startProduction(entry); });
-
-      const container = [rowBg, nameText, costLabel, timeText, detText, btn, btnText];
-      container.forEach(o => o.setData('baseY', (o as Phaser.GameObjects.Components.Transform).y));
-      this.unitRows.push({ entry, btn, btnText, costLabel, container, baseY: ry + ROW_H / 2 });
-    });
-
-    // ── Building rows ─────────────────────────────────────────────────────────
-    const buildable = CITY_BUILDING_CATALOG.filter(b => b.ticks > 0);
-    buildable.forEach((def, i) => {
-      const ry = rowStartY + i * ROW_H + 18;
-      const rowBg = this.add.rectangle(cx, ry + ROW_H / 2 - 2, PW - 10, ROW_H - 2, 0)
-        .setOrigin(0.5).setInteractive({ useHandCursor: true });
-      rowBg.on('pointerover', () => {
-        rowBg.setFillStyle(0x1e2240);
-        const hint = this.getLockReasonForBuilding(def);
-        if (hint) this.hoverHintText.setText(hint).setVisible(true);
-      });
-      rowBg.on('pointerout', () => {
-        rowBg.setFillStyle(0);
-        this.hoverHintText.setVisible(false);
-      });
-
-      const nameText  = this.add.text(px + 18, ry + ROW_H / 2,
-        def.label, { fontSize: '15px', color: LT, fontFamily: 'monospace' }).setOrigin(0, 0.5);
-      const costLabel = this.add.text(px + 310, ry + ROW_H / 2,
-        formatCost(def.cost as Record<string, number>), { fontSize: '14px', color: DIM, fontFamily: 'monospace' }).setOrigin(0, 0.5);
-      const secs      = (def.ticks / TICK_RATE).toFixed(1);
-      const timeText  = this.add.text(px + 540, ry + ROW_H / 2,
-        `${secs}s`, { fontSize: '14px', color: DIM, fontFamily: 'monospace' }).setOrigin(0, 0.5);
-      const perksText = this.add.text(px + 620, ry + ROW_H / 2,
-        def.perks, { fontSize: '12px', color: '#9090aa', fontFamily: 'monospace' }).setOrigin(0, 0.5);
-
-      const btnX    = px + PW - 58;
-      const btn     = this.add.rectangle(btnX, ry + ROW_H / 2, 84, 26, BTN)
-        .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-      const btnText = this.add.text(btnX, ry + ROW_H / 2, 'BUILD', {
-        fontSize: '13px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-
-      btn.on('pointerover', () => { if (btn.getData('enabled')) btn.setFillStyle(BTN_HOV); });
-      btn.on('pointerout',  () => { if (btn.getData('enabled')) btn.setFillStyle(BTN); });
-      btn.on('pointerup',   () => { if (btn.getData('enabled')) this.buildCityBuilding(def); });
-
-      const container = [rowBg, nameText, costLabel, timeText, perksText, btn, btnText];
-      container.forEach(o => o.setData('baseY', (o as Phaser.GameObjects.Components.Transform).y));
-      this.buildingRows.push({ def, btn, btnText, costLabel, container, baseY: ry + ROW_H / 2 });
-      container.forEach(o => (o as Phaser.GameObjects.GameObject & { setVisible: (v: boolean) => void }).setVisible(false));
-    });
-
-    const viewportHeight = this.listViewportBottom - this.listViewportTop;
-    this.unitScrollMax = Math.max(0, this.unitRows.length * ROW_H - viewportHeight + 20);
-    this.buildingScrollMax = Math.max(0, this.buildingRows.length * ROW_H - viewportHeight + 20);
-
-    const makeScrollBtn = (x: number, y: number, label: string, onClick: () => void) => {
-      const bg = this.add.rectangle(x, y, 32, 28, BTN)
-        .setStrokeStyle(1, ACCENT)
-        .setInteractive({ useHandCursor: true });
-      this.add.text(x, y, label, {
-        fontSize: '16px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0.5);
-      bg.on('pointerover', () => bg.setFillStyle(BTN_HOV));
-      bg.on('pointerout',  () => bg.setFillStyle(BTN));
-      bg.on('pointerup',   onClick);
-    };
-
-    makeScrollBtn(px + PW - 24, this.listViewportTop + 14, '^', () => this.scrollList(-1));
-    makeScrollBtn(px + PW - 24, this.listViewportBottom - 14, 'v', () => this.scrollList(1));
-
-    const onWheel = (
-      pointer: Phaser.Input.Pointer,
-      _gos: unknown,
-      _dx: number,
-      dy: number,
-    ) => {
-      const withinX = pointer.x >= px + 8 && pointer.x <= px + PW - 8;
-      const withinY = pointer.y >= this.listViewportTop && pointer.y <= this.listViewportBottom;
-      if (!withinX || !withinY) return;
-      this.scrollList(dy > 0 ? 1 : -1);
-    };
-    this.input.on('wheel', onWheel);
-
-    // Store header refs for tab switching
-    this.data.set('unitHdr',  unitHdr);
-    this.data.set('buildHdr', buildHdr);
-
-    const onRefresh = () => this.refreshBuildButtons();
-    this.eventBus.on('city:unit-spawned',        onRefresh);
-    this.eventBus.on('city:building-built',      onRefresh);
+    const onRefresh = () => this.refresh();
+    this.eventBus.on('city:unit-spawned', onRefresh);
+    this.eventBus.on('city:building-built', onRefresh);
     this.eventBus.on('city:production-complete', onRefresh);
     this.eventBus.on('nation:research-complete', onRefresh);
-
     this.events.once('shutdown', () => {
-      this.eventBus.off('city:unit-spawned',        onRefresh);
-      this.eventBus.off('city:building-built',      onRefresh);
+      this.eventBus.off('city:unit-spawned', onRefresh);
+      this.eventBus.off('city:building-built', onRefresh);
       this.eventBus.off('city:production-complete', onRefresh);
       this.eventBus.off('nation:research-complete', onRefresh);
-      this.input.off('wheel', onWheel);
     });
 
+    this.input.keyboard?.once('keydown-ESC', () => this.close());
     this.refresh();
   }
 
@@ -391,85 +129,341 @@ export class CityMenuScene extends Phaser.Scene {
     this.refreshResources();
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  private buildHeader(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+    const row = this.rexUI.add.sizer({
+      orientation: 'x',
+      width: panelWidth - metrics.pad * 2,
+      space: { item: metrics.gap },
+    });
+
+    const nation = this.gameState.getNation(this.city.getOwnerId());
+    const titleColumn = this.rexUI.add.sizer({
+      orientation: 'y',
+      width: panelWidth - metrics.pad * 4,
+      space: { item: metrics.smallGap },
+    });
+    titleColumn.add(createText(this, this.city.getName(), metrics, 'heading', {
+      fontFamily: UI.FONT_DISPLAY,
+      fontStyle: 'bold',
+      color: UI.WHITE,
+    }));
+    titleColumn.add(createText(this, nation ? nation.getName() : 'Unknown owner', metrics, 'body', {
+      color: UI.DIM,
+      fontFamily: UI.FONT_DATA,
+    }));
+    row.add(titleColumn, { proportion: 1, expand: true });
+
+    const closeButton = createButton(this, metrics, 'CLOSE', () => this.close(), {
+      variant: 'danger',
+      width: Math.round(120 * metrics.scale),
+      height: Math.round(metrics.buttonHeight * 0.82),
+    });
+    row.add(closeButton.root);
+    return row;
+  }
+
+  private buildOverview(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+    const row = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      width: panelWidth - metrics.pad * 2,
+      space: { item: metrics.gap },
+    });
+    const cardWidth = metrics.stacked
+      ? panelWidth - metrics.pad * 2
+      : Math.round((panelWidth - metrics.pad * 2 - metrics.gap) / 2);
+
+    row.add(this.buildProductionCard(metrics, cardWidth), { proportion: 1, expand: true });
+    row.add(this.buildResourceCard(metrics, cardWidth), { proportion: 1, expand: true });
+    return row;
+  }
+
+  private buildProductionCard(metrics: ReturnType<typeof getUiMetrics>, width: number): Phaser.GameObjects.GameObject {
+    const card = createPanelSizer(this, metrics, width, Math.round(180 * metrics.scale), 'y', UI.PANEL_ALT);
+    card.add(createText(this, 'Current Production', metrics, 'caption', {
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+      color: colorString(UI.ACCENT_SOFT),
+    }));
+
+    this.currentOrderLabel = createText(this, 'Idle', metrics, 'body', {
+      color: UI.DIM,
+      fontFamily: UI.FONT_DATA,
+    });
+    card.add(this.currentOrderLabel, { expand: true });
+
+    const barWidth = width - metrics.pad * 2;
+    this.progressBg = this.add.rectangle(0, 0, barWidth, Math.max(18, Math.round(metrics.scale * 18)), UI.SURFACE)
+      .setOrigin(0, 0.5)
+      .setStrokeStyle(2, UI.ACCENT, 0.9);
+    this.progressBar = this.add.rectangle(0, 0, 0, Math.max(12, Math.round(metrics.scale * 12)), UI.ACCENT_SOFT)
+      .setOrigin(0, 0.5);
+    card.add(this.add.container(0, 0, [this.progressBg, this.progressBar]), { expand: true, align: 'left' });
+
+    const cancelButton = createButton(this, metrics, 'CANCEL ORDER', () => {
+      this.city.cancelOrder();
+      this.refresh();
+    }, {
+      variant: 'warning',
+      width: metrics.stacked ? width - metrics.pad * 2 : Math.round(170 * metrics.scale),
+      height: Math.round(metrics.buttonHeight * 0.82),
+    });
+    card.add(cancelButton.root, { align: 'left' });
+    return card;
+  }
+
+  private buildResourceCard(metrics: ReturnType<typeof getUiMetrics>, width: number): Phaser.GameObjects.GameObject {
+    const card = createPanelSizer(this, metrics, width, Math.round(180 * metrics.scale), 'y', UI.PANEL_ALT);
+    card.add(createText(this, 'Nation Resources', metrics, 'caption', {
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+      color: colorString(UI.ACCENT_SOFT),
+    }));
+
+    [
+      { type: ResourceType.FOOD, label: 'Food', color: '#8ee09d' },
+      { type: ResourceType.RAW_MATERIAL, label: 'Materials', color: '#f0bf7a' },
+      { type: ResourceType.GOLD, label: 'Gold', color: UI.GOLD_C },
+      { type: ResourceType.RESEARCH, label: 'Research', color: '#8fb8ff' },
+    ].forEach(({ type, label, color }) => {
+      const line = this.rexUI.add.sizer({
+        orientation: 'x',
+        width: width - metrics.pad * 2,
+        space: { item: metrics.smallGap },
+      });
+      line.add(createText(this, RESOURCE_EMOJI[type], metrics, 'body', {
+        fontFamily: UI.FONT_DATA,
+        fontStyle: 'bold',
+        color,
+      }));
+      line.add(createText(this, label, metrics, 'caption', {
+        color: UI.DIM,
+      }), { proportion: 1, expand: true });
+      this.resourceTexts[type] = createText(this, '0', metrics, 'body', {
+        fontFamily: UI.FONT_DATA,
+        fontStyle: 'bold',
+        color,
+      });
+      line.add(this.resourceTexts[type]!, { align: 'right' });
+      card.add(line, { expand: true });
+    });
+    return card;
+  }
+
+  private buildTabs(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+    const row = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      width: panelWidth - metrics.pad * 2,
+      space: { item: metrics.gap },
+    });
+    const tabWidth = metrics.stacked
+      ? panelWidth - metrics.pad * 2
+      : Math.round((panelWidth - metrics.pad * 2 - metrics.gap) / 2);
+
+    this.tabButtons = {
+      units: createButton(this, metrics, 'UNITS', () => this.switchTab('units'), {
+        variant: 'primary',
+        width: tabWidth,
+      }),
+      buildings: createButton(this, metrics, 'BUILDINGS', () => this.switchTab('buildings'), {
+        variant: 'secondary',
+        width: tabWidth,
+      }),
+    };
+    row.add(this.tabButtons.units.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    row.add(this.tabButtons.buildings.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    return row;
+  }
+
+  private buildListArea(
+    metrics: ReturnType<typeof getUiMetrics>,
+    panelWidth: number,
+    panelHeight: number,
+  ): Phaser.GameObjects.GameObject {
+    const listHeight = Math.round(panelHeight * 0.44);
+    const wrapper = this.rexUI.add.overlapSizer({
+      width: panelWidth - metrics.pad * 2,
+      height: listHeight,
+    });
+
+    this.unitPanel = this.buildUnitList(metrics, panelWidth - metrics.pad * 2, listHeight) as Phaser.GameObjects.GameObject & { setVisible(value: boolean): unknown };
+    this.buildingPanel = this.buildBuildingList(metrics, panelWidth - metrics.pad * 2, listHeight) as Phaser.GameObjects.GameObject & { setVisible(value: boolean): unknown };
+    wrapper.add(this.unitPanel, { key: 'units', expand: true, align: 'center' });
+    wrapper.add(this.buildingPanel, { key: 'buildings', expand: true, align: 'center' });
+    return wrapper;
+  }
+
+  private buildUnitList(metrics: ReturnType<typeof getUiMetrics>, width: number, height: number): Phaser.GameObjects.GameObject {
+    const content = this.rexUI.add.sizer({
+      orientation: 'y',
+      width: width - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+
+    PRODUCTION_CATALOG.forEach((entry) => {
+      const row = this.buildUnitRow(metrics, width - metrics.pad * 3, entry);
+      content.add(row.container, { expand: true });
+      this.unitRows.push(row.record);
+    });
+
+    return createScrollablePanel(this, metrics, width, height, content, UI.PANEL_ALT);
+  }
+
+  private buildBuildingList(metrics: ReturnType<typeof getUiMetrics>, width: number, height: number): Phaser.GameObjects.GameObject {
+    const content = this.rexUI.add.sizer({
+      orientation: 'y',
+      width: width - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+
+    CITY_BUILDING_CATALOG.filter(def => def.ticks > 0).forEach((def) => {
+      const row = this.buildBuildingRow(metrics, width - metrics.pad * 3, def);
+      content.add(row.container, { expand: true });
+      this.buildingRows.push(row.record);
+    });
+
+    const panel = createScrollablePanel(this, metrics, width, height, content, UI.PANEL_ALT);
+    panel.setVisible(false);
+    return panel;
+  }
+
+  private buildUnitRow(
+    metrics: ReturnType<typeof getUiMetrics>,
+    width: number,
+    entry: CatalogEntry,
+  ): { container: Phaser.GameObjects.GameObject; record: UnitRow } {
+    const row = createPanelSizer(this, metrics, width, Math.round((metrics.compact ? 168 : 138) * metrics.scale), 'y', UI.PANEL);
+    row.add(createText(this, entry.label, metrics, 'body', {
+      fontStyle: 'bold',
+      color: UI.WHITE,
+    }));
+    row.add(createText(this, entry.detail, metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: width - metrics.pad * 2 },
+    }));
+
+    const meta = this.rexUI.add.sizer({
+      orientation: metrics.compact ? 'y' : 'x',
+      width: width - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+    const secs = (entry.ticks / TICK_RATE).toFixed(1);
+    const costLabel = createText(this, formatCost(entry.cost as Record<string, number>), metrics, 'caption', {
+      color: UI.DIM,
+      fontFamily: UI.FONT_DATA,
+    });
+    const statsLabel = createText(this, `Time ${secs}s`, metrics, 'caption', {
+      color: UI.DIM,
+      fontFamily: UI.FONT_DATA,
+    });
+    meta.add(costLabel, { proportion: 1, expand: true });
+    meta.add(statsLabel, { align: 'right' });
+    row.add(meta, { expand: true });
+
+    const footer = this.rexUI.add.sizer({
+      orientation: metrics.compact ? 'y' : 'x',
+      width: width - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+    const statusLabel = createText(this, '', metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: width - metrics.pad * 4 },
+    });
+    const button = createButton(this, metrics, 'BUILD', () => { void this.startProduction(entry); }, {
+      variant: 'primary',
+      width: metrics.compact ? width - metrics.pad * 2 : Math.round(150 * metrics.scale),
+      height: Math.round(metrics.buttonHeight * 0.82),
+    });
+    footer.add(statusLabel, { proportion: 1, expand: true });
+    footer.add(button.root, { align: 'center' });
+    row.add(footer, { expand: true });
+
+    return {
+      container: row,
+      record: { entry, button, costLabel, statusLabel },
+    };
+  }
+
+  private buildBuildingRow(
+    metrics: ReturnType<typeof getUiMetrics>,
+    width: number,
+    def: CityBuildingDef,
+  ): { container: Phaser.GameObjects.GameObject; record: BuildingRow } {
+    const row = createPanelSizer(this, metrics, width, Math.round((metrics.compact ? 168 : 138) * metrics.scale), 'y', UI.PANEL);
+    row.add(createText(this, def.label, metrics, 'body', {
+      fontStyle: 'bold',
+      color: UI.WHITE,
+    }));
+    row.add(createText(this, def.perks, metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: width - metrics.pad * 2 },
+    }));
+
+    const meta = this.rexUI.add.sizer({
+      orientation: metrics.compact ? 'y' : 'x',
+      width: width - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+    const secs = (def.ticks / TICK_RATE).toFixed(1);
+    const costLabel = createText(this, formatCost(def.cost as Record<string, number>), metrics, 'caption', {
+      color: UI.DIM,
+      fontFamily: UI.FONT_DATA,
+    });
+    const statsLabel = createText(this, `Time ${secs}s`, metrics, 'caption', {
+      color: UI.DIM,
+      fontFamily: UI.FONT_DATA,
+    });
+    meta.add(costLabel, { proportion: 1, expand: true });
+    meta.add(statsLabel, { align: 'right' });
+    row.add(meta, { expand: true });
+
+    const footer = this.rexUI.add.sizer({
+      orientation: metrics.compact ? 'y' : 'x',
+      width: width - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+    const statusLabel = createText(this, '', metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: width - metrics.pad * 4 },
+    });
+    const button = createButton(this, metrics, 'BUILD', () => { void this.buildCityBuilding(def); }, {
+      variant: 'primary',
+      width: metrics.compact ? width - metrics.pad * 2 : Math.round(150 * metrics.scale),
+      height: Math.round(metrics.buttonHeight * 0.82),
+    });
+    footer.add(statusLabel, { proportion: 1, expand: true });
+    footer.add(button.root, { align: 'center' });
+    row.add(footer, { expand: true });
+
+    return {
+      container: row,
+      record: { def, button, costLabel, statusLabel },
+    };
+  }
 
   private switchTab(tab: Tab): void {
     this.activeTab = tab;
+    this.unitPanel.setVisible(tab === 'units');
+    this.buildingPanel.setVisible(tab === 'buildings');
 
-    const isUnits = tab === 'units';
-    this.tabUnitsBtn.setFillStyle(isUnits ? TAB_ACT : BTN);
-    this.tabBuildingsBtn.setFillStyle(isUnits ? BTN : TAB_ACT);
-
-    const unitHdr  = this.data.get('unitHdr')  as Phaser.GameObjects.Container;
-    const buildHdr = this.data.get('buildHdr') as Phaser.GameObjects.Container;
-    unitHdr.setVisible(isUnits);
-    buildHdr.setVisible(!isUnits);
-
-    this.unitRows.forEach(r =>
-      r.container.forEach(o => (o as Phaser.GameObjects.GameObject & { setVisible: (v: boolean) => void }).setVisible(isUnits))
-    );
-    this.buildingRows.forEach(r =>
-      r.container.forEach(o => (o as Phaser.GameObjects.GameObject & { setVisible: (v: boolean) => void }).setVisible(!isUnits))
-    );
-
-    this.applyListScroll();
-    this.refreshBuildButtons();
+    this.tabButtons.units.background.setFillStyle(tab === 'units' ? UI.BTN_ACTIVE : UI.BTN);
+    this.tabButtons.buildings.background.setFillStyle(tab === 'buildings' ? UI.BTN_ACTIVE : UI.BTN);
+    this.tabButtons.units.text.setColor(tab === 'units' ? UI.WHITE : UI.LT);
+    this.tabButtons.buildings.text.setColor(tab === 'buildings' ? UI.WHITE : UI.LT);
   }
 
   private refresh(): void {
     this.refreshProduction();
     this.refreshResources();
-    this.applyListScroll();
     this.refreshBuildButtons();
-  }
-
-  private scrollList(direction: -1 | 1): void {
-    const delta = direction * ROW_H;
-    if (this.activeTab === 'units') {
-      this.unitScrollOffset = Phaser.Math.Clamp(this.unitScrollOffset + delta, 0, this.unitScrollMax);
-    } else {
-      this.buildingScrollOffset = Phaser.Math.Clamp(this.buildingScrollOffset + delta, 0, this.buildingScrollMax);
-    }
-    this.applyListScroll();
-  }
-
-  private applyListScroll(): void {
-    const isUnits = this.activeTab === 'units';
-
-    for (const row of this.unitRows) {
-      this.positionRow(row.container, row.baseY, this.unitScrollOffset, isUnits);
-    }
-    for (const row of this.buildingRows) {
-      this.positionRow(row.container, row.baseY, this.buildingScrollOffset, !isUnits);
-    }
-  }
-
-  private positionRow(
-    objects: Phaser.GameObjects.GameObject[],
-    baseY: number,
-    offset: number,
-    enabled: boolean,
-  ): void {
-    const rowY = baseY - offset;
-    const visible = enabled && rowY >= this.listViewportTop && rowY <= this.listViewportBottom;
-
-    for (const obj of objects) {
-      const baseObjY = obj.getData('baseY');
-      if (typeof baseObjY === 'number' && 'setY' in obj) {
-        (obj as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform).setY(baseObjY - offset);
-      }
-      if ('setVisible' in obj) {
-        (obj as Phaser.GameObjects.GameObject & { setVisible: (v: boolean) => void }).setVisible(visible);
-      }
-    }
+    this.switchTab(this.activeTab);
   }
 
   private async startProduction(entry: CatalogEntry): Promise<void> {
     const result = await this.networkAdapter.sendCommand({
-      type:         'START_CITY_PRODUCTION',
-      playerId:     this.playerId,
-      cityId:       this.city.id,
-      unitType:     (entry.makeOrder() as UnitOrder).unitType,
+      type: 'START_CITY_PRODUCTION',
+      playerId: this.playerId,
+      cityId: this.city.id,
+      unitType: (entry.makeOrder() as UnitOrder).unitType,
       issuedAtTick: 0,
     });
     if (result.success) this.refresh();
@@ -477,10 +471,10 @@ export class CityMenuScene extends Phaser.Scene {
 
   private async buildCityBuilding(def: CityBuildingDef): Promise<void> {
     const result = await this.networkAdapter.sendCommand({
-      type:         'BUILD_CITY_BUILDING',
-      playerId:     this.playerId,
-      cityId:       this.city.id,
-      building:     def.type,
+      type: 'BUILD_CITY_BUILDING',
+      playerId: this.playerId,
+      cityId: this.city.id,
+      building: def.type,
       issuedAtTick: 0,
     });
     if (result.success) this.refresh();
@@ -489,16 +483,19 @@ export class CityMenuScene extends Phaser.Scene {
   private refreshProduction(): void {
     const order = this.city.getCurrentOrder();
     if (!order) {
-      this.currentOrderLabel.setText('— Idle —').setColor(DIM);
-      this.progressBar.setDisplaySize(0, this.progressBar.displayHeight);
-      this.progressLabel.setText('');
-    } else {
-      this.currentOrderLabel.setText(order.label).setColor(GOLD_C);
-      const pct  = this.city.getProgressFraction();
-      const barW = Math.round((this.progressBg.displayWidth - 4) * pct);
-      this.progressBar.setDisplaySize(Math.max(0, barW), this.progressBar.displayHeight);
-      this.progressLabel.setText(`${(order.ticksRemaining / TICK_RATE).toFixed(1)}s remaining`);
+      this.currentOrderLabel.setText('Idle');
+      this.currentOrderLabel.setColor(UI.DIM);
+      this.progressBar.width = 0;
+      this.progressBar.displayWidth = 0;
+      return;
     }
+
+    this.currentOrderLabel.setText(`${order.label}  |  ${(order.ticksRemaining / TICK_RATE).toFixed(1)}s remaining`);
+    this.currentOrderLabel.setColor(UI.GOLD_C);
+    const pct = this.city.getProgressFraction();
+    const width = Math.round(this.progressBg.width * pct);
+    this.progressBar.width = width;
+    this.progressBar.displayWidth = width;
   }
 
   private refreshResources(): void {
@@ -510,65 +507,64 @@ export class CityMenuScene extends Phaser.Scene {
   }
 
   private refreshBuildButtons(): void {
-    const nation   = this.gameState.getNation(this.city.getOwnerId());
-    const busy     = this.city.getCurrentOrder() !== null;
+    const nation = this.gameState.getNation(this.city.getOwnerId());
+    const busy = this.city.getCurrentOrder() !== null;
     const treasury = nation?.getTreasury();
 
-    if (this.activeTab === 'units') {
-      const deposits = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set();
-      for (const row of this.unitRows) {
-        const canAfford   = treasury?.hasResources(row.entry.cost) ?? false;
-        const techsOk     = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
-        const buildingOk  = !row.entry.requiresBuilding || this.city.hasBuilding(row.entry.requiresBuilding);
-        const depositOk   = !row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit);
-        const enabled     = !busy && canAfford && techsOk && buildingOk && depositOk;
-        row.btn.setData('enabled', enabled);
-        row.btn.setFillStyle(enabled ? BTN : 0x0e101e);
-        row.btn.setStrokeStyle(1, enabled ? ACCENT : 0x2a2a44);
-        row.btnText.setColor(enabled ? LT : '#444466');
-        row.btnText.setText(techsOk && buildingOk && depositOk ? 'BUILD' : 'LOCKED');
-        row.costLabel.setColor(canAfford ? DIM : '#995555');
-      }
-    } else {
-      for (const row of this.buildingRows) {
-        const alreadyBuilt = this.city.hasBuilding(row.def.type);
-        const techOk       = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
-        const canAfford    = treasury?.hasResources(row.def.cost) ?? false;
-        const enabled      = !alreadyBuilt && !busy && techOk && canAfford;
-        row.btn.setData('enabled', enabled);
-        row.btn.setFillStyle(enabled ? BTN : 0x0e101e);
-        row.btn.setStrokeStyle(1, enabled ? ACCENT : 0x2a2a44);
-        row.btnText.setColor(enabled ? LT : '#444466');
-        row.btnText.setText(alreadyBuilt ? 'BUILT' : techOk ? 'BUILD' : 'LOCKED');
-        row.costLabel.setColor(canAfford ? DIM : '#995555');
-      }
+    const deposits = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set();
+    for (const row of this.unitRows) {
+      const canAfford = treasury?.hasResources(row.entry.cost) ?? false;
+      const techsOk = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
+      const buildingOk = !row.entry.requiresBuilding || this.city.hasBuilding(row.entry.requiresBuilding);
+      const depositOk = !row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit);
+      const enabled = !busy && canAfford && techsOk && buildingOk && depositOk;
+      setButtonEnabled(row.button, enabled, 'primary');
+      row.button.text.setText(techsOk && buildingOk && depositOk ? 'BUILD' : 'LOCKED');
+      row.costLabel.setColor(canAfford ? UI.DIM : '#d19393');
+      row.statusLabel.setText(this.getLockReasonForUnit(row.entry));
+      row.statusLabel.setColor(enabled ? UI.DIM : '#d5a0a0');
+    }
+
+    for (const row of this.buildingRows) {
+      const alreadyBuilt = this.city.hasBuilding(row.def.type);
+      const techOk = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
+      const canAfford = treasury?.hasResources(row.def.cost) ?? false;
+      const enabled = !alreadyBuilt && !busy && techOk && canAfford;
+      setButtonEnabled(row.button, enabled, 'primary');
+      row.button.text.setText(alreadyBuilt ? 'BUILT' : techOk ? 'BUILD' : 'LOCKED');
+      row.costLabel.setColor(canAfford ? UI.DIM : '#d19393');
+      row.statusLabel.setText(this.getLockReasonForBuilding(row.def));
+      row.statusLabel.setColor(enabled ? UI.DIM : '#d5a0a0');
     }
   }
 
   private getLockReasonForUnit(entry: CatalogEntry): string {
     const nation = this.gameState.getNation(this.city.getOwnerId());
-    if (this.city.getCurrentOrder()) return '⚠  city is already producing something';
+    if (this.city.getCurrentOrder()) return 'City is already producing something.';
     const missing = entry.requiresTechs.filter(t => !nation?.hasResearched(t));
-    if (missing.length) return `⚠  requires research: ${missing.map(t => t.replace(/_/g, ' ').toLowerCase()).join(', ')}`;
-    if (entry.requiresBuilding !== null && !this.city.hasBuilding(entry.requiresBuilding))
-      return `⚠  requires ${entry.requiresBuilding.replace(/_/g, ' ').toLowerCase()} in this city`;
+    if (missing.length) return `Requires research: ${missing.map(t => t.replace(/_/g, ' ')).join(', ')}.`;
+    if (entry.requiresBuilding !== null && !this.city.hasBuilding(entry.requiresBuilding)) {
+      return `Requires ${entry.requiresBuilding.replace(/_/g, ' ').toLowerCase()} in this city.`;
+    }
     if (entry.requiresDeposit) {
       const deposits = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set();
-      if (!deposits.has(entry.requiresDeposit))
-        return `⚠  requires active ${entry.requiresDeposit.replace(/_/g, ' ').toLowerCase()} mine`;
+      if (!deposits.has(entry.requiresDeposit)) {
+        return `Requires active ${entry.requiresDeposit.replace(/_/g, ' ').toLowerCase()} deposit.`;
+      }
     }
-    if (!nation?.getTreasury().hasResources(entry.cost)) return '⚠  insufficient resources';
-    return '';
+    if (!nation?.getTreasury().hasResources(entry.cost)) return 'Insufficient resources.';
+    return 'Ready to queue.';
   }
 
   private getLockReasonForBuilding(def: CityBuildingDef): string {
-    if (this.city.hasBuilding(def.type)) return '';  // "BUILT" label already makes this obvious
+    if (this.city.hasBuilding(def.type)) return 'Already built.';
     const nation = this.gameState.getNation(this.city.getOwnerId());
-    if (this.city.getCurrentOrder()) return '⚠  city is already producing something';
-    if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech))
-      return `⚠  requires research: ${def.requiresTech.replace(/_/g, ' ').toLowerCase()}`;
-    if (!nation?.getTreasury().hasResources(def.cost)) return '⚠  insufficient resources';
-    return '';
+    if (this.city.getCurrentOrder()) return 'City is already producing something.';
+    if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech)) {
+      return `Requires research: ${def.requiresTech.replace(/_/g, ' ').toLowerCase()}.`;
+    }
+    if (!nation?.getTreasury().hasResources(def.cost)) return 'Insufficient resources.';
+    return 'Ready to build.';
   }
 
   private close(): void {

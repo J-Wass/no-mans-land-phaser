@@ -50,6 +50,29 @@ export class MovementSystem {
     this.states.delete(unitId);
   }
 
+  public pauseOrder(unitId: EntityId): UnitMovementState | null {
+    const state = this.states.get(unitId);
+    if (!state) return null;
+
+    const snapshot: UnitMovementState = {
+      unitId: state.unitId,
+      path: state.path.map(step => ({ ...step })),
+      ticksRemainingOnStep: state.ticksRemainingOnStep,
+    };
+    this.states.delete(unitId);
+    return snapshot;
+  }
+
+  public resumeOrder(state: UnitMovementState | null): void {
+    if (!state || state.path.length === 0) return;
+
+    this.states.set(state.unitId, {
+      unitId: state.unitId,
+      path: state.path.map(step => ({ ...step })),
+      ticksRemainingOnStep: Math.max(0, state.ticksRemainingOnStep),
+    });
+  }
+
   public isMoving(unitId: EntityId): boolean {
     return this.states.has(unitId);
   }
@@ -241,7 +264,7 @@ export class MovementSystem {
         if (cityId) {
           const city = gameState.getCity(cityId);
           if (city && city.getOwnerId() !== unit.getOwnerId()) {
-            citySiegeSystem.startSiege(unit, city, nextCoords, currentTick, this, eventBus);
+            citySiegeSystem.startSiege(unit, city, from, nextCoords, currentTick, this, eventBus);
             continue;
           }
         }
@@ -252,7 +275,7 @@ export class MovementSystem {
           if (tOwner && tOwner !== unit.getOwnerId() && !territory.getCityId()) {
             const unitNation = gameState.getNation(unit.getOwnerId());
             if (unitNation?.isAtWar(tOwner)) {
-              territoryBattleSystem.startBattle(unit, territory, nextCoords, currentTick, this, eventBus);
+              territoryBattleSystem.startBattle(unit, territory, from, nextCoords, currentTick, this, eventBus);
               continue;
             }
           }
