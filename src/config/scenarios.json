@@ -1,0 +1,31 @@
+{
+  "scenarios": [
+    {
+      "id": "border-clash",
+      "name": "Border Clash",
+      "description": "A fixed 1v1 frontier war with preset nations, cities, resources, and opening techs.",
+      "playerNation": {
+        "name": "Valdris",
+        "color": "#e63946",
+        "cities": ["Redharbor", "Stonewatch"],
+        "resources": {
+          "GOLD": 65,
+          "FOOD": 25,
+          "RAW_MATERIAL": 40
+        },
+        "startingTechs": ["masonry"]
+      },
+      "opponentNation": {
+        "name": "Mirefall",
+        "color": "#457b9d",
+        "cities": ["Greyfen", "Ashbridge"],
+        "resources": {
+          "GOLD": 50,
+          "FOOD": 50,
+          "RAW_MATERIAL": 25
+        },
+        "startingTechs": ["hunting"]
+      }
+    }
+  ]
+}
