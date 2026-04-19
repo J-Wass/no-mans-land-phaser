@@ -161,17 +161,18 @@ describe('CommandProcessor', () => {
       type: 'SET_UNIT_BATTLE_ORDER',
       playerId: 'player-1',
       unitId: 'unit-1',
-      battleOrder: 'CHARGE',
+      battleOrder: 'ADVANCE',
       issuedAtTick: 3,
     });
 
     expect(result.success).toBe(true);
-    expect(unit.getBattleOrder()).toBe('CHARGE');
+    expect(unit.getBattleOrder()).toBe('ADVANCE');
   });
 
   describe('BUILD_TERRITORY (OUTPOST)', () => {
     beforeEach(() => {
-      // OUTPOST costs RAW_MATERIAL:10, FOOD:5
+      // OUTPOST costs GOLD:5, RAW_MATERIAL:10, FOOD:5
+      nation.getTreasury().addResource(ResourceType.GOLD, 10);
       nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 20);
       nation.getTreasury().addResource(ResourceType.FOOD, 10);
       // unit-1 is already at (0,0) from the outer beforeEach
@@ -275,6 +276,10 @@ describe('CommandProcessor', () => {
   });
 
   describe('START_RESEARCH', () => {
+    beforeEach(() => {
+      nation.getTreasury().addResource(ResourceType.RESEARCH, 100);
+    });
+
     it('starts research on a root tech', () => {
       const result = processor.dispatch({
         type: 'START_RESEARCH',

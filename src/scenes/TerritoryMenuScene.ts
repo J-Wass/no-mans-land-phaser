@@ -46,10 +46,16 @@ export class TerritoryMenuScene extends Phaser.Scene {
     upgradeBtn: Phaser.GameObjects.Rectangle | null;
     upgradeTxt: Phaser.GameObjects.Text | null;
     levelLbl:   Phaser.GameObjects.Text | null;
+    objects:    Phaser.GameObjects.GameObject[];
+    baseY:      number;
   }> = [];
 
   private feedbackText!: Phaser.GameObjects.Text;
   private hoverHintText!: Phaser.GameObjects.Text;
+  private listViewportTop = 0;
+  private listViewportBottom = 0;
+  private scrollOffset = 0;
+  private scrollMax = 0;
 
   constructor() { super({ key: 'TerritoryMenuScene' }); }
 
@@ -59,6 +65,10 @@ export class TerritoryMenuScene extends Phaser.Scene {
     this.networkAdapter = data.networkAdapter;
     this.eventBus         = data.eventBus;
     this.buildingRows     = [];
+    this.listViewportTop  = 0;
+    this.listViewportBottom = 0;
+    this.scrollOffset     = 0;
+    this.scrollMax        = 0;
 
     const localPlayer = this.gameState.getLocalPlayer();
     this.playerId     = localPlayer?.getId() ?? '';
@@ -159,6 +169,8 @@ export class TerritoryMenuScene extends Phaser.Scene {
     this.add.text(px + 440, listTop + 10, 'REQ',      { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
 
     const rowStartY = listTop + 32;
+    this.listViewportTop = rowStartY + 4;
+    this.listViewportBottom = py + PH - 54;
 
     const listable = TERRITORY_BUILDING_CATALOG.filter(
       b => b.type !== TerritoryBuildingType.OUTPOST,
@@ -179,7 +191,7 @@ export class TerritoryMenuScene extends Phaser.Scene {
         this.hoverHintText.setVisible(false);
       });
 
-      this.add.text(px + 18, ry + ROW_H / 2,
+      const nameText = this.add.text(px + 18, ry + ROW_H / 2,
         `${BUILDING_MAP_ICON[def.type]} ${def.label}`, {
           fontSize: '15px', color: LT, fontFamily: 'monospace',
         }).setOrigin(0, 0.5);
@@ -190,7 +202,7 @@ export class TerritoryMenuScene extends Phaser.Scene {
         }).setOrigin(0, 0.5);
 
       const reqText = def.requiresTech ?? (def.requires ? def.requires : '—');
-      this.add.text(px + 440, ry + ROW_H / 2, String(reqText), {
+      const reqLbl = this.add.text(px + 440, ry + ROW_H / 2, String(reqText), {
         fontSize: '12px', color: '#8a8aaa', fontFamily: 'monospace',
       }).setOrigin(0, 0.5);
 
@@ -226,8 +238,64 @@ export class TerritoryMenuScene extends Phaser.Scene {
         }).setOrigin(0, 0.5);
       }
 
-      this.buildingRows.push({ def, btn, btnText, costLbl, upgradeBtn, upgradeTxt, levelLbl });
+      const objects = [
+        rowBg,
+        nameText,
+        costLbl,
+        reqLbl,
+        btn,
+        btnText,
+        ...(upgradeBtn ? [upgradeBtn] : []),
+        ...(upgradeTxt ? [upgradeTxt] : []),
+        ...(levelLbl ? [levelLbl] : []),
+      ];
+      objects.forEach(o => {
+        o.setData('baseY', (o as Phaser.GameObjects.Components.Transform).y);
+        o.setData('baseVisible', true);
+      });
+      this.buildingRows.push({
+        def,
+        btn,
+        btnText,
+        costLbl,
+        upgradeBtn,
+        upgradeTxt,
+        levelLbl,
+        objects,
+        baseY: ry + ROW_H / 2,
+      });
     });
+
+    const viewportHeight = this.listViewportBottom - this.listViewportTop;
+    this.scrollMax = Math.max(0, this.buildingRows.length * ROW_H - viewportHeight + 16);
+
+    const makeScrollBtn = (x: number, y: number, label: string, onClick: () => void) => {
+      const bg = this.add.rectangle(x, y, 30, 26, BTN)
+        .setStrokeStyle(1, ACCENT)
+        .setInteractive({ useHandCursor: true });
+      this.add.text(x, y, label, {
+        fontSize: '15px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      bg.on('pointerover', () => bg.setFillStyle(BTN_HOV));
+      bg.on('pointerout',  () => bg.setFillStyle(BTN));
+      bg.on('pointerup',   onClick);
+    };
+
+    makeScrollBtn(px + PW - 22, this.listViewportTop + 13, '^', () => this.scrollRows(-1));
+    makeScrollBtn(px + PW - 22, this.listViewportBottom - 13, 'v', () => this.scrollRows(1));
+
+    const onWheel = (
+      pointer: Phaser.Input.Pointer,
+      _gos: unknown,
+      _dx: number,
+      dy: number,
+    ) => {
+      const withinX = pointer.x >= px + 8 && pointer.x <= px + PW - 8;
+      const withinY = pointer.y >= this.listViewportTop && pointer.y <= this.listViewportBottom;
+      if (!withinX || !withinY) return;
+      this.scrollRows(dy > 0 ? 1 : -1);
+    };
+    this.input.on('wheel', onWheel);
 
     this.feedbackText = this.add.text(cx, py + PH - 20, '', {
       fontSize: '14px', color: GOLD_C, fontFamily: 'monospace',
@@ -242,6 +310,7 @@ export class TerritoryMenuScene extends Phaser.Scene {
       this.eventBus.off('territory:building-built',    onRefresh);
       this.eventBus.off('territory:building-upgraded', onRefresh);
       this.eventBus.off('territory:claimed',           onRefresh);
+      this.input.off('wheel', onWheel);
     });
 
     this.refreshButtons();
@@ -283,6 +352,29 @@ export class TerritoryMenuScene extends Phaser.Scene {
     this.refreshButtons();
   }
 
+  private scrollRows(direction: -1 | 1): void {
+    this.scrollOffset = Phaser.Math.Clamp(this.scrollOffset + direction * ROW_H, 0, this.scrollMax);
+    this.applyRowScroll();
+  }
+
+  private applyRowScroll(): void {
+    for (const row of this.buildingRows) {
+      const rowY = row.baseY - this.scrollOffset;
+      const visible = rowY >= this.listViewportTop && rowY <= this.listViewportBottom;
+
+      for (const obj of row.objects) {
+        const baseObjY = obj.getData('baseY');
+        if (typeof baseObjY === 'number' && 'setY' in obj) {
+          (obj as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform).setY(baseObjY - this.scrollOffset);
+        }
+        if ('setVisible' in obj) {
+          const baseVisible = obj.getData('baseVisible') !== false;
+          (obj as Phaser.GameObjects.GameObject & { setVisible: (v: boolean) => void }).setVisible(visible && baseVisible);
+        }
+      }
+    }
+  }
+
   private refreshButtons(): void {
     const territory = this.gameState.getGrid().getTerritory(this.position);
     if (!territory) return;
@@ -314,7 +406,9 @@ export class TerritoryMenuScene extends Phaser.Scene {
 
         row.upgradeBtn.setData('enabled', canUpgrade);
         row.upgradeBtn.setVisible(alreadyBuilt);
+        row.upgradeBtn.setData('baseVisible', alreadyBuilt);
         row.upgradeTxt.setVisible(alreadyBuilt);
+        row.upgradeTxt.setData('baseVisible', alreadyBuilt);
         row.upgradeBtn.setFillStyle(canUpgrade ? 0x1a2a1a : 0x0e130e);
         row.upgradeBtn.setStrokeStyle(1, canUpgrade ? 0x33aa55 : 0x223322);
         row.upgradeTxt.setColor(canUpgrade ? '#77ee99' : '#336633');
@@ -322,12 +416,16 @@ export class TerritoryMenuScene extends Phaser.Scene {
 
         if (alreadyBuilt) {
           row.levelLbl.setText(`Lvl ${curLevel}/${maxLevel}`).setVisible(true);
+          row.levelLbl.setData('baseVisible', true);
           row.levelLbl.setColor(atMax ? '#88ddcc' : '#aaddaa');
         } else {
           row.levelLbl.setVisible(false);
+          row.levelLbl.setData('baseVisible', false);
         }
       }
     }
+
+    this.applyRowScroll();
   }
 
   private showFeedback(msg: string, color: string): void {

@@ -101,7 +101,19 @@ export function shadowManaVisionReduction(
   deposits: ReadonlySet<TerritoryResourceType>,
   counts?: ReadonlyMap<TerritoryResourceType, number>,
 ): number {
-  return mineCount(TerritoryResourceType.SHADOW_MANA, deposits, counts);
+  return mineCount(TerritoryResourceType.SHADOW_MANA, deposits, counts) > 0 ? 1 : 0;
+}
+
+/**
+ * Extra withdraw chance from shadow mana after the first mine grants concealment.
+ * 1 mine: +0%, 2 mines: +10%, 3 mines: +20%.
+ */
+export function shadowManaWithdrawBonus(
+  deposits: ReadonlySet<TerritoryResourceType>,
+  counts?: ReadonlyMap<TerritoryResourceType, number>,
+): number {
+  const n = mineCount(TerritoryResourceType.SHADOW_MANA, deposits, counts);
+  return Math.max(0, n - 1) * 0.10;
 }
 
 /**

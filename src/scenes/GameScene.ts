@@ -18,6 +18,7 @@ import { DiplomaticStatus } from '@/types/diplomacy';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
 import { VisionSystem } from '@/systems/vision/VisionSystem';
+import { normalizeGameSetup } from '@/types/gameSetup';
 
 const WATER_BORDER = 10;
 const GRID_SIZE    = 25;
@@ -80,6 +81,8 @@ export class GameScene extends Phaser.Scene {
   private contactMarkers: Map<string, Phaser.GameObjects.Text> = new Map();
   /** Tiles visible this frame — used to cull borders/conquest overlays */
   private currentVisible: Set<string> = new Set();
+  /** Tiles in the lighter edge-of-fog band this frame. */
+  private currentNearVisible: Set<string> = new Set();
 
   private uiClickConsumed = false;
   private stanceBadges: Map<string, Phaser.GameObjects.Container> = new Map();
@@ -109,10 +112,10 @@ export class GameScene extends Phaser.Scene {
     if (data.saveData) {
       const sd = data.saveData;
       this.gameState = GameState.fromJSON(sd.state as ReturnType<GameState['toJSON']>);
-      this.setup = sd.setup;
+      this.setup = normalizeGameSetup(sd.setup);
     } else {
       this.gameState = data.gameState!;
-      this.setup = data.setup ?? { opponentCount: 1, difficulty: 'medium' };
+      this.setup = normalizeGameSetup(data.setup);
     }
   }
 
@@ -304,7 +307,7 @@ export class GameScene extends Phaser.Scene {
     this.setupMouseControls();
 
     this.input.keyboard!.on('keydown-ESC', () => {
-      this.scene.launch('PauseScene', {
+        this.scene.launch('PauseScene', {
         gameState:       this.gameState,
         tickEngine:      this.tickEngine,
         movementSystem:  this.movementSystem,
@@ -321,6 +324,8 @@ export class GameScene extends Phaser.Scene {
       gameState:      this.gameState,
       networkAdapter: this.networkAdapter,
       eventBus:       this.eventBus,
+      diplomacySystem: this.diplomacySystem,
+      tickEngine: this.tickEngine,
     });
   }
 
@@ -332,6 +337,7 @@ export class GameScene extends Phaser.Scene {
       this.tickEngine.advance();
       this.aiSystem.tick(this.tickEngine.getCurrentTick());
     }
+    this.updateFog();
     this.drawPaths();
     this.drawSelection();
     this.drawUnitHealthBars();
@@ -339,7 +345,6 @@ export class GameScene extends Phaser.Scene {
     this.drawConquestOverlay();
     this.updateRangeOverlay();
     this.updateStanceBadges();
-    this.updateFog();
   }
 
   private setupMouseControls(): void {
@@ -566,6 +571,7 @@ export class GameScene extends Phaser.Scene {
 
     const vision = this.visionSystem.compute(this.gameState, nationId);
     this.currentVisible = vision.visible;
+    this.currentNearVisible = vision.nearVisible;
     this.drawTerritoryBorders();
 
     const grid = this.gameState.getGrid();
@@ -573,7 +579,7 @@ export class GameScene extends Phaser.Scene {
 
     // ── Fog graphic: 4 distinct states ────────────────────────────────────────
     // Full vision:   no overlay (tile fully visible)
-    // Edge of fog:   light grey (near-visible — see tiles, only light/heavy unit contacts)
+    // Edge of fog:   light grey (2-tile near-visible band — see tiles, only light/heavy unit contacts)
     // Fog of war:    dark overlay (discovered but not currently visible)
     // Unknown:       solid black (never seen)
     this.fogGraphic.clear();
@@ -685,12 +691,14 @@ export class GameScene extends Phaser.Scene {
 
   private drawPaths(): void {
     this.pathGraphic.clear();
+    const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId() ?? null;
 
     for (const [unitId, state] of this.movementSystem.getAllStates()) {
       if (state.path.length === 0) continue;
 
       const unit = this.gameState.getUnit(unitId);
       if (!unit) continue;
+      if (!this.shouldShowLiveUnitOverlay(unit, localNationId)) continue;
 
       const nation = this.gameState.getNation(unit.getOwnerId());
       const colorHex = nation?.getColor() ?? '#ffffff';
@@ -763,10 +771,12 @@ export class GameScene extends Phaser.Scene {
 
   private drawUnitHealthBars(): void {
     this.healthBarGraphic.clear();
+    const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId() ?? null;
 
     const unitsByTile = new Map<string, Unit[]>();
     for (const unit of this.gameState.getAllUnits()) {
       if (!unit.isAlive()) continue;
+      if (!this.shouldShowLiveUnitOverlay(unit, localNationId)) continue;
       const key = `${unit.position.row},${unit.position.col}`;
       const list = unitsByTile.get(key) ?? [];
       list.push(unit);
@@ -795,23 +805,6 @@ export class GameScene extends Phaser.Scene {
         this.healthBarGraphic.lineStyle(1, 0x000000, 1);
         this.healthBarGraphic.strokeRect(x, y, barWidth, barHeight);
 
-        // Land bar — shown only for units actively in battle
-        if (unit.isEngagedInBattle()) {
-          const battle = this.tickEngine.getBattleForUnit(unit.id);
-          if (battle) {
-            const landVal  = unit.id === battle.unitAId ? battle.landA : battle.landB;
-            const landRatio = Math.max(0, landVal) / 100;
-            const ly = y - barHeight - 2;
-            const landColor = landVal > 60 ? 0x7755ff : landVal > 30 ? 0xaa66ff : 0xff4455;
-
-            this.healthBarGraphic.fillStyle(0x000000, 0.8);
-            this.healthBarGraphic.fillRect(x, ly, barWidth, barHeight);
-            this.healthBarGraphic.fillStyle(landColor, 1);
-            this.healthBarGraphic.fillRect(x, ly, Math.max(0, Math.round(barWidth * landRatio)), barHeight);
-            this.healthBarGraphic.lineStyle(1, 0x000000, 0.6);
-            this.healthBarGraphic.strokeRect(x, ly, barWidth, barHeight);
-          }
-        }
       });
     }
   }
@@ -861,6 +854,18 @@ export class GameScene extends Phaser.Scene {
       this.healthBarGraphic.lineStyle(1, 0x000000, 0.7);
       this.healthBarGraphic.strokeRect(x, y, barW, barH);
     }
+  }
+
+  private shouldShowLiveUnitOverlay(unit: Unit, localNationId: string | null): boolean {
+    if (!localNationId) return true;
+    if (unit.getOwnerId() === localNationId) return true;
+    return this.visionSystem.unitVisibility(
+      unit,
+      this.currentVisible,
+      this.currentNearVisible,
+      this.gameState,
+      localNationId,
+    ) === 'visible';
   }
 
   private handleLeftClick(worldX: number, worldY: number): void {
@@ -1044,6 +1049,12 @@ export class GameScene extends Phaser.Scene {
           localNation.getRelation(ctrl) === DiplomaticStatus.NEUTRAL) {
         found.add(ctrl);
       }
+      // Foreign cities on any path tile
+      const city = this.getCityAt(pos);
+      if (city && city.getOwnerId() !== localNationId &&
+          localNation.getRelation(city.getOwnerId()) === DiplomaticStatus.NEUTRAL) {
+        found.add(city.getOwnerId());
+      }
       // Enemy units on tiles along the path
       for (const u of this.gameState.getAllUnits()) {
         if (u.position.row === pos.row && u.position.col === pos.col &&
@@ -1051,16 +1062,6 @@ export class GameScene extends Phaser.Scene {
             localNation.getRelation(u.getOwnerId()) === DiplomaticStatus.NEUTRAL) {
           found.add(u.getOwnerId());
         }
-      }
-    }
-
-    // City at destination
-    const dest = path[path.length - 1];
-    if (dest) {
-      const city = this.getCityAt(dest);
-      if (city && city.getOwnerId() !== localNationId &&
-          localNation.getRelation(city.getOwnerId()) === DiplomaticStatus.NEUTRAL) {
-        found.add(city.getOwnerId());
       }
     }
 
@@ -1138,7 +1139,7 @@ export class GameScene extends Phaser.Scene {
     this.rangeGraphic.clear();
   }
 
-  private openDiplomacy(targetNationId: string): void {
+  private openDiplomacy(targetNationId?: string): void {
     this.scene.stop('CityMenuScene');
     this.scene.stop('TerritoryMenuScene');
     this.scene.stop('DiplomacyScene');
@@ -1326,7 +1327,7 @@ export class GameScene extends Phaser.Scene {
 
       const order = unit.getBattleOrder();
       const morale = unit.getMorale();
-      const effective = morale <= 10 ? 'RETREAT' : (morale <= 30 && (order === 'ADVANCE' || order === 'CHARGE')) ? 'HOLD' : order;
+      const effective = morale <= 30 && order === 'ADVANCE' ? 'HOLD' : order;
       const txt = badge.getAt(1) as Phaser.GameObjects.Text;
       txt.setText(stanceShortLabel(effective));
       txt.setColor(stanceBadgeColor(effective));
@@ -1387,20 +1388,16 @@ function unitInitial(unit: Unit): string {
 
 function stanceShortLabel(order: BattleOrder): string {
   switch (order) {
-    case 'RETREAT':   return 'RETREAT';
     case 'FALL_BACK': return 'FALL BACK';
     case 'HOLD':      return 'HOLD';
     case 'ADVANCE':   return 'ADVANCE';
-    case 'CHARGE':    return 'CHARGE';
   }
 }
 
 function stanceBadgeColor(order: BattleOrder): string {
   switch (order) {
-    case 'RETREAT':   return '#ff5533';
     case 'FALL_BACK': return '#ffaa44';
     case 'HOLD':      return '#aaaacc';
     case 'ADVANCE':   return '#44ddff';
-    case 'CHARGE':    return '#ff4488';
   }
 }

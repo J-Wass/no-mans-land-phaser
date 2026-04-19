@@ -2,12 +2,12 @@
  * VisionSystem — computes fog-of-war visibility for a nation each frame.
  *
  * Visible tiles:   own territory tiles + 2-tile border + unit vision radii
- * Near-visible:    1 tile beyond each unit's vision radius (unidentified contacts)
+ * Near-visible:    2 tiles beyond each unit's vision radius (unidentified contacts)
  * Discovered:      union of all previously visible tiles (stored in GameState)
  *
  * Air mana:    +1 vision radius to all of the nation's units
- * Shadow mana: enemy shadow-mana nations are treated as 1 tile farther away
- *              when determining near-visible detection
+ * Shadow mana: the first active mine hides enemy units by 1 tile
+ *              when determining direct or near visibility
  */
 
 import type { GameState } from '@/managers/GameState';
@@ -17,11 +17,13 @@ import type { Unit } from '@/entities/units/Unit';
 export interface VisionResult {
   /** Tiles where everything is visible. */
   visible:     Set<string>;
-  /** 1 tile beyond each unit's vision radius — shows unidentified contacts. */
+  /** 2 tiles beyond each unit's vision radius — shows unidentified contacts. */
   nearVisible: Set<string>;
   /** All tiles ever seen (discovered but maybe not currently visible). */
   discovered:  Set<string>;
 }
+
+const FOG_EDGE_DISTANCE = 2;
 
 export class VisionSystem {
   /**
@@ -82,14 +84,11 @@ export class VisionSystem {
   /**
    * Determine if an enemy `unit` is visible to the viewer nation.
    *
-   * Shadow mana (on the enemy unit's nation) subtracts from each observer unit's effective
-   * vision radius when detecting that unit:
-   *   1 mine: -1 vision,  2 mines: -2,  3 mines: -3  (minimum effective vision = 0)
-   * At effective vision 0 the observer sees the shadow unit only when on the same tile
-   * (visible) or 1 tile away (near/edge-of-fog).
+   * Shadow mana on the enemy unit's nation subtracts 1 vision from each observer unit
+   * when detecting that unit. Additional shadow mana no longer stacks visibility reduction.
    *
-   * Air mana (on the viewer nation) adds +1 vision per mine (up to +3), which can
-   * partially or fully counteract shadow mana.
+   * Air mana on the viewer nation still adds +1 vision per mine (up to +3), which can
+   * fully counteract that concealment.
    */
   public unitVisibility(
     unit: Unit,
@@ -124,7 +123,7 @@ export class VisionSystem {
       const effectiveVision = Math.max(0, observer.getStats().vision + airBonus - shadowReduction);
       const dist = Math.abs(observer.position.row - sr) + Math.abs(observer.position.col - sc);
       if (dist <= effectiveVision)     return 'visible'; // best result, short-circuit
-      if (dist <= effectiveVision + 1) result = 'near';
+      if (dist <= effectiveVision + FOG_EDGE_DISTANCE) result = 'near';
     }
 
     return result;
@@ -140,7 +139,7 @@ export class VisionSystem {
     nearVisible: Set<string>,
   ): void {
     const { row: ur, col: uc } = unit.position;
-    const nearRadius = radius + 1;
+    const nearRadius = radius + FOG_EDGE_DISTANCE;
 
     for (let dr = -nearRadius; dr <= nearRadius; dr++) {
       for (let dc = -nearRadius; dc <= nearRadius; dc++) {

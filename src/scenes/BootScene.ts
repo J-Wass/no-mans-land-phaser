@@ -1,10 +1,10 @@
 /**
- * BootScene — builds the initial GameState from a GameSetup and starts GameScene.
+ * BootScene - builds the initial GameState from a GameSetup and starts GameScene.
  *
  * Spawn placement: each team gets two units on the coast (inner edge of the water
  * border) using farthest-point sampling so teams are maximally spread apart.
  * Terrain is procedurally generated each game for variety.
- * Nation/city names are loaded from src/config/names.json.
+ * Nation/city names are loaded from src/config/names.json or scenario presets.
  */
 
 import Phaser from 'phaser';
@@ -18,17 +18,20 @@ import { City } from '@/entities/cities/City';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
+import { normalizeGameSetup } from '@/types/gameSetup';
 import type { GameSetup } from '@/types/gameSetup';
 import type { TechId } from '@/systems/research/TechTree';
 import type { Grid } from '@/systems/grid/Grid';
+import type { GridCoordinates } from '@/types/common';
 import {
   pickCoastalSpawnPairs,
   findCityPositions,
   assignStartingTerritory,
 } from '@/systems/spawn/SpawnSystem';
 import GAME_NAMES from '@/config/names.json';
+import { getScenarioById } from '@/config/scenarios';
 
-/** Root-level techs (no prerequisites) — eligible for random starting grant. */
+/** Root-level techs (no prerequisites) - eligible for random starting grant. */
 const ROOT_TECHS: TechId[] = ['writing', 'hunting', 'masonry', 'scientific_method', 'mathematics'];
 
 const GRID_SIZE = 25;
@@ -43,11 +46,9 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(data: BootSceneData): void {
-    const setup: GameSetup = data?.setup ?? { opponentCount: 1, difficulty: 'medium' };
+    const setup: GameSetup = normalizeGameSetup(data?.setup);
     const gameState = new GameState({ rows: GRID_SIZE, cols: GRID_SIZE });
     const grid = gameState.getGrid();
-
-    // ── Terrain (must be set before spawn algorithm queries it) ──────────────
 
     // Water border
     for (let r = 0; r < GRID_SIZE; r++) {
@@ -58,55 +59,25 @@ export class BootScene extends Phaser.Scene {
       }
     }
 
-    // Procedural terrain
     placeProceduralTerrain(grid, GRID_SIZE);
+    placeResourceDeposits(grid);
 
-    // ── Resource deposits ─────────────────────────────────────────────────────
-    const DEPOSIT_POOL: TerritoryResourceType[] = [
-      TerritoryResourceType.COPPER,
-      TerritoryResourceType.COPPER,
-      TerritoryResourceType.IRON,
-      TerritoryResourceType.IRON,
-      TerritoryResourceType.FIRE_GLASS,
-      TerritoryResourceType.SILVER,
-      TerritoryResourceType.GOLD_DEPOSIT,
-      TerritoryResourceType.WATER_MANA,
-      TerritoryResourceType.FIRE_MANA,
-      TerritoryResourceType.LIGHTNING_MANA,
-      TerritoryResourceType.EARTH_MANA,
-      TerritoryResourceType.AIR_MANA,
-      TerritoryResourceType.SHADOW_MANA,
-    ];
-
-    const ELIGIBLE_TERRAIN = new Set<TerrainType>([
-      TerrainType.PLAINS,
-      TerrainType.DESERT,
-      TerrainType.FOREST,
-    ]);
-
-    for (let r = 1; r < GRID_SIZE - 1; r++) {
-      for (let c = 1; c < GRID_SIZE - 1; c++) {
-        const territory = grid.getTerritory({ row: r, col: c });
-        if (!territory) continue;
-        if (!ELIGIBLE_TERRAIN.has(territory.getTerrainType())) continue;
-        if (Math.random() > 0.15) continue;
-        const deposit = DEPOSIT_POOL[Math.floor(Math.random() * DEPOSIT_POOL.length)];
-        territory.setResourceDeposit(deposit!);
-      }
+    if (setup.gameMode === 'scenario') {
+      this.populateScenarioGameState(gameState, setup, grid);
+    } else {
+      this.populateSkirmishGameState(gameState, setup, grid);
     }
 
-    // ── Spawn placement ───────────────────────────────────────────────────────
+    this.scene.start('GameScene', { gameState, setup });
+  }
 
+  private populateSkirmishGameState(gameState: GameState, setup: GameSetup, grid: Grid): void {
     const totalNations  = 1 + Math.min(setup.opponentCount, 4);
     const spawnPairs    = pickCoastalSpawnPairs(grid, GRID_SIZE, totalNations);
-    const takenPositions: import('@/types/common').GridCoordinates[] = [];
-
-    // Shuffle nation configs so each game uses different names/colors
+    const takenPositions: GridCoordinates[] = [];
     const shuffledNations = [...GAME_NAMES.nations];
-    for (let i = shuffledNations.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffledNations[i], shuffledNations[j]] = [shuffledNations[j]!, shuffledNations[i]!];
-    }
+
+    shuffleInPlace(shuffledNations);
 
     for (let i = 0; i < totalNations; i++) {
       const cfg  = shuffledNations[i];
@@ -114,56 +85,307 @@ export class BootScene extends Phaser.Scene {
       if (!cfg || !pair) break;
 
       const nationId = `nation-${i + 1}`;
-      const isLocal  = i === 0;
       const playerId = `player-${i + 1}`;
-
-      const nation = new Nation(nationId, cfg.name, cfg.color, !isLocal);
+      const isLocal  = i === 0;
+      const nation   = new Nation(nationId, cfg.name, cfg.color, !isLocal);
       nation.setControlledBy(playerId);
-      nation.getTreasury().addResource(ResourceType.GOLD,         50);
-      nation.getTreasury().addResource(ResourceType.FOOD,         30);
-      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 20);
-
-      const startingTech = ROOT_TECHS[Math.floor(Math.random() * ROOT_TECHS.length)]!;
-      nation.startResearch(startingTech, 1);
-      nation.tickResearch();
+      grantResources(nation, {
+        [ResourceType.GOLD]: 50,
+        [ResourceType.FOOD]: 30,
+        [ResourceType.RAW_MATERIAL]: 20,
+      });
+      grantTechs(nation, [ROOT_TECHS[Math.floor(Math.random() * ROOT_TECHS.length)]!]);
 
       gameState.addNation(nation);
       gameState.addPlayer(new Player(playerId, isLocal ? 'Player' : cfg.name, nationId, isLocal));
 
-      const infantry = new Infantry(`unit-inf-${i + 1}`,   nationId, pair.infantry);
-      const scout    = new Scout(   `unit-scout-${i + 1}`, nationId, pair.scout);
-      infantry.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY));
-      scout.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT));
-
-      takenPositions.push(pair.infantry, pair.scout);
-
-      const cityPositions = findCityPositions(grid, pair.infantry, takenPositions, GRID_SIZE);
-      for (let j = 0; j < 2; j++) {
-        const pos = cityPositions[j];
-        if (!pos) continue;
-        const cityName = cfg.cities[j] ?? `${cfg.name} ${j + 1}`;
-        const cityId   = `city-${i + 1}-${j + 1}`;
-        gameState.addCity(new City(cityId, cityName, nationId, pos));
-        takenPositions.push(pos);
-        if (j === 0) {
-          infantry.setHomeCityId(cityId);
-          scout.setHomeCityId(cityId);
-        }
-      }
-
-      gameState.addUnit(infantry);
-      gameState.addUnit(scout);
+      const cityPositions = seedNation(
+        gameState,
+        grid,
+        nationId,
+        i + 1,
+        pair,
+        takenPositions,
+        cfg.cities,
+      );
 
       assignStartingTerritory(grid, nationId, cityPositions, GRID_SIZE);
     }
+  }
 
-    this.scene.start('GameScene', { gameState, setup });
+  private populateScenarioGameState(gameState: GameState, setup: GameSetup, grid: Grid): void {
+    const scenario = getScenarioById(setup.scenarioId);
+    if (!scenario) {
+      this.populateSkirmishGameState(gameState, setup, grid);
+      return;
+    }
+
+    const spawnPairs = pickCoastalSpawnPairs(grid, GRID_SIZE, 2);
+    const takenPositions: GridCoordinates[] = [];
+    const nations = [scenario.playerNation, scenario.opponentNation];
+
+    nations.forEach((cfg, index) => {
+      const pair = spawnPairs[index];
+      if (!pair) return;
+
+      const nationId = `nation-${index + 1}`;
+      const playerId = `player-${index + 1}`;
+      const isLocal  = index === 0;
+      const nation   = new Nation(nationId, cfg.name, cfg.color, !isLocal);
+      nation.setControlledBy(playerId);
+      grantResources(nation, cfg.resources);
+      grantTechs(nation, cfg.startingTechs);
+
+      gameState.addNation(nation);
+      gameState.addPlayer(new Player(playerId, isLocal ? 'Player' : cfg.name, nationId, isLocal));
+
+      const cityPositions = seedNation(
+        gameState,
+        grid,
+        nationId,
+        index + 1,
+        pair,
+        takenPositions,
+        cfg.cities,
+      );
+
+      assignStartingTerritory(grid, nationId, cityPositions, GRID_SIZE);
+    });
   }
 }
 
-// ── Procedural terrain generation ─────────────────────────────────────────────
+function placeResourceDeposits(grid: Grid): void {
+  const oreSlots: Array<{ deposit: TerritoryResourceType; count: number; terrain: TerrainType[] }> = [
+    { deposit: TerritoryResourceType.COPPER, count: 5, terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN, TerrainType.FOREST] },
+    { deposit: TerritoryResourceType.IRON, count: 3, terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN] },
+    { deposit: TerritoryResourceType.FIRE_GLASS, count: 1, terrain: [TerrainType.DESERT, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.SILVER, count: 2, terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN] },
+    { deposit: TerritoryResourceType.GOLD_DEPOSIT, count: 1, terrain: [TerrainType.DESERT, TerrainType.HILLS] },
+  ];
+  const manaSlots: Array<{ deposit: TerritoryResourceType; terrain: TerrainType[] }> = [
+    { deposit: TerritoryResourceType.WATER_MANA, terrain: [TerrainType.FOREST, TerrainType.PLAINS] },
+    { deposit: TerritoryResourceType.FIRE_MANA, terrain: [TerrainType.DESERT, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.LIGHTNING_MANA, terrain: [TerrainType.HILLS, TerrainType.PLAINS] },
+    { deposit: TerritoryResourceType.EARTH_MANA, terrain: [TerrainType.MOUNTAIN, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.AIR_MANA, terrain: [TerrainType.HILLS, TerrainType.PLAINS] },
+    { deposit: TerritoryResourceType.SHADOW_MANA, terrain: [TerrainType.FOREST, TerrainType.HILLS] },
+  ];
 
-function placeCluster(
+  for (const slot of oreSlots) {
+    placeDeposits(grid, slot.deposit, slot.count, slot.terrain);
+  }
+  for (const slot of manaSlots) {
+    placeDeposits(grid, slot.deposit, 1, slot.terrain);
+  }
+}
+
+function seedNation(
+  gameState: GameState,
+  grid: Grid,
+  nationId: string,
+  serial: number,
+  pair: { infantry: GridCoordinates; scout: GridCoordinates },
+  takenPositions: GridCoordinates[],
+  cityNames: string[],
+): GridCoordinates[] {
+  const infantry = new Infantry(`unit-inf-${serial}`, nationId, pair.infantry);
+  const scout    = new Scout(`unit-scout-${serial}`, nationId, pair.scout);
+  infantry.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY));
+  scout.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT));
+
+  takenPositions.push(pair.infantry, pair.scout);
+
+  const cityPositions = findCityPositions(grid, pair.infantry, takenPositions, GRID_SIZE);
+  for (let j = 0; j < 2; j++) {
+    const pos = cityPositions[j];
+    if (!pos) continue;
+    const cityName = cityNames[j] ?? `City ${serial}-${j + 1}`;
+    const cityId   = `city-${serial}-${j + 1}`;
+    gameState.addCity(new City(cityId, cityName, nationId, pos));
+    takenPositions.push(pos);
+    if (j === 0) {
+      infantry.setHomeCityId(cityId);
+      scout.setHomeCityId(cityId);
+    }
+  }
+
+  gameState.addUnit(infantry);
+  gameState.addUnit(scout);
+
+  return cityPositions;
+}
+
+function randomInRange(min: number, max: number): number {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
+function shuffleInPlace<T>(items: T[]): void {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j]!, items[i]!];
+  }
+}
+
+function grantResources(
+  nation: Nation,
+  resources: Partial<Record<ResourceType, number>>,
+): void {
+  for (const [resource, amount] of Object.entries(resources)) {
+    if ((amount ?? 0) <= 0) continue;
+    nation.getTreasury().addResource(resource as ResourceType, amount);
+  }
+}
+
+function grantTechs(nation: Nation, techs: TechId[]): void {
+  for (const techId of techs) {
+    nation.startResearch(techId, 1);
+    nation.tickResearch();
+  }
+}
+
+function placeProceduralTerrain(grid: Grid, gridSize: number): void {
+  const center = (gridSize - 1) / 2;
+  const baseRadius = gridSize * 0.46;
+  const coastPhaseA = Math.random() * Math.PI * 2;
+  const coastPhaseB = Math.random() * Math.PI * 2;
+
+  for (let r = 1; r < gridSize - 1; r++) {
+    for (let c = 1; c < gridSize - 1; c++) {
+      const territory = grid.getTerritory({ row: r, col: c });
+      if (!territory) continue;
+
+      const dx = c - center;
+      const dy = r - center;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx);
+      const coastNoise =
+        Math.sin(angle * 3 + coastPhaseA) * 1.2 +
+        Math.cos(angle * 5 + coastPhaseB) * 0.7 +
+        Math.sin((r + c) * 0.55) * 0.45;
+      const coastline = baseRadius + coastNoise;
+
+      if (distance > coastline) {
+        territory.setTerrainType(TerrainType.WATER);
+        continue;
+      }
+
+      const latitude = Math.abs((r - center) / center);
+      const moisture = (Math.sin(r * 0.7 + c * 0.35 + coastPhaseA) + Math.cos(c * 0.6 - r * 0.25 + coastPhaseB)) * 0.5;
+      const roughness = Math.sin(r * 0.32) + Math.cos(c * 0.28) + Math.sin((r + c) * 0.18);
+
+      let terrain = TerrainType.PLAINS;
+      if (latitude > 0.74) {
+        terrain = roughness > 0.8 ? TerrainType.MOUNTAIN : TerrainType.HILLS;
+      } else if (latitude < 0.18 && moisture < 0.35) {
+        terrain = TerrainType.DESERT;
+      } else if (latitude < 0.34 && moisture < -0.2) {
+        terrain = TerrainType.DESERT;
+      } else if (moisture > 0.55) {
+        terrain = TerrainType.FOREST;
+      } else if (roughness > 1.35) {
+        terrain = TerrainType.HILLS;
+      }
+
+      territory.setTerrainType(terrain);
+    }
+  }
+
+  const rangeCount = randomInRange(2, 3);
+  for (let i = 0; i < rangeCount; i++) {
+    carveMountainRange(grid, gridSize);
+  }
+
+  for (let i = 0; i < 6; i++) {
+    const row = randomInRange(3, gridSize - 4);
+    const col = randomInRange(3, gridSize - 4);
+    const territory = grid.getTerritory({ row, col });
+    if (!territory || territory.getTerrainType() === TerrainType.WATER || territory.getTerrainType() === TerrainType.MOUNTAIN) continue;
+    enrichBiomeCluster(grid, territory.getTerrainType() === TerrainType.DESERT ? TerrainType.DESERT : TerrainType.FOREST, row, col, randomInRange(2, 4), gridSize);
+  }
+
+  smoothCoastline(grid, gridSize);
+}
+
+function placeDeposits(
+  grid: Grid,
+  deposit: TerritoryResourceType,
+  count: number,
+  terrainTypes: TerrainType[],
+): void {
+  const candidates: GridCoordinates[] = [];
+  for (let r = 1; r < GRID_SIZE - 1; r++) {
+    for (let c = 1; c < GRID_SIZE - 1; c++) {
+      const territory = grid.getTerritory({ row: r, col: c });
+      if (!territory) continue;
+      if (territory.getResourceDeposit()) continue;
+      if (!terrainTypes.includes(territory.getTerrainType())) continue;
+      if (touchesWater(grid, { row: r, col: c })) continue;
+      candidates.push({ row: r, col: c });
+    }
+  }
+
+  shuffleInPlace(candidates);
+  let placed = 0;
+  for (const candidate of candidates) {
+    if (placed >= count) break;
+    const territory = grid.getTerritory(candidate);
+    if (!territory || territory.getResourceDeposit()) continue;
+    territory.setResourceDeposit(deposit);
+    placed++;
+  }
+}
+
+function touchesWater(grid: Grid, position: GridCoordinates): boolean {
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const territory = grid.getTerritory({ row: position.row + dr, col: position.col + dc });
+      if (territory?.getTerrainType() === TerrainType.WATER) return true;
+    }
+  }
+  return false;
+}
+
+function carveMountainRange(grid: Grid, gridSize: number): void {
+  let row = randomInRange(3, gridSize - 4);
+  let col = Math.random() < 0.5 ? 2 : gridSize - 3;
+  let directionRow = Math.random() < 0.5 ? -1 : 1;
+  let directionCol = col < centerColumn(gridSize) ? 1 : -1;
+  const length = randomInRange(Math.floor(gridSize * 0.55), Math.floor(gridSize * 0.9));
+
+  for (let i = 0; i < length; i++) {
+    paintMountainCell(grid, row, col);
+    if (Math.random() < 0.45) paintMountainCell(grid, row + directionRow, col);
+    if (Math.random() < 0.35) paintMountainCell(grid, row, col + directionCol);
+
+    row += directionRow;
+    col += directionCol;
+    if (Math.random() < 0.4) directionRow += Math.random() < 0.5 ? -1 : 1;
+    directionRow = Math.max(-1, Math.min(1, directionRow));
+    if (Math.random() < 0.25) directionCol *= -1;
+
+    row = Math.max(2, Math.min(gridSize - 3, row));
+    col = Math.max(2, Math.min(gridSize - 3, col));
+  }
+}
+
+function centerColumn(gridSize: number): number {
+  return Math.floor(gridSize / 2);
+}
+
+function paintMountainCell(grid: Grid, row: number, col: number): void {
+  const territory = grid.getTerritory({ row, col });
+  if (!territory || territory.getTerrainType() === TerrainType.WATER) return;
+  territory.setTerrainType(TerrainType.MOUNTAIN);
+
+  for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+    const neighbor = grid.getTerritory({ row: row + dr, col: col + dc });
+    if (!neighbor || neighbor.getTerrainType() === TerrainType.WATER || neighbor.getTerrainType() === TerrainType.MOUNTAIN) continue;
+    if (Math.random() < 0.55) neighbor.setTerrainType(TerrainType.HILLS);
+  }
+}
+
+function enrichBiomeCluster(
   grid: Grid,
   terrain: TerrainType,
   centerRow: number,
@@ -174,53 +396,35 @@ function placeCluster(
   for (let r = centerRow - radius; r <= centerRow + radius; r++) {
     for (let c = centerCol - radius; c <= centerCol + radius; c++) {
       if (r < 1 || r >= gridSize - 1 || c < 1 || c >= gridSize - 1) continue;
-      if (Math.abs(r - centerRow) + Math.abs(c - centerCol) > radius) continue;
-      grid.getTerritory({ row: r, col: c })?.setTerrainType(terrain);
+      const territory = grid.getTerritory({ row: r, col: c });
+      if (!territory || territory.getTerrainType() === TerrainType.WATER || territory.getTerrainType() === TerrainType.MOUNTAIN) continue;
+      const dist = Math.abs(r - centerRow) + Math.abs(c - centerCol);
+      if (dist > radius) continue;
+      if (Math.random() < 0.72 - dist * 0.12) {
+        territory.setTerrainType(terrain);
+      }
     }
   }
 }
 
-function randomInRange(min: number, max: number): number {
-  return min + Math.floor(Math.random() * (max - min + 1));
-}
+function smoothCoastline(grid: Grid, gridSize: number): void {
+  for (let r = 1; r < gridSize - 1; r++) {
+    for (let c = 1; c < gridSize - 1; c++) {
+      const territory = grid.getTerritory({ row: r, col: c });
+      if (!territory) continue;
+      const neighbors = [
+        grid.getTerritory({ row: r - 1, col: c }),
+        grid.getTerritory({ row: r + 1, col: c }),
+        grid.getTerritory({ row: r, col: c - 1 }),
+        grid.getTerritory({ row: r, col: c + 1 }),
+      ];
+      const waterNeighbors = neighbors.filter(neighbor => neighbor?.getTerrainType() === TerrainType.WATER).length;
 
-function placeProceduralTerrain(grid: Grid, gridSize: number): void {
-  const P = gridSize - 2; // playable range: 1..gridSize-2
-
-  // Forests: 4-6 clusters, radius 1-3
-  for (let i = 0; i < randomInRange(4, 6); i++) {
-    placeCluster(grid, TerrainType.FOREST,
-      randomInRange(1, P), randomInRange(1, P),
-      randomInRange(1, 3), gridSize);
-  }
-
-  // Hills: 3-5 clusters, radius 1-2
-  for (let i = 0; i < randomInRange(3, 5); i++) {
-    placeCluster(grid, TerrainType.HILLS,
-      randomInRange(1, P), randomInRange(1, P),
-      randomInRange(1, 2), gridSize);
-  }
-
-  // Desert: 2-4 clusters, radius 1-2
-  for (let i = 0; i < randomInRange(2, 4); i++) {
-    placeCluster(grid, TerrainType.DESERT,
-      randomInRange(1, P), randomInRange(1, P),
-      randomInRange(1, 2), gridSize);
-  }
-
-  // Mountains: 2-3 small clusters, radius 1
-  for (let i = 0; i < randomInRange(2, 3); i++) {
-    placeCluster(grid, TerrainType.MOUNTAIN,
-      randomInRange(1, P), randomInRange(1, P),
-      1, gridSize);
-  }
-
-  // Interior lakes: 1-2, radius 1, kept away from edges
-  const lakeMin = Math.floor(gridSize * 0.25);
-  const lakeMax = Math.floor(gridSize * 0.75);
-  for (let i = 0; i < randomInRange(1, 2); i++) {
-    placeCluster(grid, TerrainType.WATER,
-      randomInRange(lakeMin, lakeMax), randomInRange(lakeMin, lakeMax),
-      1, gridSize);
+      if (territory.getTerrainType() !== TerrainType.WATER && waterNeighbors >= 3) {
+        territory.setTerrainType(TerrainType.WATER);
+      } else if (territory.getTerrainType() === TerrainType.WATER && waterNeighbors <= 1) {
+        territory.setTerrainType(TerrainType.PLAINS);
+      }
+    }
   }
 }

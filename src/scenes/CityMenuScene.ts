@@ -32,7 +32,6 @@ export const RESOURCE_EMOJI: Record<ResourceType, string> = {
   [ResourceType.RAW_MATERIAL]: '🪨',
   [ResourceType.GOLD]:         '🪙',
   [ResourceType.RESEARCH]:     '🔍',
-  [ResourceType.HAPPINESS]:    '🙂',
 };
 
 // ── Palette ───────────────────────────────────────────────────────────────────
@@ -65,6 +64,7 @@ export class CityMenuScene extends Phaser.Scene {
     btnText:   Phaser.GameObjects.Text;
     costLabel: Phaser.GameObjects.Text;
     container: Phaser.GameObjects.GameObject[];
+    baseY:     number;
   }> = [];
 
   private buildingRows: Array<{
@@ -73,11 +73,18 @@ export class CityMenuScene extends Phaser.Scene {
     btnText:   Phaser.GameObjects.Text;
     costLabel: Phaser.GameObjects.Text;
     container: Phaser.GameObjects.GameObject[];
+    baseY:     number;
   }> = [];
 
   private tabUnitsBtn!:     Phaser.GameObjects.Rectangle;
   private tabBuildingsBtn!: Phaser.GameObjects.Rectangle;
   private hoverHintText!:   Phaser.GameObjects.Text;
+  private listViewportTop   = 0;
+  private listViewportBottom = 0;
+  private unitScrollOffset  = 0;
+  private buildingScrollOffset = 0;
+  private unitScrollMax     = 0;
+  private buildingScrollMax = 0;
 
   constructor() { super({ key: 'CityMenuScene' }); }
 
@@ -90,6 +97,12 @@ export class CityMenuScene extends Phaser.Scene {
     this.buildingRows     = [];
     this.resourceTexts    = {};
     this.activeTab        = 'units';
+    this.listViewportTop  = 0;
+    this.listViewportBottom = 0;
+    this.unitScrollOffset = 0;
+    this.buildingScrollOffset = 0;
+    this.unitScrollMax    = 0;
+    this.buildingScrollMax = 0;
 
     const lp   = this.gameState.getLocalPlayer();
     this.playerId = lp?.getId() ?? '';
@@ -216,6 +229,8 @@ export class CityMenuScene extends Phaser.Scene {
     // ── List area ─────────────────────────────────────────────────────────────
     const listTop   = tabY + tabH + 6;
     const rowStartY = listTop + 4;
+    this.listViewportTop = rowStartY + 4;
+    this.listViewportBottom = py + PH - 42;
 
     // Column headers
     const unitHdr  = this.add.container(0, 0);
@@ -271,7 +286,8 @@ export class CityMenuScene extends Phaser.Scene {
       btn.on('pointerup',   () => { if (btn.getData('enabled')) this.startProduction(entry); });
 
       const container = [rowBg, nameText, costLabel, timeText, detText, btn, btnText];
-      this.unitRows.push({ entry, btn, btnText, costLabel, container });
+      container.forEach(o => o.setData('baseY', (o as Phaser.GameObjects.Components.Transform).y));
+      this.unitRows.push({ entry, btn, btnText, costLabel, container, baseY: ry + ROW_H / 2 });
     });
 
     // ── Building rows ─────────────────────────────────────────────────────────
@@ -312,9 +328,42 @@ export class CityMenuScene extends Phaser.Scene {
       btn.on('pointerup',   () => { if (btn.getData('enabled')) this.buildCityBuilding(def); });
 
       const container = [rowBg, nameText, costLabel, timeText, perksText, btn, btnText];
-      this.buildingRows.push({ def, btn, btnText, costLabel, container });
+      container.forEach(o => o.setData('baseY', (o as Phaser.GameObjects.Components.Transform).y));
+      this.buildingRows.push({ def, btn, btnText, costLabel, container, baseY: ry + ROW_H / 2 });
       container.forEach(o => (o as Phaser.GameObjects.GameObject & { setVisible: (v: boolean) => void }).setVisible(false));
     });
+
+    const viewportHeight = this.listViewportBottom - this.listViewportTop;
+    this.unitScrollMax = Math.max(0, this.unitRows.length * ROW_H - viewportHeight + 20);
+    this.buildingScrollMax = Math.max(0, this.buildingRows.length * ROW_H - viewportHeight + 20);
+
+    const makeScrollBtn = (x: number, y: number, label: string, onClick: () => void) => {
+      const bg = this.add.rectangle(x, y, 32, 28, BTN)
+        .setStrokeStyle(1, ACCENT)
+        .setInteractive({ useHandCursor: true });
+      this.add.text(x, y, label, {
+        fontSize: '16px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      bg.on('pointerover', () => bg.setFillStyle(BTN_HOV));
+      bg.on('pointerout',  () => bg.setFillStyle(BTN));
+      bg.on('pointerup',   onClick);
+    };
+
+    makeScrollBtn(px + PW - 24, this.listViewportTop + 14, '^', () => this.scrollList(-1));
+    makeScrollBtn(px + PW - 24, this.listViewportBottom - 14, 'v', () => this.scrollList(1));
+
+    const onWheel = (
+      pointer: Phaser.Input.Pointer,
+      _gos: unknown,
+      _dx: number,
+      dy: number,
+    ) => {
+      const withinX = pointer.x >= px + 8 && pointer.x <= px + PW - 8;
+      const withinY = pointer.y >= this.listViewportTop && pointer.y <= this.listViewportBottom;
+      if (!withinX || !withinY) return;
+      this.scrollList(dy > 0 ? 1 : -1);
+    };
+    this.input.on('wheel', onWheel);
 
     // Store header refs for tab switching
     this.data.set('unitHdr',  unitHdr);
@@ -331,6 +380,7 @@ export class CityMenuScene extends Phaser.Scene {
       this.eventBus.off('city:building-built',      onRefresh);
       this.eventBus.off('city:production-complete', onRefresh);
       this.eventBus.off('nation:research-complete', onRefresh);
+      this.input.off('wheel', onWheel);
     });
 
     this.refresh();
@@ -362,13 +412,56 @@ export class CityMenuScene extends Phaser.Scene {
       r.container.forEach(o => (o as Phaser.GameObjects.GameObject & { setVisible: (v: boolean) => void }).setVisible(!isUnits))
     );
 
+    this.applyListScroll();
     this.refreshBuildButtons();
   }
 
   private refresh(): void {
     this.refreshProduction();
     this.refreshResources();
+    this.applyListScroll();
     this.refreshBuildButtons();
+  }
+
+  private scrollList(direction: -1 | 1): void {
+    const delta = direction * ROW_H;
+    if (this.activeTab === 'units') {
+      this.unitScrollOffset = Phaser.Math.Clamp(this.unitScrollOffset + delta, 0, this.unitScrollMax);
+    } else {
+      this.buildingScrollOffset = Phaser.Math.Clamp(this.buildingScrollOffset + delta, 0, this.buildingScrollMax);
+    }
+    this.applyListScroll();
+  }
+
+  private applyListScroll(): void {
+    const isUnits = this.activeTab === 'units';
+
+    for (const row of this.unitRows) {
+      this.positionRow(row.container, row.baseY, this.unitScrollOffset, isUnits);
+    }
+    for (const row of this.buildingRows) {
+      this.positionRow(row.container, row.baseY, this.buildingScrollOffset, !isUnits);
+    }
+  }
+
+  private positionRow(
+    objects: Phaser.GameObjects.GameObject[],
+    baseY: number,
+    offset: number,
+    enabled: boolean,
+  ): void {
+    const rowY = baseY - offset;
+    const visible = enabled && rowY >= this.listViewportTop && rowY <= this.listViewportBottom;
+
+    for (const obj of objects) {
+      const baseObjY = obj.getData('baseY');
+      if (typeof baseObjY === 'number' && 'setY' in obj) {
+        (obj as Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform).setY(baseObjY - offset);
+      }
+      if ('setVisible' in obj) {
+        (obj as Phaser.GameObjects.GameObject & { setVisible: (v: boolean) => void }).setVisible(visible);
+      }
+    }
   }
 
   private async startProduction(entry: CatalogEntry): Promise<void> {

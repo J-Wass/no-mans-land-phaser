@@ -1,14 +1,3 @@
-/**
- * UIScene — full-screen HUD overlay, rendered on top of GameScene.
- *
- * Layout:
- *   Top-right bar  — tick counter, resources, RESEARCH + MENU buttons
- *   Bottom-left panel — unit detail card OR city detail card (selection-driven)
- *
- * Fully responsive: rebuilds whenever the window is resized.
- * Text sizes scale with viewport height so larger screens get larger text.
- */
-
 import Phaser from 'phaser';
 import type { Unit, BattleOrder } from '@/entities/units/Unit';
 import { MORALE_LOW } from '@/entities/units/Unit';
@@ -17,933 +6,81 @@ import type { GameState } from '@/managers/GameState';
 import type { GameSetup } from '@/types/gameSetup';
 import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
+import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
+import type { TickEngine } from '@/systems/tick/TickEngine';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryBuildingType, BUILDING_MAP_ICON, TERRITORY_BUILDING_MAP } from '@/systems/territory/TerritoryBuilding';
+import { CITY_BUILDING_MAP } from '@/systems/territory/CityBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { RESOURCE_EMOJI } from '@/scenes/CityMenuScene';
 import type { GridCoordinates } from '@/types/common';
-import { weaponTierDamageBonus } from '@/systems/resources/ResourceBonuses';
+import { weaponTierDamageBonus, mineralGoldBonus } from '@/systems/resources/ResourceBonuses';
+import { DiplomaticStatus } from '@/types/diplomacy';
+import { TICK_RATE } from '@/config/constants';
 import type { TechId } from '@/systems/research/TechTree';
 
 interface UISceneData {
-  setup:          GameSetup;
-  gameState:      GameState;
+  setup: GameSetup;
+  gameState: GameState;
   networkAdapter: NetworkAdapter;
-  eventBus:       GameEventBus;
+  eventBus: GameEventBus;
+  diplomacySystem: DiplomacySystem;
+  tickEngine: TickEngine;
 }
 
-// ── Scale helpers ─────────────────────────────────────────────────────────────
-
-/** Scale factor based on viewport height. Reference = 900 px. */
-function uiScale(h: number): number {
-  return Math.min(2.0, Math.max(0.7, h / 900));
-}
-
-/** Return a px font-size string scaled to the viewport. */
-function fs(base: number, s: number): string {
-  return `${Math.round(base * s)}px`;
+interface AlertEntry {
+  id: number;
+  text: string;
+  createdAt: number;
 }
 
 const MONO: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: 'monospace' };
-
-// ── Stance metadata (used by both info panel and display helpers) ──────────────
 const STANCE_ORDERS: Array<{ order: BattleOrder; label: string }> = [
-  { order: 'RETREAT',   label: 'RETREAT'  },
   { order: 'FALL_BACK', label: 'FALLBACK' },
-  { order: 'HOLD',      label: 'HOLD' },
-  { order: 'ADVANCE',   label: 'ADVANCE'  },
-  { order: 'CHARGE',    label: 'CHARGE'  },
+  { order: 'HOLD', label: 'HOLD' },
+  { order: 'ADVANCE', label: 'ADVANCE' },
 ];
-
-/** Ticks per in-game day (10 ticks/sec * 10 sec = 100 ticks = 1 day). */
+const RESOURCE_BUTTONS: ResourceType[] = [
+  ResourceType.FOOD,
+  ResourceType.RAW_MATERIAL,
+  ResourceType.GOLD,
+  ResourceType.RESEARCH,
+];
 const TICKS_PER_DAY = 100;
 const SPEED_CYCLE = [1, 2, 4] as const;
-
-export class UIScene extends Phaser.Scene {
-  private setup!:            GameSetup;
-  private gameState!:        GameState;
-  private networkAdapter!: NetworkAdapter;
-  private eventBus!:         GameEventBus;
-  private playerId           = '';
-
-  // ── Selection state ────────────────────────────────────────────────────────
-  private selectedUnit:          Unit | null            = null;
-  private selectedCity:          City | null            = null;
-  private selectedTerritoryPos:  GridCoordinates | null = null;
-
-  // ── Game speed (cycles on button press, broadcast via eventBus) ────────────
-  private gameSpeed: typeof SPEED_CYCLE[number] = 1;
-
-  // ── Dynamic text refs (updated every tick / frame) ─────────────────────────
-  private tickText!:      Phaser.GameObjects.Text;
-  private resourceText!:  Phaser.GameObjects.Text;
-  private speedBtnText:   Phaser.GameObjects.Text | null = null;
-
-  // ── Info panel dynamic refs (updated in update()) ──────────────────────────
-  private panelVisible    = false;
-  private hpFillRect:     Phaser.GameObjects.Rectangle | null = null;
-  private hpText:         Phaser.GameObjects.Text      | null = null;
-  private hpBarW          = 0;
-  private moraleFillRect: Phaser.GameObjects.Rectangle | null = null;
-  private landFillRect:   Phaser.GameObjects.Rectangle | null = null;
-  private landText:       Phaser.GameObjects.Text      | null = null;
-  private battleLandA     = 100;
-  private battleLandB     = 100;
-  private battleUnitAId   = '';   // tracks which unit is "A" in the active battle
-  private moraleText:     Phaser.GameObjects.Text      | null = null;
-  private moraleWarnText: Phaser.GameObjects.Text      | null = null;
-  private infoLineText:   Phaser.GameObjects.Text      | null = null;
-
-  // ── All scene objects — cleared on rebuild ─────────────────────────────────
-  private allObjects: Phaser.GameObjects.GameObject[] = [];
-
-  constructor() { super({ key: 'UIScene' }); }
-
-  // ── Init / create ──────────────────────────────────────────────────────────
-
-  init(data: UISceneData): void {
-    this.setup            = data.setup;
-    this.gameState        = data.gameState;
-    this.networkAdapter = data.networkAdapter;
-    this.eventBus         = data.eventBus;
-    this.playerId         = this.gameState.getLocalPlayer()?.getId() ?? '';
-  }
-
-  create(): void {
-    this.setupEventListeners();
-    this.buildHUD();
-    this.scale.on('resize', this.onResize, this);
-  }
-
-  // ── Resize ─────────────────────────────────────────────────────────────────
-
-  private onResize(): void {
-    this.destroyAllObjects();
-    this.buildHUD();
-    // Refresh dynamic state that was just rebuilt
-    this.refreshResources();
-  }
-
-  private destroyAllObjects(): void {
-    for (const obj of this.allObjects) {
-      if (obj?.active) obj.destroy();
-    }
-    this.allObjects = [];
-    this.hpFillRect     = null;
-    this.hpText         = null;
-    this.moraleFillRect = null;
-    this.moraleText     = null;
-    this.moraleWarnText = null;
-    this.infoLineText   = null;
-    this.panelVisible   = false;
-  }
-
-  private track<T extends Phaser.GameObjects.GameObject>(obj: T): T {
-    this.allObjects.push(obj);
-    return obj;
-  }
-
-  // ── Event listeners (set up once, not rebuilt on resize) ──────────────────
-
-  private setupEventListeners(): void {
-    this.eventBus.on('game:tick', ({ tick }) => {
-      const day = Math.floor(tick / TICKS_PER_DAY) + 1;
-      if (this.tickText?.active) this.tickText.setText(`Day ${day}`);
-      this.refreshResources();
-    });
-
-    this.eventBus.on('unit:selected', ({ unit }) => {
-      this.selectedUnit = unit;
-      if (unit !== null) { this.selectedCity = null; this.selectedTerritoryPos = null; }
-      this.rebuildInfoPanel();
-    });
-
-    this.eventBus.on('city:selected', ({ city }) => {
-      this.selectedCity = city;
-      if (city !== null) { this.selectedUnit = null; this.selectedTerritoryPos = null; }
-      this.rebuildInfoPanel();
-    });
-
-    this.eventBus.on('territory:highlighted', ({ position }) => {
-      this.selectedTerritoryPos = position;
-      if (position !== null) { this.selectedUnit = null; this.selectedCity = null; }
-      this.rebuildInfoPanel();
-    });
-
-    this.eventBus.on('unit:battle-order-changed', ({ unitId }) => {
-      if (this.selectedUnit?.id === unitId) this.rebuildInfoPanel();
-    });
-
-    this.eventBus.on('unit:destroyed', ({ unitId }) => {
-      if (this.selectedUnit?.id === unitId) {
-        this.selectedUnit = null;
-        this.rebuildInfoPanel();
-      }
-    });
-
-    // Track land values for the selected unit's active battle
-    this.eventBus.on('battle:round-resolved', ({ unitAId, unitBId, landA, landB }) => {
-      if (this.selectedUnit?.id === unitAId) {
-        this.battleLandA = landA; this.battleLandB = landB; this.battleUnitAId = unitAId;
-      } else if (this.selectedUnit?.id === unitBId) {
-        this.battleLandA = landA; this.battleLandB = landB; this.battleUnitAId = unitAId;
-      }
-    });
-
-    // Rebuild panel when a battle involving the selected unit ends (removes land bar)
-    this.eventBus.on('battle:ended', ({ winnerUnitId, loserUnitId }) => {
-      if (this.selectedUnit?.id === winnerUnitId || this.selectedUnit?.id === loserUnitId) {
-        this.rebuildInfoPanel();
-      }
-    });
-
-    this.eventBus.on('territory:claimed', () => {
-      if (this.selectedUnit) this.rebuildInfoPanel();
-    });
-
-    // Rebuild unit panel when the selected unit steps to a new tile so the
-    // OUTPOST button (which depends on the tile's claimed state) stays current.
-    this.eventBus.on('unit:step-complete', ({ unitId }) => {
-      if (this.selectedUnit?.id === unitId) this.rebuildInfoPanel();
-    });
-  }
-
-  // ── Build full HUD ─────────────────────────────────────────────────────────
-
-  private buildHUD(): void {
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const s = uiScale(H);
-
-    this.buildTopBar(W, H, s);
-    this.rebuildInfoPanel();
-  }
-
-  // ── Top bar (right-aligned) ────────────────────────────────────────────────
-
-  private buildTopBar(W: number, _H: number, s: number): void {
-    const BAR_H  = Math.round(46 * s);
-    const PAD    = Math.round(10 * s);
-    const BTN_W  = Math.round(110 * s);
-    const BTN_H  = Math.round(32 * s);
-    const BTN_GAP = Math.round(8 * s);
-    const midY   = BAR_H / 2;
-
-    // Full-width semi-transparent bar
-    this.track(
-      this.add.rectangle(W / 2, 0, W, BAR_H, 0x0d1020, 0.92).setOrigin(0.5, 0),
-    );
-    this.track(
-      this.add.rectangle(W / 2, BAR_H, W, 1, 0x3344aa, 0.6).setOrigin(0.5, 0),
-    );
-
-    // ── Left side: day counter + difficulty + speed toggle ────────────────
-    this.tickText = this.track(
-      this.add.text(PAD, midY, 'Day 1', {
-        ...MONO, fontSize: fs(15, s), color: '#8899cc',
-      }).setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Text;
-
-    const diffColor: Record<GameSetup['difficulty'], string> = {
-      easy: '#66cc66', medium: '#ddcc44', hard: '#ee6666', sandbox: '#88ccff',
-    };
-    this.track(
-      this.add.text(PAD + Math.round(72 * s), midY, this.setup.difficulty.toUpperCase(), {
-        ...MONO, fontSize: fs(13, s), color: diffColor[this.setup.difficulty], fontStyle: 'bold',
-      }).setOrigin(0, 0.5),
-    );
-
-    // Speed toggle button
-    const spdBtnW  = Math.round(46 * s);
-    const spdBtnH  = Math.round(26 * s);
-    const spdBtnX  = PAD + Math.round(175 * s) + spdBtnW / 2;
-    const spdBg = this.track(
-      this.add.rectangle(spdBtnX, midY, spdBtnW, spdBtnH, 0x1a1a3c)
-        .setStrokeStyle(1, 0x3355cc).setInteractive({ useHandCursor: true }),
-    ) as Phaser.GameObjects.Rectangle;
-    this.speedBtnText = this.track(
-      this.add.text(spdBtnX, midY, `${this.gameSpeed}x`, {
-        ...MONO, fontSize: fs(12, s), color: '#ffddaa', fontStyle: 'bold',
-      }).setOrigin(0.5),
-    ) as Phaser.GameObjects.Text;
-    spdBg.on('pointerover', () => spdBg.setFillStyle(0x2a2a50));
-    spdBg.on('pointerout',  () => spdBg.setFillStyle(0x1a1a3c));
-    spdBg.on('pointerup',   () => {
-      this.eventBus.emit('ui:click-consumed', {});
-      const idx = SPEED_CYCLE.indexOf(this.gameSpeed);
-      this.gameSpeed = SPEED_CYCLE[(idx + 1) % SPEED_CYCLE.length]!;
-      if (this.speedBtnText?.active) this.speedBtnText.setText(`${this.gameSpeed}x`);
-      this.eventBus.emit('game:speed-change', { speed: this.gameSpeed });
-    });
-
-    // ── Right side: resources → research → menu ────────────────────────────
-    const menuX     = W - PAD - BTN_W / 2;
-    const researchX = menuX - BTN_W - BTN_GAP;
-    // Position resource text so its RIGHT edge sits 16px left of the research button's LEFT edge
-    const resX      = researchX - BTN_W / 2 - Math.round(16 * s);
-
-    // MENU button
-    this.makeTopBtn(menuX, midY, BTN_W, BTN_H, s, 'MENU [ESC]', 0x1e2244, 0x3355cc, '#aabbff', () => {
-      this.scene.get('GameScene')?.input.keyboard?.emit('keydown-ESC');
-    });
-
-    // RESEARCH button
-    this.makeTopBtn(researchX, midY, BTN_W, BTN_H, s, '🔬 RESEARCH', 0x1a1e3c, 0x3355cc, '#aabbff', () => {
-      if (this.scene.isActive('ResearchScene')) {
-        this.scene.stop('ResearchScene');
-      } else {
-        this.scene.launch('ResearchScene', {
-          gameState:      this.gameState,
-          networkAdapter: this.networkAdapter,
-          eventBus:       this.eventBus,
-        });
-      }
-    });
-
-    // Resource text (right-aligned, left of research button)
-    this.resourceText = this.track(
-      this.add.text(resX, midY, '', {
-        ...MONO, fontSize: fs(15, s), color: '#ddeeff',
-      }).setOrigin(1, 0.5),
-    ) as Phaser.GameObjects.Text;
-
-    this.refreshResources();
-  }
-
-  private makeTopBtn(
-    x: number, y: number, w: number, h: number, s: number,
-    label: string, fill: number, stroke: number, textColor: string,
-    onClick: () => void,
-  ): void {
-    const bg = this.track(
-      this.add.rectangle(x, y, w, h, fill).setStrokeStyle(1, stroke).setInteractive({ useHandCursor: true }),
-    ) as Phaser.GameObjects.Rectangle;
-    this.track(
-      this.add.text(x, y, label, { ...MONO, fontSize: fs(12, s), color: textColor }).setOrigin(0.5),
-    );
-    bg.on('pointerover', () => bg.setFillStyle(fill + 0x111122));
-    bg.on('pointerout',  () => bg.setFillStyle(fill));
-    bg.on('pointerup',   () => { this.eventBus.emit('ui:click-consumed', {}); onClick(); });
-  }
-
-  // ── Info panel (bottom-left) ───────────────────────────────────────────────
-
-  /** Destroy and rebuild only the bottom-left info panel area. */
-  private rebuildInfoPanel(): void {
-    // Remove only info-panel objects (those tagged after buildTopBar)
-    // Simpler: just rebuild whole HUD on selection change.
-    // But that's too disruptive. Instead, track panel objects separately.
-    this.destroyPanelObjects();
-
-    if (this.selectedUnit) {
-      this.buildUnitPanel();
-    } else if (this.selectedCity) {
-      this.buildCityPanel();
-    } else if (this.selectedTerritoryPos) {
-      this.buildTerritoryPanel();
-    }
-  }
-
-  private panelObjects: Phaser.GameObjects.GameObject[] = [];
-
-  private trackPanel<T extends Phaser.GameObjects.GameObject>(obj: T): T {
-    this.panelObjects.push(obj);
-    this.allObjects.push(obj);
-    return obj;
-  }
-
-  private destroyPanelObjects(): void {
-    for (const obj of this.panelObjects) {
-      if (obj?.active) obj.destroy();
-    }
-    // Remove from allObjects too
-    const panelSet = new Set(this.panelObjects);
-    this.allObjects = this.allObjects.filter(o => !panelSet.has(o));
-    this.panelObjects = [];
-
-    this.hpFillRect     = null;
-    this.hpText         = null;
-    this.moraleFillRect = null;
-    this.moraleText     = null;
-    this.moraleWarnText = null;
-    this.infoLineText   = null;
-    this.landFillRect   = null;
-    this.landText       = null;
-    this.panelVisible   = false;
-  }
-
-  private buildUnitPanel(): void {
-    const unit = this.selectedUnit!;
-    const H    = this.scale.height;
-    const s    = uiScale(H);
-
-    const PAD     = Math.round(12 * s);
-    const ROW_H   = Math.round(24 * s);
-    const BAR_W   = Math.round(160 * s);
-    const BAR_H   = Math.round(9 * s);
-    const BTN_W   = Math.round(56 * s);  // wider to fit full labels
-    const BTN_H   = Math.round(26 * s);
-    const BTN_GAP = Math.round(4 * s);
-
-    const stats      = unit.getStats();
-    const inBattle   = unit.isEngagedInBattle();
-    const territory0 = this.gameState.getGrid().getTerritory(unit.position);
-    const terrain0   = territory0?.getTerrainType();
-    const unclaimed0 = territory0?.getControllingNation() === null;
-    const hasOutpost = unclaimed0 && terrain0 !== TerrainType.WATER && terrain0 !== TerrainType.MOUNTAIN;
-    const hasActions = hasOutpost;
-
-    // Width must fit 5 stance buttons; action row buttons are narrower
-    const stanceRowW  = STANCE_ORDERS.length * BTN_W + (STANCE_ORDERS.length - 1) * BTN_GAP;
-    const panelW      = Math.max(Math.round(300 * s), stanceRowW + PAD * 2);
-    const STANCE_LBL  = Math.round(ROW_H * 0.55);
-    const STAT_ROW    = Math.round(ROW_H * 0.8);
-    const panelH      = PAD
-      + ROW_H                                   // header
-      + ROW_H                                   // HP bar
-      + ROW_H                                   // morale bar
-      + (inBattle ? ROW_H : 0)                 // land bar (only during battle)
-      + Math.round(ROW_H * 0.75)               // info line
-      + STAT_ROW                                // combat stats row
-      + STAT_ROW                                // armor row
-      + (hasActions ? BTN_H + BTN_GAP : 0)     // action row
-      + STANCE_LBL                              // stance label
-      + BTN_H                                   // stance row
-      + PAD;
-    const panelX = 0;
-    const panelY = H - panelH;
-
-    // Panel background
-    this.trackPanel(
-      this.add.rectangle(panelX, panelY, panelW, panelH, 0x0a0e1e, 0.94)
-        .setOrigin(0, 0).setStrokeStyle(1, 0x233660),
-    );
-    this.trackPanel(
-      this.add.rectangle(panelX, panelY, panelW, 1, 0x3355bb, 0.8).setOrigin(0, 0),
-    );
-    this.trackPanel(
-      this.add.rectangle(panelX + panelW, panelY, 1, panelH, 0x3355bb, 0.5).setOrigin(0, 0),
-    );
-
-    let y  = panelY + PAD;
-    const lx = panelX + PAD;
-    const curOrder = unit.getBattleOrder();
-    const morale   = unit.getMorale();
-
-    // ── Header: unit type + nation ──────────────────────────────────────────
-    this.trackPanel(
-      this.add.text(lx, y + ROW_H * 0.4, unitDisplayName(unit), {
-        ...MONO, fontSize: fs(15, s), color: '#aabbff', fontStyle: 'bold',
-      }).setOrigin(0, 0.5),
-    );
-    const nation = this.gameState.getNation(unit.getOwnerId());
-    this.trackPanel(
-      this.add.text(panelX + panelW - PAD, y + ROW_H * 0.4,
-        nation?.getName() ?? '', {
-          ...MONO, fontSize: fs(11, s), color: '#667799',
-        }).setOrigin(1, 0.5),
-    );
-    y += ROW_H;
-
-    // ── HP bar ──────────────────────────────────────────────────────────────
-    this.buildBar(lx, y, BAR_W, BAR_H, s, 'HP', panelW);
-    y += ROW_H;
-
-    // ── Morale bar ──────────────────────────────────────────────────────────
-    this.buildMoraleBar(lx, y, BAR_W, BAR_H, s, panelW);
-    y += ROW_H;
-
-    // ── Land bar (battle ground control) ────────────────────────────────────
-    if (inBattle) {
-      this.buildLandBar(lx, y, BAR_W, BAR_H, s);
-      y += ROW_H;
-    }
-
-    // ── Info line: battles + home city ──────────────────────────────────────
-    this.infoLineText = this.trackPanel(
-      this.add.text(lx, y + Math.round(ROW_H * 0.35), '', {
-        ...MONO, fontSize: fs(11, s), color: '#5566aa',
-      }).setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Text;
-    y += Math.round(ROW_H * 0.75);
-
-    // ── Combat stats ─────────────────────────────────────────────────────────
-    const deposits   = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set<TerritoryResourceType>();
-    const weaponBonus = weaponTierDamageBonus(deposits);
-    const effMelee   = stats.meleeDamage + weaponBonus;
-    const effRanged  = stats.rangedDamage > 0 ? stats.rangedDamage + weaponBonus : 0;
-    const meleePart  = weaponBonus > 0 ? `${effMelee}(+${weaponBonus})` : `${effMelee}`;
-    const rangedPart = effRanged > 0
-      ? `  RDMG:${weaponBonus > 0 ? `${effRanged}(+${weaponBonus})` : effRanged}  RNG:${stats.attackRange}`
-      : `  RNG:${stats.attackRange}`;
-    this.trackPanel(
-      this.add.text(lx, y + STAT_ROW / 2,
-        `MELEE:${meleePart}${rangedPart}  SPD:${stats.speed}  HP:${stats.maxHealth}`, {
-          ...MONO, fontSize: fs(11, s), color: '#7788aa',
-        }).setOrigin(0, 0.5),
-    );
-    y += STAT_ROW;
-
-    // ── Armor tier ───────────────────────────────────────────────────────────
-    const armorLabel = resolveArmorTier(deposits, nation);
-    const armorColor = armorLabel === 'Fire Glass' ? '#66ddff'
-      : armorLabel === 'Steel'     ? '#aaccff'
-      : armorLabel === 'Iron'      ? '#8899bb'
-      : armorLabel === 'Bronze'    ? '#cc9944'
-      : '#778899';
-    this.trackPanel(
-      this.add.text(lx, y + STAT_ROW / 2, `Armor: ${armorLabel}`, {
-        ...MONO, fontSize: fs(11, s), color: armorColor,
-      }).setOrigin(0, 0.5),
-    );
-    y += STAT_ROW;
-
-    // ── Action row: OUTPOST — sits above stances
-    if (hasActions) {
-      const ax = lx;
-
-      if (hasOutpost) {
-        const outpostDef  = TERRITORY_BUILDING_MAP.get(TerritoryBuildingType.OUTPOST);
-        const outpostCost = outpostDef?.cost ?? {};
-        const costParts: string[] = [];
-        if (outpostCost[ResourceType.GOLD])         costParts.push(`${outpostCost[ResourceType.GOLD]}${RESOURCE_EMOJI[ResourceType.GOLD]}`);
-        if (outpostCost[ResourceType.RAW_MATERIAL]) costParts.push(`${outpostCost[ResourceType.RAW_MATERIAL]}${RESOURCE_EMOJI[ResourceType.RAW_MATERIAL]}`);
-        if (outpostCost[ResourceType.FOOD])         costParts.push(`${outpostCost[ResourceType.FOOD]}${RESOURCE_EMOJI[ResourceType.FOOD]}`);
-        const costStr = costParts.join(' ');
-
-        const oBtnW = Math.round(80 * s);
-        const oBg = this.trackPanel(
-          this.add.rectangle(ax + oBtnW / 2, y + BTN_H / 2, oBtnW, BTN_H, 0x182818)
-            .setOrigin(0.5).setStrokeStyle(1, 0x44cc66).setInteractive({ useHandCursor: true }),
-        ) as Phaser.GameObjects.Rectangle;
-        this.trackPanel(
-          this.add.text(ax + oBtnW / 2, y + BTN_H / 2 - Math.round(4 * s), '⚑ OUTPOST', {
-            ...MONO, fontSize: fs(9, s), color: '#88ffaa',
-          }).setOrigin(0.5, 1),
-        );
-        this.trackPanel(
-          this.add.text(ax + oBtnW / 2, y + BTN_H / 2 + Math.round(2 * s), costStr, {
-            ...MONO, fontSize: fs(8, s), color: '#aabb88',
-          }).setOrigin(0.5, 0),
-        );
-        oBg.on('pointerover', () => oBg.setFillStyle(0x243824));
-        oBg.on('pointerout',  () => oBg.setFillStyle(0x182818));
-        oBg.on('pointerup', () => {
-          this.eventBus.emit('ui:click-consumed', {});
-          void this.networkAdapter.sendCommand({
-            type: 'BUILD_TERRITORY',
-            playerId: this.playerId,
-            position: unit.position,
-            building: TerritoryBuildingType.OUTPOST,
-            issuedAtTick: 0,
-          });
-        });
-      }
-
-      y += BTN_H + BTN_GAP;
-    }
-
-    // ── Stance label ─────────────────────────────────────────────────────────
-    this.trackPanel(
-      this.add.text(lx, y + STANCE_LBL / 2, 'BATTLE STANCE', {
-        ...MONO, fontSize: fs(9, s), color: '#445577', letterSpacing: 2,
-      }).setOrigin(0, 0.5),
-    );
-    y += STANCE_LBL;
-
-    // ── Stance buttons (bottom row) ─────────────────────────────────────────
-    STANCE_ORDERS.forEach(({ order, label }, i) => {
-      const bx       = lx + i * (BTN_W + BTN_GAP);
-      const active   = curOrder === order;
-      const disabled = morale <= MORALE_LOW && (order === 'ADVANCE' || order === 'CHARGE') && !active;
-      const fillCol  = active ? 0x2a3a80 : 0x101828;
-      const strokeC  = active ? 0x88aaff : disabled ? 0x1e1e30 : 0x2e3e62;
-      const txtCol   = active ? '#ffffff' : disabled ? '#333355' : '#7788bb';
-
-      const bg = this.trackPanel(
-        this.add.rectangle(bx + BTN_W / 2, y + BTN_H / 2, BTN_W, BTN_H, fillCol)
-          .setOrigin(0.5).setStrokeStyle(1, strokeC),
-      ) as Phaser.GameObjects.Rectangle;
-      this.trackPanel(
-        this.add.text(bx + BTN_W / 2, y + BTN_H / 2, label, {
-          ...MONO, fontSize: fs(10, s), color: txtCol,
-        }).setOrigin(0.5),
-      );
-
-      if (!disabled) {
-        bg.setInteractive({ useHandCursor: true });
-        bg.on('pointerover', () => bg.setFillStyle(active ? 0x3a4a90 : 0x1e2a40));
-        bg.on('pointerout',  () => bg.setFillStyle(fillCol));
-        bg.on('pointerup',   () => {
-          this.eventBus.emit('ui:click-consumed', {});
-          void this.networkAdapter.sendCommand({
-            type: 'SET_UNIT_BATTLE_ORDER',
-            playerId: this.playerId,
-            unitId: unit.id,
-            battleOrder: order,
-            issuedAtTick: 0,
-          });
-        });
-      }
-    });
-
-    this.hpBarW       = BAR_W;
-    this.panelVisible = true;
-  }
-
-  private buildBar(
-    lx: number, y: number, barW: number, barH: number, s: number,
-    label: string, panelW: number,
-  ): void {
-    this.trackPanel(
-      this.add.text(lx, y + barH / 2 + Math.round(4 * s), label, {
-        ...MONO, fontSize: fs(11, s), color: '#556688',
-      }).setOrigin(0, 0.5),
-    );
-    const barX = lx + Math.round(44 * s);
-    // Background
-    this.trackPanel(
-      this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), barW, barH, 0x111828)
-        .setOrigin(0, 0.5),
-    );
-    // Fill (dynamic — updated in update())
-    this.hpFillRect = this.trackPanel(
-      this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), 1, barH, 0x44cc66)
-        .setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Rectangle;
-    // HP text
-    this.hpText = this.trackPanel(
-      this.add.text(barX + barW + Math.round(6 * s), y + barH / 2 + Math.round(4 * s), '', {
-        ...MONO, fontSize: fs(11, s), color: '#aaaacc',
-      }).setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Text;
-
-    void panelW; // used for layout context by caller
-  }
-
-  private buildMoraleBar(
-    lx: number, y: number, barW: number, barH: number, s: number, _panelW: number,
-  ): void {
-    this.trackPanel(
-      this.add.text(lx, y + barH / 2 + Math.round(4 * s), 'Morale', {
-        ...MONO, fontSize: fs(11, s), color: '#556688',
-      }).setOrigin(0, 0.5),
-    );
-    const barX = lx + Math.round(44 * s);
-    this.trackPanel(
-      this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), barW, barH, 0x111828)
-        .setOrigin(0, 0.5),
-    );
-    this.moraleFillRect = this.trackPanel(
-      this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), 1, barH, 0x4488ff)
-        .setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Rectangle;
-    this.moraleText = this.trackPanel(
-      this.add.text(barX + barW + Math.round(6 * s), y + barH / 2 + Math.round(4 * s), '', {
-        ...MONO, fontSize: fs(11, s), color: '#aaaacc',
-      }).setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Text;
-    this.moraleWarnText = this.trackPanel(
-      this.add.text(barX + barW + Math.round(44 * s), y + barH / 2 + Math.round(4 * s), '', {
-        ...MONO, fontSize: fs(10, s), color: '#ff6644', fontStyle: 'bold',
-      }).setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Text;
-  }
-
-  private buildLandBar(lx: number, y: number, barW: number, barH: number, s: number): void {
-    this.trackPanel(
-      this.add.text(lx, y + barH / 2 + Math.round(4 * s), 'Land', {
-        ...MONO, fontSize: fs(11, s), color: '#7766aa',
-      }).setOrigin(0, 0.5),
-    );
-    const barX = lx + Math.round(44 * s);
-    this.trackPanel(
-      this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), barW, barH, 0x111828)
-        .setOrigin(0, 0.5),
-    );
-    this.landFillRect = this.trackPanel(
-      this.add.rectangle(barX, y + barH / 2 + Math.round(4 * s), 1, barH, 0xaa88ff)
-        .setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Rectangle;
-    this.landText = this.trackPanel(
-      this.add.text(barX + barW + Math.round(6 * s), y + barH / 2 + Math.round(4 * s), '', {
-        ...MONO, fontSize: fs(11, s), color: '#aaaacc',
-      }).setOrigin(0, 0.5),
-    ) as Phaser.GameObjects.Text;
-  }
-
-  private buildCityPanel(): void {
-    const city = this.selectedCity!;
-    const H    = this.scale.height;
-    const s    = uiScale(H);
-
-    const PAD   = Math.round(12 * s);
-    const ROW_H = Math.round(24 * s);
-    const BAR_W = Math.round(160 * s);
-    const BAR_H = Math.round(9 * s);
-
-    const panelW = Math.round(320 * s);
-    const panelH = PAD + ROW_H * 5 + PAD;
-    const panelX = 0;
-    const panelY = H - panelH;
-
-    this.trackPanel(
-      this.add.rectangle(panelX, panelY, panelW, panelH, 0x0a0e1e, 0.94)
-        .setOrigin(0, 0),
-    );
-    this.trackPanel(
-      this.add.rectangle(panelX, panelY, panelW, 1, 0x3355bb, 0.8).setOrigin(0, 0),
-    );
-    this.trackPanel(
-      this.add.rectangle(panelX + panelW, panelY, 1, panelH, 0x3355bb, 0.5).setOrigin(0, 0),
-    );
-
-    let y = panelY + PAD;
-    const lx = panelX + PAD;
-
-    // City name + owner
-    const nation = this.gameState.getNation(city.getOwnerId());
-    this.trackPanel(
-      this.add.text(lx, y + ROW_H * 0.4, city.getName(), {
-        ...MONO, fontSize: fs(15, s), color: '#ffddaa', fontStyle: 'bold',
-      }).setOrigin(0, 0.5),
-    );
-    this.trackPanel(
-      this.add.text(panelX + panelW - PAD, y + ROW_H * 0.4,
-        nation?.getName() ?? '', {
-          ...MONO, fontSize: fs(11, s), color: '#667799',
-        }).setOrigin(1, 0.5),
-    );
-    y += ROW_H;
-
-    // HP bar (static — city HP doesn't need per-frame update during pause browsing)
-    const hp    = city.getHealth();
-    const hpMax = city.getMaxHealth();
-    const ratio = hpMax > 0 ? hp / hpMax : 0;
-    this.trackPanel(
-      this.add.text(lx, y + BAR_H / 2 + Math.round(4 * s), 'Health', {
-        ...MONO, fontSize: fs(11, s), color: '#556688',
-      }).setOrigin(0, 0.5),
-    );
-    const barX = lx + Math.round(28 * s);
-    this.trackPanel(
-      this.add.rectangle(barX, y + BAR_H / 2 + Math.round(4 * s), BAR_W, BAR_H, 0x111828)
-        .setOrigin(0, 0.5),
-    );
-    const hpColor = ratio > 0.5 ? 0x44cc66 : ratio > 0.25 ? 0xddcc22 : 0xcc3322;
-    this.trackPanel(
-      this.add.rectangle(barX, y + BAR_H / 2 + Math.round(4 * s),
-        Math.max(1, Math.round(BAR_W * ratio)), BAR_H, hpColor)
-        .setOrigin(0, 0.5),
-    );
-    this.trackPanel(
-      this.add.text(barX + BAR_W + Math.round(6 * s), y + BAR_H / 2 + Math.round(4 * s),
-        `${hp}/${hpMax}`, {
-          ...MONO, fontSize: fs(11, s), color: '#aaaacc',
-        }).setOrigin(0, 0.5),
-    );
-    y += ROW_H;
-
-    // Buildings
-    const buildings = city.getBuildings?.() ?? [];
-    const buildStr  = buildings.length > 0
-      ? buildings.map(b => b.replace(/_/g, ' ')).join(', ')
-      : 'None';
-    this.trackPanel(
-      this.add.text(lx, y + ROW_H * 0.4, `Buildings: ${buildStr}`, {
-        ...MONO, fontSize: fs(11, s), color: '#6677aa',
-      }).setOrigin(0, 0.5),
-    );
-    y += ROW_H;
-
-    // Current production
-    const order = city.getCurrentOrder();
-    const prodStr = order
-      ? `Producing: ${order.kind === 'unit' ? order.unitType : order.kind}`
-      : 'Idle';
-    this.trackPanel(
-      this.add.text(lx, y + ROW_H * 0.4, prodStr, {
-        ...MONO, fontSize: fs(11, s), color: '#557755',
-      }).setOrigin(0, 0.5),
-    );
-    y += ROW_H;
-
-    this.panelVisible = false; // no per-frame updates needed for city panel
-  }
-
-  private buildTerritoryPanel(): void {
-    const pos = this.selectedTerritoryPos!;
-    const H   = this.scale.height;
-    const s   = uiScale(H);
-
-    const PAD   = Math.round(12 * s);
-    const ROW_H = Math.round(24 * s);
-
-    const panelW = Math.round(340 * s);
-    const panelH = PAD + ROW_H * 3 + PAD;
-    const panelX = 0;
-    const panelY = H - panelH;
-
-    this.trackPanel(
-      this.add.rectangle(panelX, panelY, panelW, panelH, 0x0a0e1e, 0.94)
-        .setOrigin(0, 0).setStrokeStyle(1, 0x233660),
-    );
-    this.trackPanel(
-      this.add.rectangle(panelX, panelY, panelW, 1, 0x3355bb, 0.8).setOrigin(0, 0),
-    );
-    this.trackPanel(
-      this.add.rectangle(panelX + panelW, panelY, 1, panelH, 0x3355bb, 0.5).setOrigin(0, 0),
-    );
-
-    let y = panelY + PAD;
-    const lx = panelX + PAD;
-
-    const territory = this.gameState.getGrid().getTerritory(pos);
-    const terrain   = territory?.getTerrainType() ?? 'UNKNOWN';
-    const ownerId   = territory?.getControllingNation() ?? null;
-    const nation    = ownerId ? this.gameState.getNation(ownerId) : null;
-
-    // Header: terrain type + coords, owner on right
-    this.trackPanel(
-      this.add.text(lx, y + ROW_H * 0.4,
-        `${terrain}  (${pos.row}, ${pos.col})`, {
-          ...MONO, fontSize: fs(14, s), color: '#aabbcc', fontStyle: 'bold',
-        }).setOrigin(0, 0.5),
-    );
-    this.trackPanel(
-      this.add.text(panelX + panelW - PAD, y + ROW_H * 0.4,
-        nation?.getName() ?? 'Unclaimed', {
-          ...MONO, fontSize: fs(11, s), color: nation ? '#99aacc' : '#445566',
-        }).setOrigin(1, 0.5),
-    );
-    y += ROW_H;
-
-    // Deposit row
-    const deposit = territory?.getResourceDeposit?.() ?? null;
-    const DEPOSIT_LABEL: Record<TerritoryResourceType, string> = {
-      [TerritoryResourceType.COPPER]:         '⊛ Copper',
-      [TerritoryResourceType.IRON]:           '⊗ Iron',
-      [TerritoryResourceType.FIRE_GLASS]:     '◈ Fire Glass',
-      [TerritoryResourceType.SILVER]:         '◇ Silver',
-      [TerritoryResourceType.GOLD_DEPOSIT]:   '◆ Gold',
-      [TerritoryResourceType.WATER_MANA]:     '~ Water Mana',
-      [TerritoryResourceType.FIRE_MANA]:      '▲ Fire Mana',
-      [TerritoryResourceType.LIGHTNING_MANA]: '⚡ Lightning Mana',
-      [TerritoryResourceType.EARTH_MANA]:     '◉ Earth Mana',
-      [TerritoryResourceType.AIR_MANA]:       '≋ Air Mana',
-      [TerritoryResourceType.SHADOW_MANA]:    '◐ Shadow Mana',
-    };
-    const depositStr = deposit ? (DEPOSIT_LABEL[deposit] ?? String(deposit)) : 'No deposit';
-    this.trackPanel(
-      this.add.text(lx, y + ROW_H * 0.4, `Deposit: ${depositStr}`, {
-        ...MONO, fontSize: fs(11, s), color: deposit ? '#ffe066' : '#445566',
-      }).setOrigin(0, 0.5),
-    );
-    y += ROW_H;
-
-    // Buildings row
-    const buildings = territory?.getBuildings() ?? [];
-    const buildStr  = buildings.length > 0
-      ? buildings.map(b => `${BUILDING_MAP_ICON[b]} ${b.replace(/_/g, ' ')}`).join('  ')
-      : 'No buildings';
-    this.trackPanel(
-      this.add.text(lx, y + ROW_H * 0.4, `${buildStr}`, {
-        ...MONO, fontSize: fs(11, s), color: buildings.length > 0 ? '#66dd99' : '#445566',
-      }).setOrigin(0, 0.5),
-    );
-
-    this.panelVisible = false;
-  }
-
-  // ── Per-frame dynamic update ───────────────────────────────────────────────
-
-  override update(): void {
-    if (!this.panelVisible || !this.selectedUnit) return;
-    const unit = this.selectedUnit;
-    const barW = this.hpBarW;
-
-    // HP bar
-    if (this.hpFillRect && this.hpText) {
-      const hp    = unit.getHealth();
-      const hpMax = unit.getStats().maxHealth;
-      const ratio = hpMax > 0 ? hp / hpMax : 0;
-      const fill  = Math.max(1, Math.round(barW * ratio));
-      const color = ratio > 0.5 ? 0x44cc66 : ratio > 0.25 ? 0xddcc22 : 0xcc3322;
-      this.hpFillRect.setSize(fill, this.hpFillRect.height).setFillStyle(color);
-      this.hpText.setText(`${hp}/${hpMax}`);
-    }
-
-    // Morale bar
-    if (this.moraleFillRect && this.moraleText) {
-      const morale = unit.getMorale();
-      const fill   = Math.max(1, Math.round(barW * morale / 100));
-      const color  = morale > 50 ? 0x4488ff : morale > 30 ? 0xffaa22 : 0xff3333;
-      this.moraleFillRect.setSize(fill, this.moraleFillRect.height).setFillStyle(color);
-      this.moraleText.setText(`${morale}`);
-      if (this.moraleWarnText) {
-        this.moraleWarnText.setText(
-          morale <= 10 ? '⚠ ROUTED' : morale <= MORALE_LOW ? '⚠ LOW' : '',
-        );
-      }
-    }
-
-    // Land bar (shown when in battle)
-    if (this.landFillRect && this.landText) {
-      const barW      = this.hpBarW;
-      const unitLand  = this.selectedUnit?.id === this.battleUnitAId ? this.battleLandA : this.battleLandB;
-      const fill      = Math.max(1, Math.round(barW * Math.max(0, unitLand) / 100));
-      const landColor = unitLand > 60 ? 0x7755ff : unitLand > 30 ? 0xaa88ff : 0xff5566;
-      this.landFillRect.setSize(fill, this.landFillRect.height).setFillStyle(landColor);
-      this.landText.setText(`${Math.round(unitLand)}`);
-    }
-
-    // Info line
-    if (this.infoLineText) {
-      const battles  = unit.getBattlesEngaged();
-      const homeId   = unit.getHomeCityId();
-      const homeName = homeId ? (this.gameState.getCity(homeId)?.getName() ?? '—') : '—';
-      const engStr   = unit.isEngagedInBattle() ? '  ⚔ IN BATTLE' : '';
-      const rank     = unit.getRankLabel();
-      const xp       = unit.getXP();
-      const toNext   = unit.getXPToNextLevel();
-      const xpStr    = toNext > 0 ? `  ${rank} XP:${xp}/${xp + toNext}` : `  ★ ${rank}`;
-      this.infoLineText.setText(`Battles:${battles}  Home:${homeName}${engStr}${xpStr}`);
-    }
-  }
-
-  // ── Resource refresh ───────────────────────────────────────────────────────
-
-  private refreshResources(): void {
-    if (!this.resourceText?.active) return;
-    const lp = this.gameState.getLocalPlayer();
-    if (!lp) return;
-    const nation = this.gameState.getNation(lp.getControlledNationId());
-    const t = nation?.getTreasury();
-    if (!t) return;
-
-    const f = t.getAmount(ResourceType.FOOD);
-    const m = t.getAmount(ResourceType.RAW_MATERIAL);
-    const g = t.getAmount(ResourceType.GOLD);
-    const r = t.getAmount(ResourceType.RESEARCH);
-
-    const cityCount  = nation ? this.gameState.getAllCities().filter(c => c.getOwnerId() === nation.getId()).length : 0;
-    const corruptPct = Math.min(60, Math.max(0, (cityCount - 1) * 10));
-    const corruptStr = corruptPct > 0 ? `  [C]${corruptPct}%` : '';
-
-    this.resourceText.setText(
-      `${RESOURCE_EMOJI[ResourceType.FOOD]}${f}  ${RESOURCE_EMOJI[ResourceType.RAW_MATERIAL]}${m}  ${RESOURCE_EMOJI[ResourceType.GOLD]}${g}  ${RESOURCE_EMOJI[ResourceType.RESEARCH]}${r}${corruptStr}`,
-    );
-  }
+const FOOD_INTERVAL = 5;
+const MATERIAL_INTERVAL = 10;
+const GOLD_INTERVAL = 10;
+const RESEARCH_INTERVAL = 10;
+const TERRAIN_FOOD_INTERVAL = 50;
+const TERRAIN_MATERIAL_INTERVAL = 50;
+const TERRAIN_GOLD_INTERVAL = 80;
+const UPKEEP_INTERVAL = 30;
+
+function uiScale(h: number): number {
+  return Math.min(1.8, Math.max(0.75, h / 900));
 }
 
-// ── Module-level helpers ───────────────────────────────────────────────────────
+function fs(base: number, scale: number): string {
+  return `${Math.round(base * scale)}px`;
+}
 
-import type { Nation } from '@/entities/nations/Nation';
+function perSecond(amount: number, intervalTicks: number): number {
+  return amount * (TICK_RATE / intervalTicks);
+}
+
+function formatRate(amount: number): string {
+  return `${amount >= 0 ? '+' : ''}${amount.toFixed(amount % 1 === 0 ? 0 : 1)}/s`;
+}
+
+function unitDisplayName(unit: Unit): string {
+  return unit.getFullName();
+}
 
 function resolveArmorTier(
   deposits: ReadonlySet<TerritoryResourceType>,
-  nation: Nation | null | undefined,
+  nation: ReturnType<GameState['getNation']>,
 ): string {
   if (deposits.has(TerritoryResourceType.FIRE_GLASS)) return 'Fire Glass';
   if (deposits.has(TerritoryResourceType.IRON)) {
@@ -954,6 +91,906 @@ function resolveArmorTier(
   return 'Leather';
 }
 
-function unitDisplayName(unit: Unit): string {
-  return unit.getFullName();
+export class UIScene extends Phaser.Scene {
+  private setup!: GameSetup;
+  private gameState!: GameState;
+  private networkAdapter!: NetworkAdapter;
+  private eventBus!: GameEventBus;
+  private diplomacySystem!: DiplomacySystem;
+  private tickEngine!: TickEngine;
+  private playerId = '';
+
+  private selectedUnit: Unit | null = null;
+  private selectedCity: City | null = null;
+  private selectedTerritoryPos: GridCoordinates | null = null;
+
+  private gameSpeed: typeof SPEED_CYCLE[number] = 1;
+  private hudObjects: Phaser.GameObjects.GameObject[] = [];
+  private tickText: Phaser.GameObjects.Text | null = null;
+  private speedBtnText: Phaser.GameObjects.Text | null = null;
+  private resourceValueTexts = new Map<ResourceType, Phaser.GameObjects.Text>();
+  private hpFillRect: Phaser.GameObjects.Rectangle | null = null;
+  private hpText: Phaser.GameObjects.Text | null = null;
+  private moraleFillRect: Phaser.GameObjects.Rectangle | null = null;
+  private moraleText: Phaser.GameObjects.Text | null = null;
+  private moraleWarnText: Phaser.GameObjects.Text | null = null;
+  private infoLineText: Phaser.GameObjects.Text | null = null;
+  private stanceHintText: Phaser.GameObjects.Text | null = null;
+  private hpBarWidth = 0;
+
+  private activeResourceBreakdown: ResourceType | null = null;
+  private showAlertHistory = false;
+  private notifications: AlertEntry[] = [];
+  private toastIds: number[] = [];
+  private nextAlertId = 1;
+  constructor() {
+    super({ key: 'UIScene' });
+  }
+
+  init(data: UISceneData): void {
+    this.setup = data.setup;
+    this.gameState = data.gameState;
+    this.networkAdapter = data.networkAdapter;
+    this.eventBus = data.eventBus;
+    this.diplomacySystem = data.diplomacySystem;
+    this.tickEngine = data.tickEngine;
+    this.playerId = this.gameState.getLocalPlayer()?.getId() ?? '';
+  }
+
+  create(): void {
+    this.setupEventListeners();
+    this.rebuildHUD();
+    this.scale.on('resize', this.rebuildHUD, this);
+  }
+
+  override update(): void {
+    if (!this.selectedUnit) return;
+    if (this.hpFillRect && this.hpText) {
+      const hp = this.selectedUnit.getHealth();
+      const hpMax = this.selectedUnit.getStats().maxHealth;
+      const ratio = hpMax > 0 ? hp / hpMax : 0;
+      const width = Math.max(1, Math.round(this.hpBarWidth * ratio));
+      const color = ratio > 0.5 ? 0x44cc66 : ratio > 0.25 ? 0xddcc22 : 0xcc3322;
+      this.hpFillRect.setSize(width, this.hpFillRect.height).setFillStyle(color);
+      this.hpText.setText(`${hp}/${hpMax}`);
+    }
+
+    if (this.moraleFillRect && this.moraleText) {
+      const morale = this.selectedUnit.getMorale();
+      const width = Math.max(1, Math.round(this.hpBarWidth * morale / 100));
+      const color = morale > 50 ? 0x4488ff : morale > 30 ? 0xffaa22 : 0xff4444;
+      this.moraleFillRect.setSize(width, this.moraleFillRect.height).setFillStyle(color);
+      this.moraleText.setText(`${morale}`);
+      this.moraleWarnText?.setText(morale <= MORALE_LOW && this.selectedUnit.getBattleOrder() === 'ADVANCE' ? 'LOW MORALE' : '');
+    }
+
+    if (this.infoLineText) {
+      const battles = this.selectedUnit.getBattlesEngaged();
+      const homeId = this.selectedUnit.getHomeCityId();
+      const homeName = homeId ? this.gameState.getCity(homeId)?.getName() ?? '-' : '-';
+      const rank = this.selectedUnit.getRankLabel();
+      const xp = this.selectedUnit.getXP();
+      const toNext = this.selectedUnit.getXPToNextLevel();
+      const xpText = toNext > 0 ? `${xp}/${xp + toNext}` : 'MAX';
+      const status = this.selectedUnit.isEngagedInBattle() ? 'IN BATTLE' : 'READY';
+      this.infoLineText.setText(`Battles:${battles}  Home:${homeName}  ${rank} XP:${xpText}  ${status}`);
+    }
+
+    if (this.stanceHintText) {
+      this.stanceHintText.setText(this.selectedUnit.getUnitType() === 'CAVALRY'
+        ? 'Advance acts as Charge: +50% damage.'
+        : 'Advance quickens the clash: +25% damage on both sides.');
+    }
+  }
+
+  private setupEventListeners(): void {
+    this.eventBus.on('game:tick', ({ tick }) => {
+      const day = Math.floor(tick / TICKS_PER_DAY) + 1;
+      this.tickText?.setText(`Day ${day}`);
+      this.refreshResources();
+    });
+
+    this.eventBus.on('unit:selected', ({ unit }) => {
+      this.selectedUnit = unit;
+      if (unit) {
+        this.selectedCity = null;
+        this.selectedTerritoryPos = null;
+      }
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('city:selected', ({ city }) => {
+      this.selectedCity = city;
+      if (city) {
+        this.selectedUnit = null;
+        this.selectedTerritoryPos = null;
+      }
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('territory:highlighted', ({ position }) => {
+      this.selectedTerritoryPos = position;
+      if (position) {
+        this.selectedUnit = null;
+        this.selectedCity = null;
+      }
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('unit:battle-order-changed', ({ unitId }) => {
+      if (this.selectedUnit?.id === unitId) this.rebuildHUD();
+    });
+
+    this.eventBus.on('unit:destroyed', ({ unitId }) => {
+      if (this.selectedUnit?.id === unitId) {
+        this.selectedUnit = null;
+      }
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('territory:claimed', ({ position, nationId, fromNationId }) => {
+      const localNation = this.getLocalNation();
+      if (!localNation) return;
+      if (nationId !== localNation.getId() && fromNationId !== localNation.getId()) return;
+
+      const nationName = this.gameState.getNation(nationId)?.getName() ?? 'Unknown nation';
+      const sourceName = fromNationId ? this.gameState.getNation(fromNationId)?.getName() ?? 'another nation' : null;
+      this.pushNotification(sourceName && nationId === localNation.getId()
+        ? `${nationName} captured tile (${position.row}, ${position.col}) from ${sourceName}.`
+        : nationId === localNation.getId()
+          ? `${nationName} claimed tile (${position.row}, ${position.col}).`
+          : `${sourceName ?? 'An enemy'} captured tile (${position.row}, ${position.col}) from you.`);
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('city:unit-spawned', ({ cityId, unitType }) => {
+      const cityName = this.gameState.getCity(cityId)?.getName() ?? 'A city';
+      const city = this.gameState.getCity(cityId);
+      if (!city || !this.isLocalNation(city.getOwnerId())) return;
+      this.pushNotification(`${cityName} trained ${unitType.replace(/_/g, ' ').toLowerCase()}.`);
+    });
+
+    this.eventBus.on('city:production-complete', ({ cityId, order }) => {
+      const cityName = this.gameState.getCity(cityId)?.getName() ?? 'A city';
+      const city = this.gameState.getCity(cityId);
+      if (!city || !this.isLocalNation(city.getOwnerId())) return;
+      this.pushNotification(`${cityName} completed ${order.label.toLowerCase()}.`);
+    });
+
+    this.eventBus.on('city:building-built', ({ cityId, building }) => {
+      const cityName = this.gameState.getCity(cityId)?.getName() ?? 'A city';
+      const city = this.gameState.getCity(cityId);
+      if (!city || !this.isLocalNation(city.getOwnerId())) return;
+      const label = CITY_BUILDING_MAP.get(building)?.label ?? building.replace(/_/g, ' ');
+      this.pushNotification(`${cityName} built ${label}.`);
+    });
+
+    this.eventBus.on('unit:withdrew', ({ unitId, to }) => {
+      const unit = this.gameState.getUnit(unitId);
+      if (!unit || !this.isLocalNation(unit.getOwnerId())) return;
+      const label = unit ? unitDisplayName(unit) : 'A unit';
+      this.pushNotification(`${label} withdrew to (${to.row}, ${to.col}).`);
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('nation:research-complete', ({ nationId, techId }) => {
+      if (!this.isLocalNation(nationId)) return;
+      const nationName = this.gameState.getNation(nationId)?.getName() ?? 'A nation';
+      this.pushNotification(`${nationName} completed ${techId.replace(/_/g, ' ')}.`);
+    });
+
+    this.eventBus.on('diplomacy:war-declared', ({ nationId1, nationId2 }) => {
+      if (!this.isLocalNation(nationId1) && !this.isLocalNation(nationId2)) return;
+      const a = this.gameState.getNation(nationId1)?.getName() ?? 'Unknown';
+      const b = this.gameState.getNation(nationId2)?.getName() ?? 'Unknown';
+      this.pushNotification(`${a} and ${b} are now at war.`);
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('diplomacy:peace-signed', ({ fromNationId, toNationId }) => {
+      if (!this.isLocalNation(fromNationId) && !this.isLocalNation(toNationId)) return;
+      const a = this.gameState.getNation(fromNationId)?.getName() ?? 'Unknown';
+      const b = this.gameState.getNation(toNationId)?.getName() ?? 'Unknown';
+      this.pushNotification(`${a} and ${b} signed peace.`);
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('unit:step-complete', ({ unitId }) => {
+      if (this.selectedUnit?.id === unitId) this.rebuildHUD();
+    });
+  }
+
+  private rebuildHUD(): void {
+    for (const obj of this.hudObjects) {
+      if (obj.active) obj.destroy();
+    }
+    this.hudObjects = [];
+    this.tickText = null;
+    this.speedBtnText = null;
+    this.resourceValueTexts.clear();
+    this.hpFillRect = null;
+    this.hpText = null;
+    this.moraleFillRect = null;
+    this.moraleText = null;
+    this.moraleWarnText = null;
+    this.infoLineText = null;
+    this.stanceHintText = null;
+    this.hpBarWidth = 0;
+
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const scale = uiScale(H);
+
+    this.buildTopBar(W, scale);
+    this.buildNotificationToasts(scale);
+    this.buildResourceBreakdownPanel(scale);
+    this.buildAlertHistoryPanel(W, H, scale);
+    this.buildDiplomacyWidget(W, H, scale);
+    this.buildInfoPanel(H, scale);
+    this.refreshResources();
+  }
+
+  private buildTopBar(W: number, scale: number): void {
+    const barH = Math.round(52 * scale);
+    const pad = Math.round(10 * scale);
+    const midY = Math.round(barH / 2);
+    const btnW = Math.round(96 * scale);
+    const btnH = Math.round(30 * scale);
+    const gap = Math.round(8 * scale);
+
+    this.track(this.add.rectangle(W / 2, 0, W, barH, 0x0d1020, 0.94).setOrigin(0.5, 0));
+    this.track(this.add.rectangle(W / 2, barH, W, 1, 0x3355bb, 0.7).setOrigin(0.5, 0));
+
+    this.tickText = this.track(this.add.text(pad, midY, 'Day 1', {
+      ...MONO, fontSize: fs(15, scale), color: '#d6e0ff',
+    }).setOrigin(0, 0.5)) as Phaser.GameObjects.Text;
+
+    this.track(this.add.text(pad + Math.round(74 * scale), midY, this.setup.difficulty.toUpperCase(), {
+      ...MONO, fontSize: fs(12, scale), color: difficultyColor(this.setup.difficulty), fontStyle: 'bold',
+    }).setOrigin(0, 0.5));
+
+    const speedX = pad + Math.round(196 * scale);
+    this.makeButton(speedX, midY, Math.round(52 * scale), btnH, `${this.gameSpeed}x`, scale, () => {
+      const idx = SPEED_CYCLE.indexOf(this.gameSpeed);
+      this.gameSpeed = SPEED_CYCLE[(idx + 1) % SPEED_CYCLE.length]!;
+      this.speedBtnText?.setText(`${this.gameSpeed}x`);
+      this.eventBus.emit('game:speed-change', { speed: this.gameSpeed });
+    }, 0x1b2442);
+    this.speedBtnText = this.hudObjects[this.hudObjects.length - 1] as Phaser.GameObjects.Text;
+
+    const alertsLabel = `ALERTS ${this.notifications.length}`;
+    this.makeButton(speedX + Math.round(88 * scale), midY, Math.round(92 * scale), btnH, alertsLabel, scale, () => {
+      this.showAlertHistory = !this.showAlertHistory;
+      this.rebuildHUD();
+    }, this.showAlertHistory ? 0x3c2a5e : 0x241c36);
+
+    const resourceW = Math.round(86 * scale);
+    const resourceStartX = W - pad - btnW * 2 - gap * 2 - resourceW * RESOURCE_BUTTONS.length - gap * (RESOURCE_BUTTONS.length - 1) - Math.round(18 * scale);
+    RESOURCE_BUTTONS.forEach((resource, index) => {
+      const x = resourceStartX + index * (resourceW + gap) + resourceW / 2;
+      this.makeResourceButton(x, midY, resourceW, btnH, scale, resource);
+    });
+
+    const researchX = W - pad - btnW - gap - btnW / 2;
+    const menuX = W - pad - btnW / 2;
+
+    this.makeButton(researchX, midY, btnW, btnH, 'RESEARCH', scale, () => {
+      if (this.scene.isActive('ResearchScene')) {
+        this.scene.stop('ResearchScene');
+      } else {
+        this.scene.launch('ResearchScene', {
+          gameState: this.gameState,
+          networkAdapter: this.networkAdapter,
+          eventBus: this.eventBus,
+        });
+      }
+    }, 0x1a1e3c);
+
+    this.makeButton(menuX, midY, btnW, btnH, 'MENU [ESC]', scale, () => {
+      this.scene.get('GameScene')?.input.keyboard?.emit('keydown-ESC');
+    }, 0x1e2244);
+  }
+
+  private makeResourceButton(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    scale: number,
+    resource: ResourceType,
+  ): void {
+    const active = this.activeResourceBreakdown === resource;
+    const bg = this.track(this.add.rectangle(x, y, w, h, active ? 0x2b3d5d : 0x162030)
+      .setStrokeStyle(1, active ? 0x88aaff : 0x345070)
+      .setInteractive({ useHandCursor: true })) as Phaser.GameObjects.Rectangle;
+    const label = this.track(this.add.text(x, y, '', {
+      ...MONO, fontSize: fs(12, scale), color: '#eef5ff',
+    }).setOrigin(0.5)) as Phaser.GameObjects.Text;
+
+    this.resourceValueTexts.set(resource, label);
+    bg.on('pointerover', () => bg.setFillStyle(active ? 0x36517b : 0x20304a));
+    bg.on('pointerout', () => bg.setFillStyle(active ? 0x2b3d5d : 0x162030));
+    bg.on('pointerup', () => {
+      this.activeResourceBreakdown = this.activeResourceBreakdown === resource ? null : resource;
+      this.rebuildHUD();
+    });
+  }
+
+  private makeButton(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    label: string,
+    scale: number,
+    onClick: () => void,
+    fill: number,
+  ): void {
+    const bg = this.track(this.add.rectangle(x, y, w, h, fill)
+      .setStrokeStyle(1, 0x4464aa)
+      .setInteractive({ useHandCursor: true })) as Phaser.GameObjects.Rectangle;
+    const text = this.track(this.add.text(x, y, label, {
+      ...MONO, fontSize: fs(11, scale), color: '#d8e4ff',
+    }).setOrigin(0.5)) as Phaser.GameObjects.Text;
+
+    bg.on('pointerover', () => bg.setFillStyle(fill + 0x101018));
+    bg.on('pointerout', () => bg.setFillStyle(fill));
+    bg.on('pointerup', () => {
+      this.eventBus.emit('ui:click-consumed', {});
+      onClick();
+    });
+
+    void text;
+  }
+
+  private buildNotificationToasts(scale: number): void {
+    const toastEntries = this.toastIds
+      .map(id => this.notifications.find(notification => notification.id === id))
+      .filter((entry): entry is AlertEntry => Boolean(entry))
+      .slice(-4)
+      .reverse();
+    const startX = Math.round(14 * scale);
+    let y = Math.round(62 * scale);
+
+    for (const entry of toastEntries) {
+      const width = Math.min(Math.round(420 * scale), Math.round(this.scale.width * 0.45));
+      const height = Math.round(30 * scale);
+      this.track(this.add.rectangle(startX, y, width, height, 0x111a2a, 0.94)
+        .setOrigin(0, 0)
+        .setStrokeStyle(1, 0x3355aa));
+      this.track(this.add.text(startX + Math.round(10 * scale), y + height / 2, entry.text, {
+        ...MONO, fontSize: fs(11, scale), color: '#f2f6ff',
+        wordWrap: { width: width - Math.round(20 * scale) },
+      }).setOrigin(0, 0.5));
+      y += height + Math.round(6 * scale);
+    }
+  }
+
+  private buildAlertHistoryPanel(W: number, H: number, scale: number): void {
+    if (!this.showAlertHistory) return;
+
+    const pad = Math.round(12 * scale);
+    const panelW = Math.min(Math.round(460 * scale), W - pad * 2);
+    const panelH = Math.min(Math.round(340 * scale), H - Math.round(120 * scale));
+    const x = pad;
+    const y = Math.round(62 * scale);
+    const rowH = Math.round(24 * scale);
+    const maxRows = Math.max(6, Math.floor((panelH - pad * 3 - rowH) / rowH));
+
+    this.track(this.add.rectangle(x, y, panelW, panelH, 0x0c1220, 0.96)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x476ac2));
+    this.track(this.add.text(x + pad, y + pad, 'Alert History', {
+      ...MONO, fontSize: fs(14, scale), color: '#ffddb0', fontStyle: 'bold',
+    }).setOrigin(0, 0));
+    this.makeButton(x + panelW - pad - Math.round(74 * scale), y + pad + Math.round(10 * scale), Math.round(74 * scale), Math.round(24 * scale), 'CLOSE', scale, () => {
+      this.showAlertHistory = false;
+      this.rebuildHUD();
+    }, 0x2a1e30);
+
+    const recent = [...this.notifications].slice(-maxRows).reverse();
+    recent.forEach((entry, index) => {
+      this.track(this.add.text(x + pad, y + pad * 2 + Math.round(26 * scale) + index * rowH, entry.text, {
+        ...MONO, fontSize: fs(11, scale), color: '#dbe6ff',
+        wordWrap: { width: panelW - pad * 2 },
+      }).setOrigin(0, 0));
+    });
+  }
+
+  private buildResourceBreakdownPanel(scale: number): void {
+    if (!this.activeResourceBreakdown) return;
+
+    const pad = Math.round(12 * scale);
+    const panelW = Math.round(320 * scale);
+    const panelH = Math.round(250 * scale);
+    const x = this.scale.width - panelW - Math.round(230 * scale);
+    const y = Math.round(62 * scale);
+    const breakdown = this.getResourceBreakdown(this.activeResourceBreakdown);
+
+    this.track(this.add.rectangle(x, y, panelW, panelH, 0x0d1426, 0.97)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x4a6ec7));
+    this.track(this.add.text(x + pad, y + pad, `${RESOURCE_EMOJI[this.activeResourceBreakdown]} ${breakdown.title}`, {
+      ...MONO, fontSize: fs(14, scale), color: '#f6e0a0', fontStyle: 'bold',
+    }).setOrigin(0, 0));
+
+    const lines = [
+      `Stored now: ${breakdown.current}`,
+      '',
+      'Sources',
+      ...breakdown.sources.map(line => `  ${line}`),
+      '',
+      'Outgoing',
+      ...(breakdown.outgoing.length > 0 ? breakdown.outgoing.map(line => `  ${line}`) : ['  None']),
+    ];
+
+    this.track(this.add.text(x + pad, y + Math.round(38 * scale), lines.join('\n'), {
+      ...MONO, fontSize: fs(11, scale), color: '#dfe8ff',
+      lineSpacing: Math.round(2 * scale),
+      wordWrap: { width: panelW - pad * 2 },
+    }).setOrigin(0, 0));
+  }
+
+  private buildDiplomacyWidget(W: number, H: number, scale: number): void {
+    const localNation = this.getLocalNation();
+    if (!localNation) return;
+
+    const knownIds = this.gameState.getKnownNationIds(localNation.getId());
+    const others = knownIds
+      .map(id => this.gameState.getNation(id))
+      .filter((nation): nation is NonNullable<ReturnType<GameState['getNation']>> => Boolean(nation))
+      .filter(nation => nation.getId() !== localNation.getId());
+    if (others.length === 0) return;
+
+    const pad = Math.round(10 * scale);
+    const rowH = Math.round(42 * scale);
+    const visibleRows = others.length;
+    const panelW = Math.round(298 * scale);
+    const panelH = Math.round(58 * scale) + visibleRows * rowH + pad;
+    const x = W - panelW - pad;
+    const y = H - panelH - pad;
+
+    this.track(this.add.rectangle(x, y, panelW, panelH, 0x0c1220, 0.95)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x4a6ec7));
+    this.track(this.add.text(x + pad, y + pad, 'Diplomacy', {
+      ...MONO, fontSize: fs(14, scale), color: '#d8e3ff', fontStyle: 'bold',
+    }).setOrigin(0, 0));
+    this.track(this.add.text(x + pad, y + pad + Math.round(16 * scale), 'Known nations', {
+      ...MONO, fontSize: fs(10, scale), color: '#95a8d8',
+    }).setOrigin(0, 0));
+
+    this.makeButton(x + panelW - pad - Math.round(48 * scale), y + pad + Math.round(12 * scale), Math.round(96 * scale), Math.round(24 * scale), 'OPEN FULL', scale, () => {
+      this.openDiplomacy();
+    }, 0x1b2540);
+
+    let rowY = y + Math.round(54 * scale);
+    for (const nation of others.slice(0, visibleRows)) {
+      const relation = localNation.getRelation(nation.getId());
+      const row = this.track(this.add.rectangle(x + panelW / 2, rowY + rowH / 2, panelW - pad * 2, rowH - Math.round(4 * scale), 0x10192a, 0.98)
+        .setOrigin(0.5)
+        .setStrokeStyle(1, 0x2b426d)
+        .setInteractive({ useHandCursor: true })) as Phaser.GameObjects.Rectangle;
+      row.on('pointerup', () => {
+        this.eventBus.emit('ui:click-consumed', {});
+        this.openDiplomacy(nation.getId());
+      });
+      row.on('pointerover', () => row.setFillStyle(0x17243a, 0.98));
+      row.on('pointerout', () => row.setFillStyle(0x10192a, 0.98));
+
+      this.track(this.add.circle(x + pad + Math.round(9 * scale), rowY + rowH / 2 - Math.round(2 * scale), Math.max(4, Math.round(5 * scale)), parseInt(nation.getColor().replace('#', ''), 16)));
+      this.track(this.add.text(x + pad + Math.round(22 * scale), rowY + Math.round(11 * scale), nation.getName(), {
+        ...MONO, fontSize: fs(12, scale), color: '#e0e9ff', fontStyle: 'bold',
+      }).setOrigin(0, 0));
+      this.track(this.add.text(x + pad + Math.round(22 * scale), rowY + Math.round(25 * scale), relationLabel(relation), {
+        ...MONO, fontSize: fs(10, scale), color: relationColor(relation),
+      }).setOrigin(0, 0));
+
+      const btnLabel = relation === DiplomaticStatus.WAR ? 'PEACE' : 'WAR';
+      const btnFill = relation === DiplomaticStatus.WAR ? 0x21402c : 0x402020;
+      this.makeButton(x + panelW - pad - Math.round(34 * scale), rowY + rowH / 2 - Math.round(2 * scale), Math.round(68 * scale), Math.round(24 * scale), btnLabel, scale, () => {
+        if (relation === DiplomaticStatus.WAR) {
+          void this.networkAdapter.sendCommand({
+            type: 'PROPOSE_PEACE',
+            playerId: this.playerId,
+            targetNationId: nation.getId(),
+            issuedAtTick: this.tickEngine.getCurrentTick(),
+          });
+        } else {
+          void this.networkAdapter.sendCommand({
+            type: 'DECLARE_WAR',
+            playerId: this.playerId,
+            targetNationId: nation.getId(),
+            issuedAtTick: this.tickEngine.getCurrentTick(),
+          });
+        }
+      }, btnFill);
+
+      rowY += rowH;
+    }
+  }
+
+  private buildInfoPanel(H: number, scale: number): void {
+    if (this.selectedUnit) {
+      this.buildUnitPanel(H, scale);
+      return;
+    }
+    if (this.selectedCity) {
+      this.buildCityPanel(H, scale);
+      return;
+    }
+    if (this.selectedTerritoryPos) {
+      this.buildTerritoryPanel(H, scale);
+    }
+  }
+
+  private buildUnitPanel(H: number, scale: number): void {
+    const unit = this.selectedUnit!;
+    const nation = this.gameState.getNation(unit.getOwnerId());
+    const deposits = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set<TerritoryResourceType>();
+    const weaponBonus = weaponTierDamageBonus(deposits);
+    const armorLabel = resolveArmorTier(deposits, nation);
+    const territory = this.gameState.getGrid().getTerritory(unit.position);
+    const unclaimed = territory?.getControllingNation() === null;
+    const canOutpost = unclaimed && territory?.getTerrainType() !== TerrainType.WATER && territory?.getTerrainType() !== TerrainType.MOUNTAIN;
+    const pad = Math.round(12 * scale);
+    const barW = Math.round(170 * scale);
+    const barH = Math.round(8 * scale);
+    const btnW = Math.round(68 * scale);
+    const btnH = Math.round(24 * scale);
+    const gap = Math.round(6 * scale);
+    const panelW = Math.round(360 * scale);
+    const panelH = Math.round(246 * scale) + (canOutpost ? btnH + gap : 0);
+    const x = 0;
+    const y = H - panelH;
+
+    this.hpBarWidth = barW;
+
+    this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x3355bb));
+    this.track(this.add.text(x + pad, y + pad, unitDisplayName(unit), {
+      ...MONO, fontSize: fs(14, scale), color: '#dce6ff', fontStyle: 'bold',
+    }).setOrigin(0, 0));
+    this.track(this.add.text(x + panelW - pad, y + pad, nation?.getName() ?? '', {
+      ...MONO, fontSize: fs(11, scale), color: '#8fa6d8',
+    }).setOrigin(1, 0));
+
+    this.buildBar(x + pad, y + pad + Math.round(34 * scale), barW, barH, scale, 'HP');
+    this.buildMoraleBar(x + pad, y + pad + Math.round(60 * scale), barW, barH, scale);
+
+    this.track(this.add.text(x + pad, y + pad + Math.round(88 * scale),
+      `Melee:${unit.getStats().meleeDamage + weaponBonus}  Ranged:${unit.getStats().rangedDamage + weaponBonus}  Speed:${unit.getStats().speed}`,
+      { ...MONO, fontSize: fs(11, scale), color: '#c3d0f7' }).setOrigin(0, 0));
+    this.track(this.add.text(x + pad, y + pad + Math.round(108 * scale),
+      `Armor:${armorLabel}  Range:${unit.getStats().attackRange}  Vision:${unit.getStats().vision}`,
+      { ...MONO, fontSize: fs(11, scale), color: '#9bb0de' }).setOrigin(0, 0));
+
+    this.infoLineText = this.track(this.add.text(x + pad, y + pad + Math.round(130 * scale), '', {
+      ...MONO, fontSize: fs(10, scale), color: '#8ea3d2',
+    }).setOrigin(0, 0)) as Phaser.GameObjects.Text;
+
+    this.stanceHintText = this.track(this.add.text(x + pad, y + pad + Math.round(150 * scale), '', {
+      ...MONO, fontSize: fs(10, scale), color: '#d7c7a0',
+    }).setOrigin(0, 0)) as Phaser.GameObjects.Text;
+
+    let rowY = y + panelH - pad - btnH;
+    if (canOutpost) {
+      const outpost = TERRITORY_BUILDING_MAP.get(TerritoryBuildingType.OUTPOST);
+      const cost = outpost?.cost ?? {};
+      const label = [
+        cost[ResourceType.GOLD] ? `${cost[ResourceType.GOLD]}${RESOURCE_EMOJI[ResourceType.GOLD]}` : '',
+        cost[ResourceType.RAW_MATERIAL] ? `${cost[ResourceType.RAW_MATERIAL]}${RESOURCE_EMOJI[ResourceType.RAW_MATERIAL]}` : '',
+        cost[ResourceType.FOOD] ? `${cost[ResourceType.FOOD]}${RESOURCE_EMOJI[ResourceType.FOOD]}` : '',
+      ].filter(Boolean).join(' ');
+      this.makeButton(x + pad + Math.round(50 * scale), rowY, Math.round(100 * scale), btnH, 'OUTPOST', scale, () => {
+        void this.networkAdapter.sendCommand({
+          type: 'BUILD_TERRITORY',
+          playerId: this.playerId,
+          position: unit.position,
+          building: TerritoryBuildingType.OUTPOST,
+          issuedAtTick: this.tickEngine.getCurrentTick(),
+        });
+      }, 0x203320);
+      this.track(this.add.text(x + pad + Math.round(110 * scale), rowY - Math.round(16 * scale), label, {
+        ...MONO, fontSize: fs(9, scale), color: '#8acc9a',
+      }).setOrigin(0.5, 0));
+      rowY -= btnH + gap;
+    }
+
+    STANCE_ORDERS.forEach(({ order, label }, index) => {
+      const bx = x + pad + index * (btnW + gap) + btnW / 2;
+      const active = unit.getBattleOrder() === order;
+      const disabled = order === 'ADVANCE' && unit.getMorale() <= MORALE_LOW && !active;
+      const fill = active ? 0x34558e : disabled ? 0x1b2230 : 0x182235;
+      const border = active ? 0x8cb4ff : disabled ? 0x344155 : 0x47628d;
+      const bg = this.track(this.add.rectangle(bx, rowY, btnW, btnH, fill)
+        .setStrokeStyle(1, border)) as Phaser.GameObjects.Rectangle;
+      this.track(this.add.text(bx, rowY, label, {
+        ...MONO, fontSize: fs(10, scale), color: disabled ? '#59657a' : '#f0f5ff',
+      }).setOrigin(0.5));
+
+      if (!disabled) {
+        bg.setInteractive({ useHandCursor: true });
+        bg.on('pointerup', () => {
+          void this.networkAdapter.sendCommand({
+            type: 'SET_UNIT_BATTLE_ORDER',
+            playerId: this.playerId,
+            unitId: unit.id,
+            battleOrder: order,
+            issuedAtTick: this.tickEngine.getCurrentTick(),
+          });
+        });
+      }
+    });
+  }
+
+  private buildCityPanel(H: number, scale: number): void {
+    const city = this.selectedCity!;
+    const nation = this.gameState.getNation(city.getOwnerId());
+    const pad = Math.round(12 * scale);
+    const panelW = Math.round(340 * scale);
+    const panelH = Math.round(126 * scale);
+    const x = 0;
+    const y = H - panelH;
+    const buildings = city.getBuildings().map(building => CITY_BUILDING_MAP.get(building)?.label ?? building.replace(/_/g, ' '));
+    const currentOrder = city.getCurrentOrder();
+
+    this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x3355bb));
+    this.track(this.add.text(x + pad, y + pad, city.getName(), {
+      ...MONO, fontSize: fs(14, scale), color: '#ffd9a8', fontStyle: 'bold',
+    }).setOrigin(0, 0));
+    this.track(this.add.text(x + panelW - pad, y + pad, nation?.getName() ?? '', {
+      ...MONO, fontSize: fs(11, scale), color: '#8fa6d8',
+    }).setOrigin(1, 0));
+    this.track(this.add.text(x + pad, y + Math.round(38 * scale), `Health: ${city.getHealth()}/${city.getMaxHealth()}`, {
+      ...MONO, fontSize: fs(11, scale), color: '#dbe6ff',
+    }).setOrigin(0, 0));
+    this.track(this.add.text(x + pad, y + Math.round(60 * scale), `Buildings: ${buildings.join(', ') || 'None'}`, {
+      ...MONO, fontSize: fs(11, scale), color: '#b9c7eb',
+      wordWrap: { width: panelW - pad * 2 },
+    }).setOrigin(0, 0));
+    this.track(this.add.text(x + pad, y + Math.round(86 * scale), `Production: ${currentOrder ? currentOrder.label : 'Idle'}`, {
+      ...MONO, fontSize: fs(11, scale), color: '#a8d4a8',
+    }).setOrigin(0, 0));
+  }
+
+  private buildTerritoryPanel(H: number, scale: number): void {
+    const position = this.selectedTerritoryPos!;
+    const territory = this.gameState.getGrid().getTerritory(position);
+    const ownerId = territory?.getControllingNation() ?? null;
+    const ownerName = ownerId ? this.gameState.getNation(ownerId)?.getName() ?? 'Unknown' : 'Unclaimed';
+    const pad = Math.round(12 * scale);
+    const panelW = Math.round(360 * scale);
+    const panelH = Math.round(118 * scale);
+    const x = 0;
+    const y = H - panelH;
+
+    this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x3355bb));
+    this.track(this.add.text(x + pad, y + pad, `${territory?.getTerrainType() ?? 'Unknown'} (${position.row}, ${position.col})`, {
+      ...MONO, fontSize: fs(14, scale), color: '#dce6ff', fontStyle: 'bold',
+    }).setOrigin(0, 0));
+    this.track(this.add.text(x + panelW - pad, y + pad, ownerName, {
+      ...MONO, fontSize: fs(11, scale), color: '#8fa6d8',
+    }).setOrigin(1, 0));
+
+    const deposit = territory?.getResourceDeposit() ?? null;
+    const buildings = territory?.getBuildings() ?? [];
+    const buildingText = buildings.length > 0
+      ? buildings.map(building => `${BUILDING_MAP_ICON[building]} ${building.replace(/_/g, ' ')}`).join('  ')
+      : 'No buildings';
+
+    this.track(this.add.text(x + pad, y + Math.round(42 * scale), `Deposit: ${deposit ? deposit.replace(/_/g, ' ') : 'None'}`, {
+      ...MONO, fontSize: fs(11, scale), color: deposit ? '#f1d37a' : '#8a96ad',
+    }).setOrigin(0, 0));
+    this.track(this.add.text(x + pad, y + Math.round(66 * scale), buildingText, {
+      ...MONO, fontSize: fs(11, scale), color: buildings.length > 0 ? '#9dd1a9' : '#8a96ad',
+      wordWrap: { width: panelW - pad * 2 },
+    }).setOrigin(0, 0));
+  }
+
+  private buildBar(x: number, y: number, barW: number, barH: number, scale: number, label: string): void {
+    this.track(this.add.text(x, y, label, {
+      ...MONO, fontSize: fs(11, scale), color: '#8fa6d8',
+    }).setOrigin(0, 0));
+    const barX = x + Math.round(48 * scale);
+    this.track(this.add.rectangle(barX, y + Math.round(6 * scale), barW, barH, 0x141c2c).setOrigin(0, 0));
+    this.hpFillRect = this.track(this.add.rectangle(barX, y + Math.round(6 * scale), 1, barH, 0x44cc66).setOrigin(0, 0)) as Phaser.GameObjects.Rectangle;
+    this.hpText = this.track(this.add.text(barX + barW + Math.round(8 * scale), y - Math.round(2 * scale), '', {
+      ...MONO, fontSize: fs(11, scale), color: '#dbe6ff',
+    }).setOrigin(0, 0)) as Phaser.GameObjects.Text;
+  }
+
+  private buildMoraleBar(x: number, y: number, barW: number, barH: number, scale: number): void {
+    this.track(this.add.text(x, y, 'Morale', {
+      ...MONO, fontSize: fs(11, scale), color: '#8fa6d8',
+    }).setOrigin(0, 0));
+    const barX = x + Math.round(48 * scale);
+    this.track(this.add.rectangle(barX, y + Math.round(6 * scale), barW, barH, 0x141c2c).setOrigin(0, 0));
+    this.moraleFillRect = this.track(this.add.rectangle(barX, y + Math.round(6 * scale), 1, barH, 0x4488ff).setOrigin(0, 0)) as Phaser.GameObjects.Rectangle;
+    this.moraleText = this.track(this.add.text(barX + barW + Math.round(8 * scale), y - Math.round(2 * scale), '', {
+      ...MONO, fontSize: fs(11, scale), color: '#dbe6ff',
+    }).setOrigin(0, 0)) as Phaser.GameObjects.Text;
+    this.moraleWarnText = this.track(this.add.text(barX + barW + Math.round(44 * scale), y - Math.round(2 * scale), '', {
+      ...MONO, fontSize: fs(10, scale), color: '#ff8b6b',
+    }).setOrigin(0, 0)) as Phaser.GameObjects.Text;
+  }
+
+  private refreshResources(): void {
+    const nation = this.getLocalNation();
+    const treasury = nation?.getTreasury();
+    if (!treasury) return;
+
+    for (const resource of RESOURCE_BUTTONS) {
+      const text = this.resourceValueTexts.get(resource);
+      if (!text) continue;
+      text.setText(`${RESOURCE_EMOJI[resource]} ${treasury.getAmount(resource)}`);
+    }
+  }
+
+  private getResourceBreakdown(resource: ResourceType): {
+    title: string;
+    current: number;
+    sources: string[];
+    outgoing: string[];
+  } {
+    const nation = this.getLocalNation();
+    const treasury = nation?.getTreasury();
+    const current = treasury?.getAmount(resource) ?? 0;
+    if (!nation) return { title: resource, current, sources: [], outgoing: [] };
+
+    const cities = this.gameState.getCitiesByNation(nation.getId());
+    const territories = this.gameState.getGrid().getTerritoriesByNation(nation.getId());
+    const cityCount = cities.length;
+    const cityFarmCount = cities.filter(city => city.hasBuilding('FARMS' as never)).length;
+    const cityWorkshopCount = cities.filter(city => city.hasBuilding('WORKSHOP' as never)).length;
+    const citySchoolCount = cities.filter(city => city.hasBuilding('SCHOOL' as never)).length;
+    const cityMarketCount = cities.filter(city => city.hasBuilding('MARKET' as never)).length;
+    const territoryFarmCount = territories.filter(territory => territory.hasBuilding(TerritoryBuildingType.FARMS)).length;
+    const territoryWorkshopCount = territories.filter(territory => territory.hasBuilding(TerritoryBuildingType.WORKSHOP)).length;
+    const plainsCount = territories.filter(territory => territory.getTerrainType() === TerrainType.PLAINS).length;
+    const forestHillCount = territories.filter(territory => {
+      const terrain = territory.getTerrainType();
+      return terrain === TerrainType.FOREST || terrain === TerrainType.HILLS;
+    }).length;
+    const desertCount = territories.filter(territory => territory.getTerrainType() === TerrainType.DESERT).length;
+    const deposits = this.gameState.getNationActiveDeposits(nation.getId());
+    const counts = this.gameState.getNationActiveDepositCounts(nation.getId());
+
+    const upkeep = new Map<ResourceType, number>();
+    for (const unit of this.gameState.getUnitsByNation(nation.getId())) {
+      const unitUpkeep = unit.getUpkeep();
+      for (const [key, amount] of Object.entries(unitUpkeep)) {
+        upkeep.set(key as ResourceType, (upkeep.get(key as ResourceType) ?? 0) + (amount ?? 0));
+      }
+    }
+
+    switch (resource) {
+      case ResourceType.FOOD:
+        return {
+          title: 'Food Flow',
+          current,
+          sources: [
+            `Base city income ${formatRate(perSecond(cityCount, FOOD_INTERVAL))}`,
+            `City farms ${formatRate(perSecond(cityFarmCount, FOOD_INTERVAL))}`,
+            `Territory farms ${formatRate(perSecond(territoryFarmCount, FOOD_INTERVAL))}`,
+            `Plains harvest ${formatRate(perSecond(plainsCount, TERRAIN_FOOD_INTERVAL))}`,
+          ],
+          outgoing: upkeep.get(ResourceType.FOOD)
+            ? [`Unit upkeep ${formatRate(-perSecond(upkeep.get(ResourceType.FOOD) ?? 0, UPKEEP_INTERVAL))}`]
+            : [],
+        };
+      case ResourceType.RAW_MATERIAL:
+        return {
+          title: 'Material Flow',
+          current,
+          sources: [
+            `Base city income ${formatRate(perSecond(cityCount, MATERIAL_INTERVAL))}`,
+            `City workshops ${formatRate(perSecond(cityWorkshopCount, MATERIAL_INTERVAL))}`,
+            `Territory workshops ${formatRate(perSecond(territoryWorkshopCount, MATERIAL_INTERVAL))}`,
+            `Forests and hills ${formatRate(perSecond(forestHillCount, TERRAIN_MATERIAL_INTERVAL))}`,
+          ],
+          outgoing: upkeep.get(ResourceType.RAW_MATERIAL)
+            ? [`Unit upkeep ${formatRate(-perSecond(upkeep.get(ResourceType.RAW_MATERIAL) ?? 0, UPKEEP_INTERVAL))}`]
+            : [],
+        };
+      case ResourceType.GOLD:
+        return {
+          title: 'Gold Flow',
+          current,
+          sources: [
+            `Base city income ${formatRate(perSecond(cityCount, GOLD_INTERVAL))}`,
+            `Markets ${formatRate(perSecond(cityMarketCount, GOLD_INTERVAL))}`,
+            `Desert revenue ${formatRate(perSecond(desertCount, TERRAIN_GOLD_INTERVAL))}`,
+            `Silver and gold deposits ${formatRate(perSecond(mineralGoldBonus(deposits, counts), GOLD_INTERVAL))}`,
+          ],
+          outgoing: upkeep.get(ResourceType.GOLD)
+            ? [`Unit upkeep ${formatRate(-perSecond(upkeep.get(ResourceType.GOLD) ?? 0, UPKEEP_INTERVAL))}`]
+            : [],
+        };
+      case ResourceType.RESEARCH:
+        return {
+          title: 'Research Flow',
+          current,
+          sources: [
+            `Base city income ${formatRate(perSecond(cityCount, RESEARCH_INTERVAL))}`,
+            `Schools ${formatRate(perSecond(citySchoolCount, RESEARCH_INTERVAL))}`,
+          ],
+          outgoing: [],
+        };
+    }
+  }
+
+  private pushNotification(text: string): void {
+    const entry: AlertEntry = {
+      id: this.nextAlertId++,
+      text,
+      createdAt: Date.now(),
+    };
+    this.notifications.push(entry);
+    this.toastIds.push(entry.id);
+    if (this.notifications.length > 100) {
+      this.notifications = this.notifications.slice(-100);
+    }
+    this.rebuildHUD();
+    this.time.delayedCall(4000, () => {
+      this.toastIds = this.toastIds.filter(id => id !== entry.id);
+      this.rebuildHUD();
+    });
+  }
+
+  private openDiplomacy(targetNationId?: string): void {
+    this.scene.stop('DiplomacyScene');
+    this.scene.launch('DiplomacyScene', {
+      targetNationId,
+      gameState: this.gameState,
+      networkAdapter: this.networkAdapter,
+      diplomacySystem: this.diplomacySystem,
+      eventBus: this.eventBus,
+      currentTick: this.tickEngine.getCurrentTick(),
+    });
+  }
+
+  private getLocalNation() {
+    const player = this.gameState.getLocalPlayer();
+    return player ? this.gameState.getNation(player.getControlledNationId()) : null;
+  }
+
+  private isLocalNation(nationId: string): boolean {
+    return this.getLocalNation()?.getId() === nationId;
+  }
+
+  private track<T extends Phaser.GameObjects.GameObject>(obj: T): T {
+    this.hudObjects.push(obj);
+    return obj;
+  }
+}
+
+function difficultyColor(difficulty: GameSetup['difficulty']): string {
+  switch (difficulty) {
+    case 'easy': return '#6bd26b';
+    case 'hard': return '#e26f6f';
+    case 'sandbox': return '#7bd4ff';
+    default: return '#e2d26f';
+  }
+}
+
+function relationLabel(status: DiplomaticStatus): string {
+  switch (status) {
+    case DiplomaticStatus.ALLY: return 'Allied';
+    case DiplomaticStatus.WAR: return 'At War';
+    default: return 'At Peace';
+  }
+}
+
+function relationColor(status: DiplomaticStatus): string {
+  switch (status) {
+    case DiplomaticStatus.ALLY: return '#8fe3a8';
+    case DiplomaticStatus.WAR: return '#ff8686';
+    default: return '#d9d9d9';
+  }
 }

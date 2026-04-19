@@ -15,12 +15,12 @@ import { ProductionSystem } from '@/systems/production/ProductionSystem';
 import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { MAX_MORALE } from '@/entities/units/Unit';
 import { waterManaRegenBonus } from '@/systems/resources/ResourceBonuses';
+import { TICK_RATE } from '@/config/constants';
 
 /** Ticks between water-mana heal pulses (same cadence as city heal). */
 const WATER_MANA_HEAL_INTERVAL_TICKS = TICK_RATE;
 import type { SavedSiegeState } from '@/types/gameSetup';
 import type { EntityId } from '@/types/common';
-import { TICK_RATE } from '@/config/constants';
 
 /** Ticks between city-healing pulses (1 s at TICK_RATE=10). */
 const CITY_HEAL_INTERVAL_TICKS = TICK_RATE;
@@ -71,7 +71,7 @@ export class TickEngine {
   /**
    * Remove any unit that has reached 0 HP but was not cleaned up by the system
    * that dealt the killing blow (e.g. damage from two sources in the same tick,
-   * or LAND_LOSS ending a battle before the HP elimination check ran).
+   * or another combat system ending before the HP elimination check ran).
    */
   private sweepDeadUnits(): void {
     for (const unit of this.gameState.getAllUnits()) {

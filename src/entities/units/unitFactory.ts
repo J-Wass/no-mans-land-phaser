@@ -52,7 +52,7 @@ export function createUnitFromData(data: UnitData): Unit {
 
   // Restore mutable state that may differ from the constructor defaults
   unit.setHealth(data.currentHealth);
-  unit.setBattleOrder(data.battleOrder ?? 'ADVANCE');
+  unit.setBattleOrder(data.battleOrder ?? 'HOLD');
   unit.setEngagedInBattle(data.engagedInBattle ?? false);
   if (data.morale              !== undefined) unit.setMorale(data.morale);
   if (data.battlesEngaged      !== undefined) unit.setBattlesEngaged(data.battlesEngaged);

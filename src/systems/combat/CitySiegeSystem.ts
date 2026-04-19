@@ -7,7 +7,7 @@
  *   - City counterattacks with garrison fire (reduced vs ranged attackers)
  * When city HP → 0 the city is conquered and ownership transfers.
  * Cities regen HP over time when not under siege.
- * A unit on RETREAT order always disengages successfully.
+ * A unit on FALL_BACK order always disengages successfully.
  */
 
 import type { EntityId, GridCoordinates } from '@/types/common';
@@ -23,7 +23,7 @@ import { TerrainType } from '@/systems/grid/Territory';
 const CITY_REGEN_INTERVAL = 50;  // ticks between HP regen (every 5 s at TICK_RATE=10)
 const CITY_REGEN_AMOUNT   = 5;   // HP restored per interval
 const WALL_MITIGATION     = 0.22; // damage reduction from city walls (normal assault)
-const CHARGE_MITIGATION   = 0.06; // reduced wall mitigation when CHARGEing
+const ADVANCE_MITIGATION  = 0.10; // reduced wall mitigation when pressing an assault
 
 interface SiegeState extends SavedSiegeState {}
 
@@ -109,18 +109,18 @@ export class CitySiegeSystem {
       siege.ticksUntilRound = BATTLE_ROUND_TICKS;
       siege.roundsElapsed++;
 
-      // RETREAT — unit always disengages from a city siege successfully
-      if (unit.getBattleOrder() === 'RETREAT') {
+      // FALL_BACK — unit always disengages from a city siege successfully
+      if (unit.getBattleOrder() === 'FALL_BACK') {
         this.finishSiege(siege, gameState, movementSystem, eventBus, currentTick, unit, 'retreat');
         continue;
       }
 
       // Compute unit → city damage
       const stats    = unit.getStats();
-      const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'CHARGE';
+      const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
       const baseDmg  = useRanged ? stats.rangedDamage : stats.meleeDamage;
       const unitHealthFactor = 0.55 + 0.45 * (unit.getHealth() / stats.maxHealth);
-      const wallMitigation   = unit.getBattleOrder() === 'CHARGE' ? CHARGE_MITIGATION : WALL_MITIGATION;
+      const wallMitigation   = unit.getBattleOrder() === 'ADVANCE' ? ADVANCE_MITIGATION : WALL_MITIGATION;
       const damageToCity = Math.max(1, Math.round(
         baseDmg * unitHealthFactor * (1 - wallMitigation) * (0.9 + this.random() * 0.2),
       ));

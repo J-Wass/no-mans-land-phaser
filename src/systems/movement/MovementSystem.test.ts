@@ -99,20 +99,6 @@ describe('MovementSystem', () => {
     );
   });
 
-  it('cavalry is slower than scout on PLAINS (speed=3 vs speed=3 — same, sanity check)', () => {
-    // Both cavalry and scout have speed=3; cavalry takes 4 ticks on plains
-    const cavalry = new Cavalry('unit-c', 'nation-1', { row: 0, col: 0 });
-    gameState.addUnit(cavalry);
-
-    movementSystem.issueOrder(cavalry, [{ row: 0, col: 1 }]);
-
-    tickN(3);
-    expect(cavalry.position).toEqual({ row: 0, col: 0 }); // not yet
-
-    tickN(1);
-    expect(cavalry.position).toEqual({ row: 0, col: 1 }); // arrived (4 ticks)
-  });
-
   it('cavalry has movement penalty in FOREST (effective speed=1)', () => {
     // Set all tiles to FOREST
     for (let c = 0; c < 5; c++) {

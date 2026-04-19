@@ -62,12 +62,12 @@ describe('Infantry', () => {
     expect(json.id).toBe('unit-1');
     expect(json.stats.meleeDamage).toBe(10);
     expect(json.position).toEqual({ row: 0, col: 0 });
-    expect(json.battleOrder).toBe('ADVANCE');
+    expect(json.battleOrder).toBe('HOLD');
     expect(json.engagedInBattle).toBe(false);
   });
 
-  it('should default to advance battle orders', () => {
-    expect(infantry.getBattleOrder()).toBe('ADVANCE');
+  it('should default to hold battle orders', () => {
+    expect(infantry.getBattleOrder()).toBe('HOLD');
   });
 
   it('should start with default morale', () => {

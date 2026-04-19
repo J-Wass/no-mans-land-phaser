@@ -77,7 +77,7 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   {
     type: CityBuildingType.PUBLIC_GREEN,
     label: 'Public Green',
-    perks: 'Happiness+',
+    perks: 'Growth+',
     cost: { [ResourceType.GOLD]: 5, [ResourceType.RAW_MATERIAL]: 20 },
     ticks: 10,
     requiresTech: 'masonry',

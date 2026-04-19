@@ -66,6 +66,39 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     for (const key of tiles) set.add(key);
   }
 
+  /** Nations the observer has encountered via discovered territory/cities or diplomacy. */
+  public getKnownNationIds(observerNationId: EntityId): EntityId[] {
+    const known = new Set<EntityId>();
+    const discovered = this.getDiscoveredTiles(observerNationId);
+
+    for (const key of discovered) {
+      const [rowStr, colStr] = key.split(',');
+      const row = Number.parseInt(rowStr ?? '', 10);
+      const col = Number.parseInt(colStr ?? '', 10);
+      if (!Number.isFinite(row) || !Number.isFinite(col)) continue;
+
+      const territory = this.grid.getTerritory({ row, col });
+      const ownerId = territory?.getControllingNation();
+      if (ownerId && ownerId !== observerNationId) known.add(ownerId);
+
+      const cityId = territory?.getCityId();
+      const cityOwner = cityId ? this.cities.get(cityId)?.getOwnerId() : null;
+      if (cityOwner && cityOwner !== observerNationId) known.add(cityOwner);
+    }
+
+    const observer = this.getNation(observerNationId);
+    if (observer) {
+      for (const nation of this.nations.values()) {
+        if (nation.getId() === observerNationId) continue;
+        if (observer.getRelation(nation.getId()) !== DiplomaticStatus.NEUTRAL) {
+          known.add(nation.getId());
+        }
+      }
+    }
+
+    return Array.from(known);
+  }
+
   public getGrid(): Grid { return this.grid; }
 
   // ── Player management ─────────────────────────────────────────────────────

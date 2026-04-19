@@ -31,18 +31,16 @@ export type GameEventMap = {
     unitBId: EntityId;
     damageToUnitA: number;
     damageToUnitB: number;
-    momentum: number;
-    landA: number;
-    landB: number;
     tick: number;
   };
   'battle:ended':              {
     battleId: string;
     winnerUnitId: EntityId | null;
     loserUnitId: EntityId | null;
-    reason: 'ELIMINATION' | 'RETREAT' | 'ROUT' | 'TIMEOUT' | 'MUTUAL_DESTRUCTION' | 'LAND_LOSS';
+    reason: 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_DESTRUCTION';
     tick: number;
   };
+  'unit:withdrew':             { unitId: EntityId; from: GridCoordinates; to: GridCoordinates; tick: number };
   /** A unit began besieging a city. */
   'city:siege-started':        { siegeId: string; unitId: EntityId; cityId: EntityId; position: GridCoordinates; tick: number };
   /** One round of city siege resolved. */

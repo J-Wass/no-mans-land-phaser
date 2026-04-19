@@ -2,7 +2,7 @@
  * RangedFireSystem — continuous ranged attacks from a stationary unit.
  *
  * Every RANGED_FIRE_INTERVAL_TICKS, each ranged unit that is:
- *   - alive, NOT engaged in melee/siege battle, NOT on CHARGE order
+ *   - alive and not engaged in melee/siege battle
  *   - has an enemy unit or city within attackRange tiles (Manhattan distance)
  * …fires once, dealing scaled ranged damage directly.
  *
@@ -33,8 +33,6 @@ export class RangedFireSystem {
       if (!this.isRangedUnit(unit)) continue;
       if (!unit.isAlive()) continue;
       if (unit.isEngagedInBattle()) continue;
-      if (unit.getBattleOrder() === 'CHARGE') continue;
-
       const nextFire = this.nextFireTick.get(unit.id) ?? 0;
       if (currentTick < nextFire) continue;
 

@@ -125,9 +125,9 @@ describe('shadowManaVisionReduction', () => {
     expect(shadowManaVisionReduction(new Set([T.SHADOW_MANA]))).toBe(1);
   });
 
-  it('scales up to -3 at 3 mines', () => {
+  it('stays capped at 1 even with multiple shadow mines', () => {
     const counts3 = new Map([[T.SHADOW_MANA, 3]]);
-    expect(shadowManaVisionReduction(new Set([T.SHADOW_MANA]), counts3)).toBe(3);
+    expect(shadowManaVisionReduction(new Set([T.SHADOW_MANA]), counts3)).toBe(1);
   });
 });
 

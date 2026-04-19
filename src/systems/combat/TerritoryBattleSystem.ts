@@ -120,18 +120,18 @@ export class TerritoryBattleSystem {
       battle.ticksUntilRound = BATTLE_ROUND_TICKS;
       battle.roundsElapsed++;
 
-      // RETREAT — unit always disengages
-      if (unit.getBattleOrder() === 'RETREAT') {
+      // FALL_BACK — unit always disengages
+      if (unit.getBattleOrder() === 'FALL_BACK') {
         this.finishBattle(battle, posKey, gameState, movementSystem, eventBus, currentTick, unit, 'retreat');
         continue;
       }
 
       // Unit → territory damage
       const stats     = unit.getStats();
-      const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'CHARGE';
+      const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
       const baseDmg   = useRanged ? stats.rangedDamage : stats.meleeDamage;
       const healthFactor = 0.55 + 0.45 * (unit.getHealth() / stats.maxHealth);
-      const wallMit   = (territory.hasBuilding(TerritoryBuildingType.WALLS) && unit.getBattleOrder() !== 'CHARGE')
+      const wallMit   = (territory.hasBuilding(TerritoryBuildingType.WALLS) && unit.getBattleOrder() !== 'ADVANCE')
         ? WALL_MITIGATION : 0;
       const damageToTerritory = Math.max(1, Math.round(
         baseDmg * healthFactor * (1 - wallMit) * (0.9 + this.random() * 0.2),

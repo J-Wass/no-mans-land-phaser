@@ -19,7 +19,7 @@ export enum UnitType {
 }
 
 export type ArmorType = 'light' | 'heavy';
-export type BattleOrder = 'RETREAT' | 'FALL_BACK' | 'HOLD' | 'ADVANCE' | 'CHARGE';
+export type BattleOrder = 'FALL_BACK' | 'HOLD' | 'ADVANCE';
 
 export interface UnitStats {
   maxHealth: number;
@@ -35,8 +35,8 @@ export interface UnitStats {
 
 export const DEFAULT_MORALE    = 80;
 export const MAX_MORALE        = 100;
-export const MORALE_LOW        = 30;   // refuses ADVANCE/CHARGE below this
-export const MORALE_ROUT       = 10;   // auto-retreats below this
+export const MORALE_LOW        = 30;   // refuses ADVANCE below this
+export const MORALE_ROUT       = 10;   // collapses to HOLD below this
 
 export const XP_VETERAN = 5;
 export const XP_ELITE   = 15;
@@ -126,7 +126,7 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
       stats,
       hasMovedThisTurn: false,
       hasAttackedThisTurn: false,
-      battleOrder: 'ADVANCE',
+      battleOrder: 'HOLD',
       engagedInBattle: false,
       morale: DEFAULT_MORALE,
       battlesEngaged: 0,

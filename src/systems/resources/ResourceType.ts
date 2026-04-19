@@ -7,7 +7,6 @@ export enum ResourceType {
   GOLD         = 'GOLD',         // income from treaties / markets
   FOOD         = 'FOOD',         // farms + territories; unit upkeep + population growth
   RAW_MATERIAL = 'RAW_MATERIAL', // workshops + territories; building upkeep
-  HAPPINESS    = 'HAPPINESS',    // avg of cities (public greens); drives pop growth
   RESEARCH     = 'RESEARCH',     // schools; funds tech tree
 }
 
@@ -20,7 +19,6 @@ export interface ResourceCost {
   [ResourceType.GOLD]?:         number;
   [ResourceType.FOOD]?:         number;
   [ResourceType.RAW_MATERIAL]?: number;
-  [ResourceType.HAPPINESS]?:    number;
   [ResourceType.RESEARCH]?:     number;
 }
 

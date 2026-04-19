@@ -1,8 +1,21 @@
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'sandbox';
+export type GameMode = 'skirmish' | 'scenario';
 
 export interface GameSetup {
-  opponentCount: number; // 1–4
+  opponentCount: number; // 1-4
   difficulty: Difficulty;
+  gameMode: GameMode;
+  scenarioId: string | null;
+}
+
+export function normalizeGameSetup(setup?: Partial<GameSetup> | null): GameSetup {
+  const opponentCount = Math.max(1, Math.min(4, setup?.opponentCount ?? 1));
+  return {
+    opponentCount,
+    difficulty: setup?.difficulty ?? 'medium',
+    gameMode: setup?.gameMode ?? 'skirmish',
+    scenarioId: setup?.scenarioId ?? null,
+  };
 }
 
 /** One unit's in-flight movement state, persisted with a save. */
@@ -22,10 +35,7 @@ export interface SavedBattleState {
   defenderOrigin: { row: number; col: number };
   ticksUntilRound: number;
   roundsElapsed: number;
-  momentum: number;
   startedAtTick: number;
-  landA: number;
-  landB: number;
 }
 
 export interface SavedSiegeState {
