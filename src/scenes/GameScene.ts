@@ -20,8 +20,8 @@ import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
 import { VisionSystem } from '@/systems/vision/VisionSystem';
 import { normalizeGameSetup } from '@/types/gameSetup';
 
-const WATER_BORDER = 10;
-const GRID_SIZE    = 25;
+const WATER_BORDER = 0;
+const GRID_SIZE    = 60;
 import type { GameSetup, GameSaveData } from '@/types/gameSetup';
 import type { GridCoordinates } from '@/types/common';
 import type { Unit, BattleOrder } from '@/entities/units/Unit';

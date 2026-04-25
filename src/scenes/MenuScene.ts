@@ -56,9 +56,14 @@ export class MenuScene extends Phaser.Scene {
     const root = createPanelSizer(this, metrics, size.width, size.height, 'y', UI.PANEL);
 
     root.add(this.buildHeader(metrics), { expand: true });
-    root.add(this.buildModeSplit(metrics, size.width, scenario?.name ?? 'No scenario configured', scenario
-      ? `${scenario.description}\nPlayer: ${scenario.playerNation.name} vs ${scenario.opponentNation.name}`
-      : 'Add a scenario preset in src/config/scenarios.json to enable scenario mode.'), { expand: true });
+    const scenarioDesc = scenario
+      ? (() => {
+          const player = scenario.nations.find(n => n.isPlayer);
+          const aiNames = scenario.nations.filter(n => !n.isPlayer).map(n => n.name).join(', ');
+          return `${scenario.description}\nPlayer: ${player?.name ?? '?'} vs ${aiNames}`;
+        })()
+      : 'Add a scenario preset in src/config/scenarios.json to enable scenario mode.';
+    root.add(this.buildModeSplit(metrics, size.width, scenario?.name ?? 'No scenario configured', scenarioDesc), { expand: true });
     root.add(this.buildLoadArea(metrics, size.width), { expand: true });
     root.add(createText(this, 'v0.1', metrics, 'caption', {
       fontFamily: UI.FONT_DATA,

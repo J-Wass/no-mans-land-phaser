@@ -1,31 +1,129 @@
 {
   "scenarios": [
     {
-      "id": "border-clash",
-      "name": "Border Clash",
-      "description": "A fixed 1v1 frontier war with preset nations, cities, resources, and opening techs.",
-      "playerNation": {
-        "name": "Valdris",
-        "color": "#e63946",
-        "cities": ["Redharbor", "Stonewatch"],
-        "resources": {
-          "GOLD": 65,
-          "FOOD": 25,
-          "RAW_MATERIAL": 40
+      "id": "evershadow-tribe",
+      "name": "Evershadow Tribe",
+      "description": "The Evershadow Tribe lurks beyond the Shadow Mountains. Break through their fortified passes before they descend on your cities.",
+      "deposits": [
+        {"row": 25, "col": 19, "type": "SHADOW_MANA"},
+        {"row": 25, "col": 37, "type": "SHADOW_MANA"},
+        {"row": 33, "col": 28, "type": "COPPER"}
+      ],
+      "nations": [
+        {
+          "name": "Thornwall Coalition",
+          "color": "#4a8fc2",
+          "isPlayer": true,
+          "cities": [
+            {"name": "Ashford",  "row": 40, "col": 19},
+            {"name": "Irongate", "row": 40, "col": 37}
+          ],
+          "units": [
+            {"type": "INFANTRY", "row": 41, "col": 19},
+            {"type": "SCOUT",    "row": 41, "col": 20}
+          ],
+          "resources": {"GOLD": 60, "FOOD": 30, "RAW_MATERIAL": 25},
+          "startingTechs": ["masonry"]
         },
-        "startingTechs": ["masonry"]
-      },
-      "opponentNation": {
-        "name": "Mirefall",
-        "color": "#457b9d",
-        "cities": ["Greyfen", "Ashbridge"],
-        "resources": {
-          "GOLD": 50,
-          "FOOD": 50,
-          "RAW_MATERIAL": 25
+        {
+          "name": "Evershadow Tribe",
+          "color": "#5c3d7a",
+          "isPlayer": false,
+          "cities": [
+            {"name": "Darkpeak", "row": 16, "col": 19},
+            {"name": "Ashveil",  "row": 16, "col": 37}
+          ],
+          "units": [
+            {"type": "INFANTRY", "row": 17, "col": 19},
+            {"type": "SCOUT",    "row": 17, "col": 20}
+          ],
+          "resources": {"GOLD": 35, "FOOD": 55, "RAW_MATERIAL": 30},
+          "startingTechs": ["hunting"]
+        }
+      ],
+      "diplomacy": [
+        {"nation1": 0, "nation2": 1, "status": "WAR"}
+      ]
+    },
+    {
+      "id": "the-invaders",
+      "name": "The Invaders",
+      "description": "A ruthless invasion force lands from the east with superior iron weapons. Unite the coalition and hold the line.",
+      "deposits": [
+        {"row": 15, "col": 43, "type": "FIRE_GLASS"},
+        {"row": 29, "col": 29, "type": "IRON"},
+        {"row": 29, "col": 15, "type": "COPPER"}
+      ],
+      "nations": [
+        {
+          "name": "Verdant Hold",
+          "color": "#3a7d44",
+          "isPlayer": true,
+          "cities": [
+            {"name": "Mossgate", "row": 29, "col": 17},
+            {"name": "Fernwall", "row": 29, "col": 23}
+          ],
+          "units": [
+            {"type": "INFANTRY", "row": 30, "col": 17},
+            {"type": "SCOUT",    "row": 30, "col": 18}
+          ],
+          "resources": {"GOLD": 55, "FOOD": 35, "RAW_MATERIAL": 25},
+          "startingTechs": ["masonry"]
         },
-        "startingTechs": ["hunting"]
-      }
+        {
+          "name": "Northern Reach",
+          "color": "#6b8cba",
+          "isPlayer": false,
+          "cities": [
+            {"name": "Frostholm", "row": 17, "col": 17},
+            {"name": "Galewatch", "row": 17, "col": 23}
+          ],
+          "units": [
+            {"type": "INFANTRY", "row": 18, "col": 17},
+            {"type": "SCOUT",    "row": 18, "col": 18}
+          ],
+          "resources": {"GOLD": 50, "FOOD": 40, "RAW_MATERIAL": 20},
+          "startingTechs": ["hunting"]
+        },
+        {
+          "name": "Southfen",
+          "color": "#c4a040",
+          "isPlayer": false,
+          "cities": [
+            {"name": "Bogmere",   "row": 41, "col": 17},
+            {"name": "Reedwatch", "row": 41, "col": 23}
+          ],
+          "units": [
+            {"type": "INFANTRY", "row": 42, "col": 17},
+            {"type": "SCOUT",    "row": 42, "col": 18}
+          ],
+          "resources": {"GOLD": 50, "FOOD": 40, "RAW_MATERIAL": 20},
+          "startingTechs": ["writing"]
+        },
+        {
+          "name": "The Invaders",
+          "color": "#cc3333",
+          "isPlayer": false,
+          "cities": [
+            {"name": "Beachhead", "row": 17, "col": 41},
+            {"name": "Ironshore", "row": 41, "col": 41}
+          ],
+          "units": [
+            {"type": "INFANTRY", "row": 18, "col": 41},
+            {"type": "SCOUT",    "row": 18, "col": 40}
+          ],
+          "resources": {"GOLD": 80, "FOOD": 30, "RAW_MATERIAL": 50},
+          "startingTechs": ["iron_working", "steel_working"]
+        }
+      ],
+      "diplomacy": [
+        {"nation1": 0, "nation2": 1, "status": "ALLY"},
+        {"nation1": 0, "nation2": 2, "status": "ALLY"},
+        {"nation1": 1, "nation2": 2, "status": "ALLY"},
+        {"nation1": 0, "nation2": 3, "status": "WAR"},
+        {"nation1": 1, "nation2": 3, "status": "WAR"},
+        {"nation1": 2, "nation2": 3, "status": "WAR"}
+      ]
     }
   ]
 }

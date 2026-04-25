@@ -18,6 +18,7 @@ import { City } from '@/entities/cities/City';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
+import { DiplomaticStatus } from '@/types/diplomacy';
 import { normalizeGameSetup } from '@/types/gameSetup';
 import type { GameSetup } from '@/types/gameSetup';
 import type { TechId } from '@/systems/research/TechTree';
@@ -29,12 +30,13 @@ import {
   assignStartingTerritory,
 } from '@/systems/spawn/SpawnSystem';
 import GAME_NAMES from '@/config/names.json';
-import { getScenarioById } from '@/config/scenarios';
+import { getScenarioById, getScenarioMap } from '@/config/scenarios';
+import type { ScenarioDepositDef } from '@/config/scenarios';
 
 /** Root-level techs (no prerequisites) - eligible for random starting grant. */
 const ROOT_TECHS: TechId[] = ['writing', 'hunting', 'masonry', 'scientific_method', 'mathematics'];
 
-const GRID_SIZE = 25;
+const GRID_SIZE = 60;
 
 interface BootSceneData {
   setup?: GameSetup;
@@ -53,18 +55,27 @@ export class BootScene extends Phaser.Scene {
     // Water border
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
-        if (r === 0 || r === GRID_SIZE - 1 || c === 0 || c === GRID_SIZE - 1) {
+        if (r < 10 || r >= GRID_SIZE - 10 || c < 10 || c >= GRID_SIZE - 10) {
           grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
         }
       }
     }
 
-    placeProceduralTerrain(grid, GRID_SIZE);
-    placeResourceDeposits(grid);
-
     if (setup.gameMode === 'scenario') {
-      this.populateScenarioGameState(gameState, setup, grid);
+      const scenario = getScenarioById(setup.scenarioId);
+      if (scenario) {
+        const mapRows = getScenarioMap(scenario.id);
+        if (mapRows) applyScenarioMap(grid, mapRows);
+        applyScenarioDeposits(grid, scenario.deposits);
+        this.populateScenarioGameState(gameState, setup, grid);
+      } else {
+        placeProceduralTerrain(grid, GRID_SIZE);
+        placeResourceDeposits(grid);
+        this.populateSkirmishGameState(gameState, setup, grid);
+      }
     } else {
+      placeProceduralTerrain(grid, GRID_SIZE);
+      placeResourceDeposits(grid);
       this.populateSkirmishGameState(gameState, setup, grid);
     }
 
@@ -120,37 +131,86 @@ export class BootScene extends Phaser.Scene {
       return;
     }
 
-    const spawnPairs = pickCoastalSpawnPairs(grid, GRID_SIZE, 2);
-    const takenPositions: GridCoordinates[] = [];
-    const nations = [scenario.playerNation, scenario.opponentNation];
+    const nationIds: string[] = [];
 
-    nations.forEach((cfg, index) => {
-      const pair = spawnPairs[index];
-      if (!pair) return;
-
+    scenario.nations.forEach((cfg, index) => {
       const nationId = `nation-${index + 1}`;
       const playerId = `player-${index + 1}`;
-      const isLocal  = index === 0;
+      const isLocal  = cfg.isPlayer;
       const nation   = new Nation(nationId, cfg.name, cfg.color, !isLocal);
       nation.setControlledBy(playerId);
-      grantResources(nation, cfg.resources);
-      grantTechs(nation, cfg.startingTechs);
-
+      grantResources(nation, cfg.resources as Partial<Record<ResourceType, number>>);
+      grantTechs(nation, cfg.startingTechs as TechId[]);
       gameState.addNation(nation);
       gameState.addPlayer(new Player(playerId, isLocal ? 'Player' : cfg.name, nationId, isLocal));
+      nationIds.push(nationId);
 
-      const cityPositions = seedNation(
-        gameState,
-        grid,
-        nationId,
-        index + 1,
-        pair,
-        takenPositions,
-        cfg.cities,
-      );
+      const cityPositions: GridCoordinates[] = [];
+      const serial = index + 1;
+
+      for (let j = 0; j < cfg.units.length; j++) {
+        const u = cfg.units[j]!;
+        if (u.type === 'INFANTRY') {
+          const unit = new Infantry(`unit-inf-${serial}`, nationId, { row: u.row, col: u.col });
+          unit.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY));
+          gameState.addUnit(unit);
+        } else {
+          const unit = new Scout(`unit-scout-${serial}`, nationId, { row: u.row, col: u.col });
+          unit.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT));
+          gameState.addUnit(unit);
+        }
+      }
+
+      for (let j = 0; j < cfg.cities.length; j++) {
+        const cd = cfg.cities[j]!;
+        const cityId = `city-${serial}-${j + 1}`;
+        const pos: GridCoordinates = { row: cd.row, col: cd.col };
+        gameState.addCity(new City(cityId, cd.name, nationId, pos));
+        cityPositions.push(pos);
+      }
 
       assignStartingTerritory(grid, nationId, cityPositions, GRID_SIZE);
     });
+
+    // Apply diplomacy
+    for (const rel of scenario.diplomacy ?? []) {
+      const id1 = nationIds[rel.nation1];
+      const id2 = nationIds[rel.nation2];
+      if (!id1 || !id2) continue;
+      const status = DiplomaticStatus[rel.status as keyof typeof DiplomaticStatus];
+      if (status === undefined) continue;
+      gameState.getNation(id1)?.setRelation(id2, status);
+      gameState.getNation(id2)?.setRelation(id1, status);
+    }
+  }
+}
+
+const TERRAIN_CHAR: Record<string, TerrainType> = {
+  W: TerrainType.WATER,
+  '.': TerrainType.PLAINS,
+  H: TerrainType.HILLS,
+  F: TerrainType.FOREST,
+  M: TerrainType.MOUNTAIN,
+  D: TerrainType.DESERT,
+};
+
+function applyScenarioMap(grid: Grid, rows: string[]): void {
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+    for (let c = 0; c < row.length; c++) {
+      const ch = row[c]!;
+      const terrain = TERRAIN_CHAR[ch];
+      if (terrain !== undefined) grid.getTerritory({ row: r, col: c })?.setTerrainType(terrain);
+    }
+  }
+}
+
+function applyScenarioDeposits(grid: Grid, deposits: ScenarioDepositDef[]): void {
+  for (const d of deposits) {
+    const t = grid.getTerritory({ row: d.row, col: d.col });
+    const type = TerritoryResourceType[d.type as keyof typeof TerritoryResourceType];
+    if (t && type !== undefined) t.setResourceDeposit(type);
   }
 }
 

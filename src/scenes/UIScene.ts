@@ -15,7 +15,7 @@ import { CITY_BUILDING_MAP } from '@/systems/territory/CityBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { RESOURCE_EMOJI } from '@/scenes/CityMenuScene';
 import type { GridCoordinates } from '@/types/common';
-import { weaponTierDamageBonus, mineralGoldBonus } from '@/systems/resources/ResourceBonuses';
+import { weaponTierDamageBonus, mineralGoldBonus, fireManaDamageFactor, earthManaHPFactor, waterManaRegenBonus, lightningManaSpeedBonus, airManaVisionBonus, shadowManaVisionReduction, shadowManaWithdrawBonus } from '@/systems/resources/ResourceBonuses';
 import { DiplomaticStatus } from '@/types/diplomacy';
 import { TICK_RATE } from '@/config/constants';
 import type { TechId } from '@/systems/research/TechTree';
@@ -628,8 +628,27 @@ export class UIScene extends Phaser.Scene {
     const unit = this.selectedUnit!;
     const nation = this.gameState.getNation(unit.getOwnerId());
     const deposits = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set<TerritoryResourceType>();
+    const counts = nation ? this.gameState.getNationActiveDepositCounts(nation.getId()) : new Map<TerritoryResourceType, number>();
     const weaponBonus = weaponTierDamageBonus(deposits);
     const armorLabel = resolveArmorTier(deposits, nation);
+
+    const manaParts: string[] = [];
+    const fireFactor = fireManaDamageFactor(deposits, counts);
+    if (fireFactor > 1) manaParts.push(`Fire+${Math.round((fireFactor - 1) * 100)}%DMG`);
+    const earthFactor = earthManaHPFactor(deposits, counts);
+    if (earthFactor > 1) manaParts.push(`Earth+${Math.round((earthFactor - 1) * 100)}%HP`);
+    const waterRegen = waterManaRegenBonus(deposits, counts);
+    if (waterRegen > 0) manaParts.push(`Water+${Math.round(waterRegen * 100)}%REGEN`);
+    const lightningSpeed = lightningManaSpeedBonus(deposits, counts);
+    if (lightningSpeed > 0) manaParts.push(`Lightning+${lightningSpeed}SPD`);
+    const airVision = airManaVisionBonus(deposits, counts);
+    if (airVision > 0) manaParts.push(`Air+${airVision}VIS`);
+    const shadowReduce = shadowManaVisionReduction(deposits, counts);
+    if (shadowReduce > 0) {
+      const wdBonus = shadowManaWithdrawBonus(deposits, counts);
+      manaParts.push(`Shadow:HIDDEN${wdBonus > 0 ? `+${Math.round(wdBonus * 100)}%WD` : ''}`);
+    }
+    const manaLine = manaParts.join('  ');
     const territory = this.gameState.getGrid().getTerritory(unit.position);
     const unclaimed = territory?.getControllingNation() === null;
     const canOutpost = unclaimed && territory?.getTerrainType() !== TerrainType.WATER && territory?.getTerrainType() !== TerrainType.MOUNTAIN;
@@ -673,6 +692,13 @@ export class UIScene extends Phaser.Scene {
     this.stanceHintText = this.track(this.add.text(x + pad, y + pad + Math.round(150 * scale), '', {
       ...MONO, fontSize: fs(10, scale), color: '#d7c7a0',
     }).setOrigin(0, 0)) as Phaser.GameObjects.Text;
+
+    if (manaLine) {
+      this.track(this.add.text(x + pad, y + pad + Math.round(168 * scale), `Mana: ${manaLine}`, {
+        ...MONO, fontSize: fs(10, scale), color: '#9ec8e8',
+        wordWrap: { width: panelW - pad * 2 },
+      }).setOrigin(0, 0));
+    }
 
     let rowY = y + panelH - pad - btnH;
     if (canOutpost) {
