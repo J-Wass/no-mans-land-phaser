@@ -13,7 +13,7 @@ import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryBuildingType, BUILDING_MAP_ICON, TERRITORY_BUILDING_MAP } from '@/systems/territory/TerritoryBuilding';
 import { CITY_BUILDING_MAP } from '@/systems/territory/CityBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
-import { RESOURCE_EMOJI } from '@/scenes/CityMenuScene';
+import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 import type { GridCoordinates } from '@/types/common';
 import { weaponTierDamageBonus, mineralGoldBonus, fireManaDamageFactor, earthManaHPFactor, waterManaRegenBonus, lightningManaSpeedBonus, airManaVisionBonus, shadowManaVisionReduction, shadowManaWithdrawBonus } from '@/systems/resources/ResourceBonuses';
 import { DiplomaticStatus } from '@/types/diplomacy';
@@ -331,26 +331,29 @@ export class UIScene extends Phaser.Scene {
   }
 
   private buildTopBar(W: number, scale: number): void {
-    const barH = Math.round(52 * scale);
-    const pad = Math.round(10 * scale);
-    const midY = Math.round(barH / 2);
-    const btnW = Math.round(96 * scale);
-    const btnH = Math.round(30 * scale);
-    const gap = Math.round(8 * scale);
+    const skinny = W < 820;
+    const widthFactor = skinny ? Phaser.Math.Clamp(W / 620, 0.62, 1) : 1;
+    const barH = Math.round((skinny ? 88 : 52) * scale);
+    const pad = Math.round((skinny ? 8 : 10) * scale);
+    const midY = skinny ? Math.round(25 * scale) : Math.round(barH / 2);
+    const resourceY = skinny ? Math.round(64 * scale) : midY;
+    const btnW = Math.round(96 * scale * widthFactor);
+    const btnH = Math.round((skinny ? 28 : 30) * scale);
+    const gap = Math.round((skinny ? 6 : 8) * scale);
 
     this.track(this.add.rectangle(W / 2, 0, W, barH, 0x0d1020, 0.94).setOrigin(0.5, 0));
     this.track(this.add.rectangle(W / 2, barH, W, 1, 0x3355bb, 0.7).setOrigin(0.5, 0));
 
     this.tickText = this.track(this.add.text(pad, midY, 'Day 1', {
-      ...MONO, fontSize: fs(15, scale), color: '#d6e0ff',
+      ...MONO, fontSize: fs(skinny ? 13 : 15, scale), color: '#d6e0ff',
     }).setOrigin(0, 0.5)) as Phaser.GameObjects.Text;
 
-    this.track(this.add.text(pad + Math.round(74 * scale), midY, this.setup.difficulty.toUpperCase(), {
-      ...MONO, fontSize: fs(12, scale), color: difficultyColor(this.setup.difficulty), fontStyle: 'bold',
+    this.track(this.add.text(pad + Math.round((skinny ? 58 : 74) * scale), midY, this.setup.difficulty.toUpperCase(), {
+      ...MONO, fontSize: fs(skinny ? 10 : 12, scale), color: difficultyColor(this.setup.difficulty), fontStyle: 'bold',
     }).setOrigin(0, 0.5));
 
-    const speedX = pad + Math.round(196 * scale);
-    this.makeButton(speedX, midY, Math.round(52 * scale), btnH, `${this.gameSpeed}x`, scale, () => {
+    const speedX = pad + Math.round((skinny ? 142 : 196) * scale * widthFactor);
+    this.makeButton(speedX, midY, Math.round(52 * scale * widthFactor), btnH, `${this.gameSpeed}x`, scale, () => {
       const idx = SPEED_CYCLE.indexOf(this.gameSpeed);
       this.gameSpeed = SPEED_CYCLE[(idx + 1) % SPEED_CYCLE.length]!;
       this.speedBtnText?.setText(`${this.gameSpeed}x`);
@@ -358,23 +361,27 @@ export class UIScene extends Phaser.Scene {
     }, 0x1b2442);
     this.speedBtnText = this.hudObjects[this.hudObjects.length - 1] as Phaser.GameObjects.Text;
 
-    const alertsLabel = `ALERTS ${this.notifications.length}`;
-    this.makeButton(speedX + Math.round(88 * scale), midY, Math.round(92 * scale), btnH, alertsLabel, scale, () => {
+    const alertsLabel = skinny ? `A ${this.notifications.length}` : `ALERTS ${this.notifications.length}`;
+    this.makeButton(speedX + Math.round(88 * scale * widthFactor), midY, Math.round((skinny ? 58 : 92) * scale * widthFactor), btnH, alertsLabel, scale, () => {
       this.showAlertHistory = !this.showAlertHistory;
       this.rebuildHUD();
     }, this.showAlertHistory ? 0x3c2a5e : 0x241c36);
 
-    const resourceW = Math.round(86 * scale);
-    const resourceStartX = W - pad - btnW * 2 - gap * 2 - resourceW * RESOURCE_BUTTONS.length - gap * (RESOURCE_BUTTONS.length - 1) - Math.round(18 * scale);
+    const resourceW = skinny
+      ? Math.floor((W - pad * 2 - gap * (RESOURCE_BUTTONS.length - 1)) / RESOURCE_BUTTONS.length)
+      : Math.round(86 * scale);
+    const resourceStartX = skinny
+      ? pad
+      : W - pad - btnW * 2 - gap * 2 - resourceW * RESOURCE_BUTTONS.length - gap * (RESOURCE_BUTTONS.length - 1) - Math.round(18 * scale);
     RESOURCE_BUTTONS.forEach((resource, index) => {
       const x = resourceStartX + index * (resourceW + gap) + resourceW / 2;
-      this.makeResourceButton(x, midY, resourceW, btnH, scale, resource);
+      this.makeResourceButton(x, resourceY, resourceW, btnH, scale, resource);
     });
 
     const researchX = W - pad - btnW - gap - btnW / 2;
     const menuX = W - pad - btnW / 2;
 
-    this.makeButton(researchX, midY, btnW, btnH, 'RESEARCH', scale, () => {
+    this.makeButton(researchX, midY, btnW, btnH, skinny ? 'TECH' : 'RESEARCH', scale, () => {
       if (this.scene.isActive('ResearchScene')) {
         this.scene.stop('ResearchScene');
       } else {
@@ -386,7 +393,7 @@ export class UIScene extends Phaser.Scene {
       }
     }, 0x1a1e3c);
 
-    this.makeButton(menuX, midY, btnW, btnH, 'MENU [ESC]', scale, () => {
+    this.makeButton(menuX, midY, btnW, btnH, skinny ? 'MENU' : 'MENU [ESC]', scale, () => {
       this.scene.get('GameScene')?.input.keyboard?.emit('keydown-ESC');
     }, 0x1e2244);
   }

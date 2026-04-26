@@ -169,7 +169,7 @@ export class BootScene extends Phaser.Scene {
         cityPositions.push(pos);
       }
 
-      assignStartingTerritory(grid, nationId, cityPositions, GRID_SIZE);
+      assignStartingTerritory(grid, nationId, cityPositions, GRID_SIZE, { overwrite: true });
     });
 
     // Apply diplomacy

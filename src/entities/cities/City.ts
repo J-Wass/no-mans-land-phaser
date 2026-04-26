@@ -8,7 +8,12 @@ import { EntityType } from '@/types/common';
 import type { EntityId, GridCoordinates, GameEntity } from '@/types/common';
 import type { Serializable } from '@/types/serializable';
 import type { ProductionOrder } from '@/systems/production/ProductionOrder';
-import { CityBuildingType } from '@/systems/territory/CityBuilding';
+import {
+  CITY_WALLS_DMG_PER_LEVEL,
+  CITY_WALLS_HP_PER_LEVEL,
+  MAX_CITY_WALLS_LEVEL,
+  CityBuildingType,
+} from '@/systems/territory/CityBuilding';
 
 export interface CityData {
   id:            EntityId;
@@ -18,6 +23,7 @@ export interface CityData {
   population:    number;
   currentOrder:  ProductionOrder | null;
   buildings:     CityBuildingType[];
+  buildingLevels: Partial<Record<CityBuildingType, number>>;
   currentHealth: number;
   maxHealth:     number;
   meleeDamage:   number;
@@ -36,6 +42,7 @@ export class City implements GameEntity, Serializable<CityData> {
       population:    1000,
       currentOrder:  null,
       buildings:     [CityBuildingType.CITY_HALL],
+      buildingLevels: { [CityBuildingType.CITY_HALL]: 1 },
       maxHealth:     200,
       currentHealth: 200,
       meleeDamage:   12,
@@ -52,8 +59,12 @@ export class City implements GameEntity, Serializable<CityData> {
 
   // ── Combat stats ──────────────────────────────────────────────────────────────
   public getHealth(): number    { return this.data.currentHealth; }
-  public getMaxHealth(): number { return this.data.maxHealth; }
-  public getMeleeDamage(): number { return this.data.meleeDamage; }
+  public getMaxHealth(): number {
+    return this.data.maxHealth + this.getBuildingLevel(CityBuildingType.WALLS) * CITY_WALLS_HP_PER_LEVEL;
+  }
+  public getMeleeDamage(): number {
+    return this.data.meleeDamage + this.getBuildingLevel(CityBuildingType.WALLS) * CITY_WALLS_DMG_PER_LEVEL;
+  }
   public isAlive(): boolean     { return this.data.currentHealth > 0; }
 
   public takeDamage(amount: number): void {
@@ -113,11 +124,48 @@ export class City implements GameEntity, Serializable<CityData> {
   }
 
   public addBuilding(b: CityBuildingType): void {
-    if (!this.hasBuilding(b)) this.data.buildings.push(b);
+    if (this.hasBuilding(b)) {
+      if (b === CityBuildingType.WALLS) this.upgradeBuildingLevel(b);
+      return;
+    }
+
+    this.data.buildings.push(b);
+    this.data.buildingLevels = { ...this.data.buildingLevels, [b]: 1 };
+    if (b === CityBuildingType.WALLS) this.data.currentHealth = this.getMaxHealth();
   }
 
   public setBuildings(buildings: CityBuildingType[]): void {
     this.data.buildings = [...buildings];
+    for (const building of buildings) {
+      if (!this.data.buildingLevels[building]) {
+        this.data.buildingLevels = { ...this.data.buildingLevels, [building]: 1 };
+      }
+    }
+    this.data.currentHealth = Math.min(this.data.currentHealth, this.getMaxHealth());
+  }
+
+  public getBuildingLevel(b: CityBuildingType): number {
+    if (!this.hasBuilding(b)) return 0;
+    return this.data.buildingLevels[b] ?? 1;
+  }
+
+  public setBuildingLevel(b: CityBuildingType, level: number): void {
+    if (level <= 0) return;
+    if (!this.hasBuilding(b)) this.data.buildings.push(b);
+    const maxLevel = b === CityBuildingType.WALLS ? MAX_CITY_WALLS_LEVEL : 1;
+    const clamped = Math.max(1, Math.min(maxLevel, level));
+    this.data.buildingLevels = { ...this.data.buildingLevels, [b]: clamped };
+    this.data.currentHealth = Math.min(this.data.currentHealth, this.getMaxHealth());
+  }
+
+  public upgradeBuildingLevel(b: CityBuildingType): boolean {
+    if (!this.hasBuilding(b)) return false;
+    const maxLevel = b === CityBuildingType.WALLS ? MAX_CITY_WALLS_LEVEL : 1;
+    const current = this.getBuildingLevel(b);
+    if (current >= maxLevel) return false;
+    this.data.buildingLevels = { ...this.data.buildingLevels, [b]: current + 1 };
+    if (b === CityBuildingType.WALLS) this.data.currentHealth = this.getMaxHealth();
+    return true;
   }
 
   public getData(): Readonly<CityData> { return this.data; }
@@ -128,6 +176,7 @@ export class City implements GameEntity, Serializable<CityData> {
       position:      { ...this.data.position },
       currentOrder:  this.data.currentOrder ? { ...this.data.currentOrder } : null,
       buildings:     [...this.data.buildings],
+      buildingLevels: { ...this.data.buildingLevels },
     };
   }
 }

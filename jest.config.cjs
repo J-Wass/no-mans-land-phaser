@@ -5,7 +5,12 @@ module.exports = {
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
   moduleNameMapper: {
+    '^@/(.*)\\?raw$': '<rootDir>/src/$1',
     '^@/(.*)$': '<rootDir>/src/$1'
+  },
+  transform: {
+    '^.+\\.terrain$': '<rootDir>/jest.raw-transformer.cjs',
+    '^.+\\.tsx?$': ['ts-jest', {}]
   },
   collectCoverageFrom: [
     'src/**/*.ts',

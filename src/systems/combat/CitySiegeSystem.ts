@@ -20,11 +20,12 @@ import type { UnitMovementState } from '@/systems/movement/MovementState';
 import type { SavedSiegeState } from '@/types/gameSetup';
 import { BATTLE_ROUND_TICKS } from '@/systems/combat/BattleSystem';
 import { TerrainType } from '@/systems/grid/Territory';
+import { CityBuildingType } from '@/systems/territory/CityBuilding';
 
 const CITY_REGEN_INTERVAL = 50;  // ticks between HP regen (every 5 s at TICK_RATE=10)
 const CITY_REGEN_AMOUNT   = 5;   // HP restored per interval
-const WALL_MITIGATION     = 0.22; // damage reduction from city walls (normal assault)
-const ADVANCE_MITIGATION  = 0.10; // reduced wall mitigation when pressing an assault
+const WALL_MITIGATION_PER_LEVEL = 0.06;
+const ADVANCE_MITIGATION_FACTOR = 0.45; // pressing the assault cuts wall mitigation
 
 interface SiegeState extends SavedSiegeState {}
 
@@ -123,7 +124,11 @@ export class CitySiegeSystem {
       const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
       const baseDmg  = useRanged ? stats.rangedDamage : stats.meleeDamage;
       const unitHealthFactor = 0.55 + 0.45 * (unit.getHealth() / stats.maxHealth);
-      const wallMitigation   = unit.getBattleOrder() === 'ADVANCE' ? ADVANCE_MITIGATION : WALL_MITIGATION;
+      const wallLevel = city.getBuildingLevel(CityBuildingType.WALLS);
+      const baseWallMitigation = Math.min(0.5, wallLevel * WALL_MITIGATION_PER_LEVEL);
+      const wallMitigation = unit.getBattleOrder() === 'ADVANCE'
+        ? baseWallMitigation * ADVANCE_MITIGATION_FACTOR
+        : baseWallMitigation;
       const damageToCity = Math.max(1, Math.round(
         baseDmg * unitHealthFactor * (1 - wallMitigation) * (0.9 + this.random() * 0.2),
       ));

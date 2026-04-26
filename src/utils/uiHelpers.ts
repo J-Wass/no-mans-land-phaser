@@ -3,7 +3,7 @@
  */
 
 import { ResourceType } from '@/systems/resources/ResourceType';
-import { RESOURCE_EMOJI } from '@/scenes/CityMenuScene';
+import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 
 /** Format a ResourceCost record as a compact emoji string (e.g. "🍎20  🪨10"). */
 export function formatCost(cost: Record<string, number>): string {

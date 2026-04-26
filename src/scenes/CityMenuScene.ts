@@ -10,11 +10,12 @@ import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 import type { CatalogEntry } from '@/systems/production/ProductionCatalog';
 import type { UnitOrder } from '@/systems/production/ProductionOrder';
-import { CITY_BUILDING_CATALOG } from '@/systems/territory/CityBuilding';
+import { CITY_BUILDING_CATALOG, CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { CityBuildingDef } from '@/systems/territory/CityBuilding';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TICK_RATE } from '@/config/constants';
 import { UI } from '@/config/uiTheme';
+import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 import {
   colorString,
   createBackdrop,
@@ -35,13 +36,6 @@ export interface CityMenuSceneData {
   networkAdapter: NetworkAdapter;
   eventBus: GameEventBus;
 }
-
-export const RESOURCE_EMOJI: Record<ResourceType, string> = {
-  [ResourceType.FOOD]: 'F',
-  [ResourceType.RAW_MATERIAL]: 'M',
-  [ResourceType.GOLD]: 'G',
-  [ResourceType.RESEARCH]: 'R',
-};
 
 type Tab = 'units' | 'buildings';
 
@@ -178,7 +172,7 @@ export class CityMenuScene extends Phaser.Scene {
   }
 
   private buildProductionCard(metrics: ReturnType<typeof getUiMetrics>, width: number): Phaser.GameObjects.GameObject {
-    const card = createPanelSizer(this, metrics, width, Math.round(180 * metrics.scale), 'y', UI.PANEL_ALT);
+    const card = createPanelSizer(this, metrics, width, Math.round(196 * metrics.scale), 'y', UI.PANEL_ALT);
     card.add(createText(this, 'Current Production', metrics, 'caption', {
       fontFamily: UI.FONT_DATA,
       fontStyle: 'bold',
@@ -188,16 +182,20 @@ export class CityMenuScene extends Phaser.Scene {
     this.currentOrderLabel = createText(this, 'Idle', metrics, 'body', {
       color: UI.DIM,
       fontFamily: UI.FONT_DATA,
+      wordWrap: { width: width - metrics.pad * 2 },
     });
     card.add(this.currentOrderLabel, { expand: true });
 
     const barWidth = width - metrics.pad * 2;
-    this.progressBg = this.add.rectangle(0, 0, barWidth, Math.max(18, Math.round(metrics.scale * 18)), UI.SURFACE)
+    const barHeight = Math.max(18, Math.round(metrics.scale * 18));
+    this.progressBg = this.add.rectangle(-barWidth / 2, 0, barWidth, barHeight, UI.SURFACE)
       .setOrigin(0, 0.5)
       .setStrokeStyle(2, UI.ACCENT, 0.9);
-    this.progressBar = this.add.rectangle(0, 0, 0, Math.max(12, Math.round(metrics.scale * 12)), UI.ACCENT_SOFT)
+    this.progressBar = this.add.rectangle(-barWidth / 2, 0, 0, Math.max(12, Math.round(metrics.scale * 12)), UI.ACCENT_SOFT)
       .setOrigin(0, 0.5);
-    card.add(this.add.container(0, 0, [this.progressBg, this.progressBar]), { expand: true, align: 'left' });
+    const barContainer = this.add.container(0, 0, [this.progressBg, this.progressBar]);
+    barContainer.setSize(barWidth, barHeight);
+    card.add(barContainer, { expand: true, align: 'center' });
 
     const cancelButton = createButton(this, metrics, 'CANCEL ORDER', () => {
       this.city.cancelOrder();
@@ -527,11 +525,16 @@ export class CityMenuScene extends Phaser.Scene {
 
     for (const row of this.buildingRows) {
       const alreadyBuilt = this.city.hasBuilding(row.def.type);
+      const currentLevel = this.city.getBuildingLevel(row.def.type);
+      const canUpgrade = row.def.type === CityBuildingType.WALLS && alreadyBuilt && currentLevel < row.def.maxLevel;
       const techOk = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
-      const canAfford = treasury?.hasResources(row.def.cost) ?? false;
-      const enabled = !alreadyBuilt && !busy && techOk && canAfford;
+      const cost = canUpgrade ? row.def.upgradeCost : row.def.cost;
+      const canAfford = treasury?.hasResources(cost) ?? false;
+      const enabled = !busy && techOk && canAfford && (!alreadyBuilt || canUpgrade);
       setButtonEnabled(row.button, enabled, 'primary');
-      row.button.text.setText(alreadyBuilt ? 'BUILT' : techOk ? 'BUILD' : 'LOCKED');
+      const levelSuffix = row.def.maxLevel > 1 && alreadyBuilt ? ` ${currentLevel}/${row.def.maxLevel}` : '';
+      row.button.text.setText(canUpgrade ? 'UPGRADE' : alreadyBuilt ? `BUILT${levelSuffix}` : techOk ? 'BUILD' : 'LOCKED');
+      row.costLabel.setText(formatCost(cost as Record<string, number>));
       row.costLabel.setColor(canAfford ? UI.DIM : '#d19393');
       row.statusLabel.setText(this.getLockReasonForBuilding(row.def));
       row.statusLabel.setColor(enabled ? UI.DIM : '#d5a0a0');
@@ -557,7 +560,14 @@ export class CityMenuScene extends Phaser.Scene {
   }
 
   private getLockReasonForBuilding(def: CityBuildingDef): string {
-    if (this.city.hasBuilding(def.type)) return 'Already built.';
+    if (this.city.hasBuilding(def.type)) {
+      const level = this.city.getBuildingLevel(def.type);
+      if (def.type !== CityBuildingType.WALLS || level >= def.maxLevel) return 'Already built.';
+      if (this.city.getCurrentOrder()) return 'City is already producing something.';
+      const nation = this.gameState.getNation(this.city.getOwnerId());
+      if (!nation?.getTreasury().hasResources(def.upgradeCost)) return 'Insufficient resources.';
+      return `Ready to upgrade to level ${level + 1}.`;
+    }
     const nation = this.gameState.getNation(this.city.getOwnerId());
     if (this.city.getCurrentOrder()) return 'City is already producing something.';
     if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech)) {

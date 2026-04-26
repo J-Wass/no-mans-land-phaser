@@ -109,6 +109,17 @@ describe('ProductionSystem', () => {
     });
     state.addCity(buildingCity);
 
+    const wallCity = new City('city-wall', 'Gate', nation.getId(), { row: 0, col: 0 });
+    wallCity.addBuilding(CityBuildingType.WALLS);
+    wallCity.startOrder({
+      kind: 'building',
+      buildingType: CityBuildingType.WALLS,
+      label: 'Walls Lvl 2',
+      ticksTotal: 1,
+      ticksRemaining: 1,
+    });
+    state.addCity(wallCity);
+
     const resourceCity = new City('city-resource', 'Mint', nation.getId(), { row: 3, col: 3 });
     resourceCity.startOrder({
       kind: 'resource',
@@ -127,6 +138,7 @@ describe('ProductionSystem', () => {
     expect(spawnedUnits[0]?.getHomeCityId()).toBe(unitCity.id);
     expect(spawnedUnits[0]?.getUnitSerial()).toBe(101);
     expect(buildingCity.hasBuilding(CityBuildingType.MARKET)).toBe(true);
+    expect(wallCity.getBuildingLevel(CityBuildingType.WALLS)).toBe(2);
     expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(9);
   });
 

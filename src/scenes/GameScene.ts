@@ -17,7 +17,6 @@ import { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import { DiplomaticStatus } from '@/types/diplomacy';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
-import { VisionSystem } from '@/systems/vision/VisionSystem';
 import { normalizeGameSetup } from '@/types/gameSetup';
 
 const WATER_BORDER = 0;
@@ -75,14 +74,11 @@ export class GameScene extends Phaser.Scene {
   private aiSystem!: AISystem;
   private diplomacySystem!: DiplomacySystem;
 
-  private visionSystem!: VisionSystem;
   private fogGraphic!: Phaser.GameObjects.Graphics;
   /** Unidentified-contact markers: tile key → text object */
   private contactMarkers: Map<string, Phaser.GameObjects.Text> = new Map();
   /** Tiles visible this frame — used to cull borders/conquest overlays */
   private currentVisible: Set<string> = new Set();
-  /** Tiles in the lighter edge-of-fog band this frame. */
-  private currentNearVisible: Set<string> = new Set();
 
   private uiClickConsumed = false;
   private stanceBadges: Map<string, Phaser.GameObjects.Container> = new Map();
@@ -134,7 +130,6 @@ export class GameScene extends Phaser.Scene {
     this.activeConquests.clear();
 
     this.movementSystem = new MovementSystem();
-    this.visionSystem   = new VisionSystem();
     this.pathfinder     = new Pathfinder(this.gameState.getGrid());
     this.eventBus = new GameEventBus();
     this.tickEngine = new TickEngine(this.gameState, this.movementSystem, this.eventBus);
@@ -166,9 +161,9 @@ export class GameScene extends Phaser.Scene {
     this.drawGrid();
     this.drawResourceDeposits();
 
-    this.territoryGraphic = this.add.graphics().setDepth(28);
-    this.conquestGraphic  = this.add.graphics().setDepth(29);
-    this.rangeGraphic     = this.add.graphics().setDepth(30);
+    this.territoryGraphic = this.add.graphics().setDepth(80);
+    this.conquestGraphic  = this.add.graphics().setDepth(81);
+    this.rangeGraphic     = this.add.graphics().setDepth(82);
     this.fogGraphic       = this.add.graphics().setDepth(95); // above cities (50-74), below units (300+)
     this.healthBarGraphic = this.add.graphics().setDepth(90); // below fog
     this.pathGraphic      = this.add.graphics().setDepth(92); // below fog
@@ -466,7 +461,7 @@ export class GameScene extends Phaser.Scene {
           fontFamily: 'monospace',
           stroke: '#000000',
           strokeThickness: 2,
-        }).setOrigin(0.5).setDepth(27);
+        }).setOrigin(0.5).setDepth(83);
       }
     }
   }
@@ -563,130 +558,37 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateFog(): void {
-    const localPlayer = this.gameState.getLocalPlayer();
-    if (!localPlayer) return;
-    const nationId = localPlayer.getControlledNationId();
-    const nation = this.gameState.getNation(nationId);
-    if (!nation) return;
-
-    const vision = this.visionSystem.compute(this.gameState, nationId);
-    this.currentVisible = vision.visible;
-    this.currentNearVisible = vision.nearVisible;
-    this.drawTerritoryBorders();
-
     const grid = this.gameState.getGrid();
     const { rows, cols } = grid.getSize();
-
-    // ── Fog graphic: 4 distinct states ────────────────────────────────────────
-    // Full vision:   no overlay (tile fully visible)
-    // Edge of fog:   light grey (2-tile near-visible band — see tiles, only light/heavy unit contacts)
-    // Fog of war:    dark overlay (discovered but not currently visible)
-    // Unknown:       solid black (never seen)
-    this.fogGraphic.clear();
-
+    const visible = new Set<string>();
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const key = `${r},${c}`;
-        const x   = c * TILE_SIZE;
-        const y   = r * TILE_SIZE;
-
-        if (vision.visible.has(key)) {
-          // Full vision — no fog
-        } else if (vision.nearVisible.has(key)) {
-          // Edge of fog — light grey, can see tile but only get light/heavy contact info
-          this.fogGraphic.fillStyle(0x101830, 0.3);
-          this.fogGraphic.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-        } else if (vision.discovered.has(key)) {
-          // Fog of war — darker overlay, can see tile shape but no live updates
-          this.fogGraphic.fillStyle(0x000000, 0.62);
-          this.fogGraphic.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-        } else {
-          // Unknown — total black, never been seen
-          this.fogGraphic.fillStyle(0x000000, 1);
-          this.fogGraphic.fillRect(x, y, TILE_SIZE, TILE_SIZE);
-        }
+        visible.add(`${r},${c}`);
       }
     }
 
-    // ── City sprite visibility ────────────────────────────────────────────────
-    for (const city of this.gameState.getAllCities()) {
-      const key = `${city.position.row},${city.position.col}`;
-      const isVisible = vision.visible.has(key) || vision.discovered.has(key);
-      this.citySprites.get(city.id)?.setVisible(isVisible);
-      this.cityLabels.get(city.id)?.setVisible(isVisible);
-      this.cityDots.get(city.id)?.setVisible(isVisible);
-    }
+    this.currentVisible = visible;
+    const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
+    if (localNationId) this.gameState.markDiscovered(localNationId, visible);
+    this.drawTerritoryBorders();
+    this.fogGraphic.clear();
 
-    // ── Enemy unit visibility + unidentified contact markers ─────────────────
-    const activeContactKeys = new Set<string>();
+    for (const city of this.gameState.getAllCities()) {
+      this.citySprites.get(city.id)?.setVisible(true);
+      this.cityLabels.get(city.id)?.setVisible(true);
+      this.cityDots.get(city.id)?.setVisible(true);
+    }
 
     for (const unit of this.gameState.getAllUnits()) {
       if (!unit.isAlive()) continue;
-      const isOwnUnit = unit.getOwnerId() === nationId;
-      const key = `${unit.position.row},${unit.position.col}`;
-
-      if (isOwnUnit) {
-        // Own units always visible
-        this.unitSprites.get(unit.id)?.setVisible(true);
-        this.unitLabels.get(unit.id)?.setVisible(true);
-        continue;
-      }
-
-      const vis = this.visionSystem.unitVisibility(
-        unit, vision.visible, vision.nearVisible, this.gameState, nationId,
-      );
-
-      if (vis === 'visible') {
-        this.unitSprites.get(unit.id)?.setVisible(true);
-        this.unitLabels.get(unit.id)?.setVisible(true);
-      } else if (vis === 'near') {
-        // Hide actual sprite; show unidentified contact marker
-        this.unitSprites.get(unit.id)?.setVisible(false);
-        this.unitLabels.get(unit.id)?.setVisible(false);
-        this.showContactMarker(unit, key, activeContactKeys);
-      } else {
-        this.unitSprites.get(unit.id)?.setVisible(false);
-        this.unitLabels.get(unit.id)?.setVisible(false);
-      }
+      this.unitSprites.get(unit.id)?.setVisible(true);
+      this.unitLabels.get(unit.id)?.setVisible(true);
     }
 
-    // Remove stale contact markers
-    for (const [key, marker] of this.contactMarkers) {
-      if (!activeContactKeys.has(key)) {
-        marker.destroy();
-        this.contactMarkers.delete(key);
-      }
+    for (const marker of this.contactMarkers.values()) {
+      marker.destroy();
     }
-  }
-
-  private showContactMarker(
-    unit: Unit,
-    key: string,
-    activeKeys: Set<string>,
-  ): void {
-    activeKeys.add(key);
-    if (!this.contactMarkers.has(key)) {
-      const cx = unit.position.col * TILE_SIZE + TILE_SIZE / 2;
-      const cy = unit.position.row * TILE_SIZE + TILE_SIZE / 2;
-      const armorType = unit.getStats().armorType;
-      const label = armorType === 'heavy' ? '? HEAVY' : '? LIGHT';
-      const marker = this.add.text(cx, cy, label, {
-        fontSize: '9px',
-        color: '#ffaa44',
-        fontFamily: 'monospace',
-        fontStyle: 'bold',
-        stroke: '#000000',
-        strokeThickness: 2,
-      }).setOrigin(0.5).setDepth(96);
-      this.contactMarkers.set(key, marker);
-    } else {
-      // Update position in case unit moved within near-visible zone
-      const marker = this.contactMarkers.get(key)!;
-      marker.setPosition(
-        unit.position.col * TILE_SIZE + TILE_SIZE / 2,
-        unit.position.row * TILE_SIZE + TILE_SIZE / 2,
-      );
-    }
+    this.contactMarkers.clear();
   }
 
   private drawPaths(): void {
@@ -857,15 +759,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private shouldShowLiveUnitOverlay(unit: Unit, localNationId: string | null): boolean {
-    if (!localNationId) return true;
-    if (unit.getOwnerId() === localNationId) return true;
-    return this.visionSystem.unitVisibility(
-      unit,
-      this.currentVisible,
-      this.currentNearVisible,
-      this.gameState,
-      localNationId,
-    ) === 'visible';
+    void unit;
+    void localNationId;
+    return true;
   }
 
   private handleLeftClick(worldX: number, worldY: number): void {

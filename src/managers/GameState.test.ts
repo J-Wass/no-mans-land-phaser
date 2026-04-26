@@ -140,6 +140,8 @@ describe('GameState', () => {
 
     const city = new City('city-a', 'Alpha', nationA.getId(), { row: 1, col: 1 });
     city.addBuilding(CityBuildingType.FARMS);
+    city.addBuilding(CityBuildingType.WALLS);
+    city.setBuildingLevel(CityBuildingType.WALLS, 3);
     city.setHealth(150);
     city.startOrder({
       kind: 'building',
@@ -189,6 +191,7 @@ describe('GameState', () => {
     });
     expect(restored.getCity(city.id)?.getCurrentOrder()).toEqual(city.getCurrentOrder());
     expect(restored.getCity(city.id)?.getBuildings()).toContain(CityBuildingType.FARMS);
+    expect(restored.getCity(city.id)?.getBuildingLevel(CityBuildingType.WALLS)).toBe(3);
     expect(restored.getCity(city.id)?.getHealth()).toBe(150);
     expect(restored.getUnit(unit.id)?.getHealth()).toBe(60);
     expect(restored.getUnit(unit.id)?.getHomeCityId()).toBe(city.id);

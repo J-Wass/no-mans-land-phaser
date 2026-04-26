@@ -54,6 +54,9 @@ export class ResearchScene extends Phaser.Scene {
   private currentResearchBg!: Phaser.GameObjects.Rectangle;
   private currentResearchText!: Phaser.GameObjects.Text;
   private cancelButton!: ButtonParts;
+  private activeBranch: TechBranch = 'science';
+  private branchPanels: Partial<Record<TechBranch, Phaser.GameObjects.GameObject & { setVisible(value: boolean): unknown }>> = {};
+  private branchButtons: Partial<Record<TechBranch, ButtonParts>> = {};
 
   constructor() {
     super({ key: 'ResearchScene' });
@@ -64,6 +67,9 @@ export class ResearchScene extends Phaser.Scene {
     this.networkAdapter = data.networkAdapter;
     this.eventBus = data.eventBus;
     this.nodeRows = [];
+    this.activeBranch = 'science';
+    this.branchPanels = {};
+    this.branchButtons = {};
     this.playerId = this.gameState.getLocalPlayer()?.getId() ?? '';
   }
 
@@ -78,6 +84,7 @@ export class ResearchScene extends Phaser.Scene {
     const root = createPanelSizer(this, metrics, size.width, size.height, 'y', UI.PANEL);
     root.add(this.buildHeader(metrics, size.width), { expand: true });
     root.add(this.buildCurrentResearch(metrics, size.width), { expand: true });
+    root.add(this.buildBranchTabs(metrics, size.width), { expand: true });
     root.add(this.buildBranchList(metrics, size.width, size.height), { proportion: 1, expand: true });
     root.setPosition(cx, cy).layout();
 
@@ -90,6 +97,7 @@ export class ResearchScene extends Phaser.Scene {
     });
 
     this.input.keyboard?.once('keydown-ESC', () => this.close());
+    this.switchBranch(this.activeBranch);
     this.refreshNodes();
   }
 
@@ -168,18 +176,59 @@ export class ResearchScene extends Phaser.Scene {
     panelHeight: number,
   ): Phaser.GameObjects.GameObject {
     const contentWidth = panelWidth - metrics.pad * 4;
-    const content = this.rexUI.add.sizer({
-      orientation: 'y',
-      width: contentWidth,
-      space: { item: metrics.gap },
+    const listHeight = Math.round(panelHeight - metrics.pad * 5 - 230 * metrics.scale);
+    const wrapper = this.rexUI.add.overlapSizer({
+      width: panelWidth - metrics.pad * 2,
+      height: listHeight,
     });
 
     (['science', 'society', 'arcane'] as TechBranch[]).forEach((branch) => {
+      const content = this.rexUI.add.sizer({
+        orientation: 'y',
+        width: contentWidth,
+        space: { item: metrics.gap },
+      });
       content.add(this.buildBranchPanel(metrics, contentWidth, branch), { expand: true });
+      const panel = createScrollablePanel(this, metrics, panelWidth - metrics.pad * 2, listHeight, content, UI.PANEL) as Phaser.GameObjects.GameObject & { setVisible(value: boolean): unknown };
+      this.branchPanels[branch] = panel;
+      wrapper.add(panel, { key: branch, expand: true, align: 'center' });
     });
 
-    const listHeight = Math.round(panelHeight - metrics.pad * 5 - 170 * metrics.scale);
-    return createScrollablePanel(this, metrics, panelWidth - metrics.pad * 2, listHeight, content, UI.PANEL);
+    return wrapper;
+  }
+
+  private buildBranchTabs(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+    const row = this.rexUI.add.sizer({
+      orientation: metrics.stacked ? 'y' : 'x',
+      width: panelWidth - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+    const tabWidth = metrics.stacked
+      ? panelWidth - metrics.pad * 2
+      : Math.round((panelWidth - metrics.pad * 2 - metrics.smallGap * 2) / 3);
+
+    (['science', 'society', 'arcane'] as TechBranch[]).forEach((branch) => {
+      const button = createButton(this, metrics, branch.toUpperCase(), () => this.switchBranch(branch), {
+        variant: branch === this.activeBranch ? 'primary' : 'secondary',
+        width: tabWidth,
+        height: Math.round(metrics.buttonHeight * 0.82),
+      });
+      this.branchButtons[branch] = button;
+      row.add(button.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
+    });
+
+    return row;
+  }
+
+  private switchBranch(branch: TechBranch): void {
+    this.activeBranch = branch;
+    (['science', 'society', 'arcane'] as TechBranch[]).forEach((candidate) => {
+      this.branchPanels[candidate]?.setVisible(candidate === branch);
+      const button = this.branchButtons[candidate];
+      if (!button) return;
+      button.background.setFillStyle(candidate === branch ? UI.BTN_ACTIVE : UI.BTN);
+      button.text.setColor(candidate === branch ? UI.WHITE : UI.LT);
+    });
   }
 
   private buildBranchPanel(

@@ -141,6 +141,7 @@ export function assignStartingTerritory(
   nationId: string,
   cities: GridCoordinates[],
   gridSize: number,
+  options: { overwrite?: boolean } = {},
 ): void {
   const OVAL_PADDING = 2;
 
@@ -156,7 +157,7 @@ export function assignStartingTerritory(
     for (let c = 0; c < gridSize; c++) {
       const territory = grid.getTerritory({ row: r, col: c });
       if (!territory) continue;
-      if (territory.getControllingNation()) continue;
+      if (territory.getControllingNation() && !options.overwrite) continue;
       const terrain = territory.getTerrainType();
 
       const dA = Math.sqrt((r - cityA.row) ** 2 + (c - cityA.col) ** 2);

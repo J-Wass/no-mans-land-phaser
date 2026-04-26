@@ -20,7 +20,7 @@ import type {
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 import { TERRITORY_BUILDING_MAP, TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { MAX_WALLS_LEVEL } from '@/systems/grid/Territory';
-import { CITY_BUILDING_MAP } from '@/systems/territory/CityBuilding';
+import { CITY_BUILDING_MAP, CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TECH_MAP } from '@/systems/research/TechTree';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
@@ -218,23 +218,27 @@ export class CommandProcessor {
     if (city.getCurrentOrder())
       return { success: false, reason: 'City production queue is busy' };
 
-    if (city.hasBuilding(command.building))
-      return { success: false, reason: 'Building already constructed' };
-
     const def = CITY_BUILDING_MAP.get(command.building);
     if (!def) return { success: false, reason: 'Unknown building type' };
+
+    const alreadyBuilt = city.hasBuilding(command.building);
+    const currentLevel = city.getBuildingLevel(command.building);
+    const isUpgrade = alreadyBuilt && command.building === CityBuildingType.WALLS && currentLevel < def.maxLevel;
+    if (alreadyBuilt && !isUpgrade)
+      return { success: false, reason: 'Building already constructed' };
 
     if (def.requiresTech && !nation.hasResearched(def.requiresTech))
       return { success: false, reason: `Requires research: ${def.requiresTech}` };
 
-    if (!nation.getTreasury().hasResources(def.cost))
+    const cost = isUpgrade ? def.upgradeCost : def.cost;
+    if (!nation.getTreasury().hasResources(cost))
       return { success: false, reason: 'Insufficient resources' };
 
-    nation.getTreasury().consumeResources(def.cost);
+    nation.getTreasury().consumeResources(cost);
     city.startOrder({
       kind:            'building',
       buildingType:    command.building,
-      label:           def.label,
+      label:           isUpgrade ? `${def.label} Lvl ${currentLevel + 1}` : def.label,
       ticksTotal:      def.ticks,
       ticksRemaining:  def.ticks,
     });

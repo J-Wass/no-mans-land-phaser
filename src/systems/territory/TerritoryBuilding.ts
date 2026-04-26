@@ -78,7 +78,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.WORKSHOP,
     label: 'Workshop',
-    perks: '🪨 +1 Raw Material/s — accelerates construction and unit production.',
+    perks: '🧱 +1 Raw Material/s — accelerates construction and unit production.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',

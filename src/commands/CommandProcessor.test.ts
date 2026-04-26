@@ -418,6 +418,49 @@ describe('CommandProcessor', () => {
     });
   });
 
+  describe('BUILD_CITY_BUILDING wall upgrades', () => {
+    let city: City;
+
+    beforeEach(() => {
+      city = new City('city-walls', 'Fort', 'nation-1', { row: 2, col: 2 });
+      city.addBuilding(CityBuildingType.WALLS);
+      gameState.addCity(city);
+      nation.setResearchedTechs(['masonry']);
+      nation.getTreasury().addResource(ResourceType.GOLD, 100);
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 100);
+    });
+
+    it('queues a wall upgrade when walls are already built below max level', () => {
+      const result = processor.dispatch({
+        type: 'BUILD_CITY_BUILDING',
+        playerId: 'player-1',
+        cityId: city.id,
+        building: CityBuildingType.WALLS,
+        issuedAtTick: 1,
+      });
+
+      expect(result.success).toBe(true);
+      expect(city.getCurrentOrder()?.label).toBe('Walls Lvl 2');
+      expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(85);
+      expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(65);
+    });
+
+    it('rejects wall upgrades at maximum level', () => {
+      city.setBuildingLevel(CityBuildingType.WALLS, 5);
+
+      const result = processor.dispatch({
+        type: 'BUILD_CITY_BUILDING',
+        playerId: 'player-1',
+        cityId: city.id,
+        building: CityBuildingType.WALLS,
+        issuedAtTick: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toMatch(/already constructed/i);
+    });
+  });
+
   describe('OFFER_TRADE', () => {
     let nation2: Nation;
     let player2: Player;

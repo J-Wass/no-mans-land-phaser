@@ -23,6 +23,10 @@ export enum CityBuildingType {
   MARKET       = 'MARKET',
 }
 
+export const MAX_CITY_WALLS_LEVEL = 5;
+export const CITY_WALLS_HP_PER_LEVEL = 60;
+export const CITY_WALLS_DMG_PER_LEVEL = 3;
+
 export interface CityBuildingDef {
   type:         CityBuildingType;
   label:        string;
@@ -31,6 +35,10 @@ export interface CityBuildingDef {
   /** Build time in ticks (0 = built-in, cannot be constructed). */
   ticks:        number;
   requiresTech: TechId | null;
+  /** Maximum level this city building can reach. */
+  maxLevel:     number;
+  /** Cost for one upgrade from level N to N+1. */
+  upgradeCost:  ResourceCost;
 }
 
 export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
@@ -41,6 +49,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     cost: {},
     ticks: 0,
     requiresTech: null,
+    maxLevel: 1,
+    upgradeCost: {},
   },
   {
     type: CityBuildingType.BARRACKS,
@@ -49,14 +59,18 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     cost: { [ResourceType.GOLD]: 15, [ResourceType.RAW_MATERIAL]: 30 },
     ticks: 10,
     requiresTech: 'masonry',
+    maxLevel: 1,
+    upgradeCost: {},
   },
   {
     type: CityBuildingType.WALLS,
     label: 'Walls',
-    perks: 'Defense+',
+    perks: 'Lvl1: +60HP +3dmg. Upgrades improve city defense through Lvl5.',
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 25 },
     ticks: 10,
     requiresTech: 'masonry',
+    maxLevel: MAX_CITY_WALLS_LEVEL,
+    upgradeCost: { [ResourceType.GOLD]: 15, [ResourceType.RAW_MATERIAL]: 35 },
   },
   {
     type: CityBuildingType.FARMS,
@@ -65,14 +79,18 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 20 },
     ticks: 10,
     requiresTech: 'masonry',
+    maxLevel: 1,
+    upgradeCost: {},
   },
   {
     type: CityBuildingType.WORKSHOP,
     label: 'Workshop',
-    perks: '🪨 +1/s',
+    perks: '🧱 +1/s',
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 20 },
     ticks: 10,
     requiresTech: 'masonry',
+    maxLevel: 1,
+    upgradeCost: {},
   },
   {
     type: CityBuildingType.PUBLIC_GREEN,
@@ -81,6 +99,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     cost: { [ResourceType.GOLD]: 5, [ResourceType.RAW_MATERIAL]: 20 },
     ticks: 10,
     requiresTech: 'masonry',
+    maxLevel: 1,
+    upgradeCost: {},
   },
   {
     type: CityBuildingType.HOUSING,
@@ -89,6 +109,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 25, [ResourceType.FOOD]: 10 },
     ticks: 10,
     requiresTech: 'masonry',
+    maxLevel: 1,
+    upgradeCost: {},
   },
   {
     type: CityBuildingType.WATCHTOWER,
@@ -97,14 +119,18 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     cost: { [ResourceType.GOLD]: 5, [ResourceType.RAW_MATERIAL]: 15 },
     ticks: 10,
     requiresTech: 'masonry',
+    maxLevel: 1,
+    upgradeCost: {},
   },
   {
     type: CityBuildingType.SCHOOL,
     label: 'School',
-    perks: '🔍 +1/s',
+    perks: '🔬 +1/s',
     cost: { [ResourceType.GOLD]: 15, [ResourceType.RAW_MATERIAL]: 25, [ResourceType.FOOD]: 10 },
     ticks: 10,
     requiresTech: 'education',
+    maxLevel: 1,
+    upgradeCost: {},
   },
   {
     type: CityBuildingType.MARKET,
@@ -113,6 +139,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
     cost: { [ResourceType.GOLD]: 20, [ResourceType.RAW_MATERIAL]: 35 },
     ticks: 10,
     requiresTech: 'trade',
+    maxLevel: 1,
+    upgradeCost: {},
   },
 ];
 
