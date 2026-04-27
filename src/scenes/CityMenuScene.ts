@@ -17,16 +17,14 @@ import { TICK_RATE } from '@/config/constants';
 import { UI } from '@/config/uiTheme';
 import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 import {
-  colorString,
-  createBackdrop,
   createButton,
   createPanelSizer,
   createScrollablePanel,
   createText,
-  fitPanel,
   getUiMetrics,
   setButtonEnabled,
   type ButtonParts,
+  type UiMetrics,
 } from '@/utils/rexUiHelpers';
 import { formatCost } from '@/utils/uiHelpers';
 
@@ -91,15 +89,17 @@ export class CityMenuScene extends Phaser.Scene {
     const metrics = getUiMetrics(this);
     const cx = metrics.width / 2;
     const cy = metrics.height / 2;
-    const size = fitPanel(metrics.width, metrics.height, 0.94, 1320, 980);
+    const panelW = Math.min(900, Math.round(metrics.width * 0.88));
+    const panelH = Math.min(780, Math.round(metrics.height * 0.92));
 
-    createBackdrop(this, 0.78);
+    this.add.rectangle(0, 0, metrics.width, metrics.height, UI.BG, 0.78)
+      .setOrigin(0, 0).setInteractive();
 
-    const root = createPanelSizer(this, metrics, size.width, size.height, 'y', UI.PANEL);
-    root.add(this.buildHeader(metrics, size.width), { expand: true });
-    root.add(this.buildOverview(metrics, size.width), { expand: true });
-    root.add(this.buildTabs(metrics, size.width), { expand: true });
-    root.add(this.buildListArea(metrics, size.width, size.height), { proportion: 1, expand: true });
+    const root = createPanelSizer(this, metrics, panelW, panelH, 'y', UI.PANEL);
+    root.add(this.buildHeader(metrics, panelW), { expand: true });
+    root.add(this.buildCompactStatus(metrics, panelW), { expand: true });
+    root.add(this.buildTabs(metrics, panelW), { expand: true });
+    root.add(this.buildListArea(metrics, panelW, panelH), { proportion: 1, expand: true });
     root.setPosition(cx, cy).layout();
 
     const onRefresh = () => this.refresh();
@@ -123,7 +123,7 @@ export class CityMenuScene extends Phaser.Scene {
     this.refreshResources();
   }
 
-  private buildHeader(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+  private buildHeader(metrics: UiMetrics, panelWidth: number): Phaser.GameObjects.GameObject {
     const row = this.rexUI.add.sizer({
       orientation: 'x',
       width: panelWidth - metrics.pad * 2,
@@ -156,98 +156,60 @@ export class CityMenuScene extends Phaser.Scene {
     return row;
   }
 
-  private buildOverview(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
-    const row = this.rexUI.add.sizer({
-      orientation: metrics.stacked ? 'y' : 'x',
-      width: panelWidth - metrics.pad * 2,
-      space: { item: metrics.gap },
+  /** Compact status bar: production on the left, resources on the right, all in one row. */
+  private buildCompactStatus(metrics: UiMetrics, panelWidth: number): Phaser.GameObjects.GameObject {
+    const inner = panelWidth - metrics.pad * 2;
+    const sectionH = Math.round(88 * metrics.scale);
+    const section = createPanelSizer(this, metrics, inner, sectionH, 'x', UI.PANEL_ALT);
+
+    // Left: current order label + thin progress bar
+    const prodW = Math.round(inner * 0.58);
+    const prod = this.rexUI.add.sizer({ orientation: 'y', width: prodW, space: { item: metrics.smallGap } });
+    this.currentOrderLabel = createText(this, 'Idle', metrics, 'caption', {
+      color: UI.DIM, fontFamily: UI.FONT_DATA,
+      wordWrap: { width: prodW - Math.round(84 * metrics.scale) - metrics.smallGap },
     });
-    const cardWidth = metrics.stacked
-      ? panelWidth - metrics.pad * 2
-      : Math.round((panelWidth - metrics.pad * 2 - metrics.gap) / 2);
-
-    row.add(this.buildProductionCard(metrics, cardWidth), { proportion: 1, expand: true });
-    row.add(this.buildResourceCard(metrics, cardWidth), { proportion: 1, expand: true });
-    return row;
-  }
-
-  private buildProductionCard(metrics: ReturnType<typeof getUiMetrics>, width: number): Phaser.GameObjects.GameObject {
-    const card = createPanelSizer(this, metrics, width, Math.round(196 * metrics.scale), 'y', UI.PANEL_ALT);
-    card.add(createText(this, 'Current Production', metrics, 'caption', {
-      fontFamily: UI.FONT_DATA,
-      fontStyle: 'bold',
-      color: colorString(UI.ACCENT_SOFT),
-    }));
-
-    this.currentOrderLabel = createText(this, 'Idle', metrics, 'body', {
-      color: UI.DIM,
-      fontFamily: UI.FONT_DATA,
-      wordWrap: { width: width - metrics.pad * 2 },
+    const cancelButton = createButton(this, metrics, 'CANCEL', () => { this.city.cancelOrder(); this.refresh(); }, {
+      variant: 'warning', width: Math.round(80 * metrics.scale), height: Math.round(metrics.buttonHeight * 0.64),
     });
-    card.add(this.currentOrderLabel, { expand: true });
+    const orderRow = this.rexUI.add.sizer({ orientation: 'x', space: { item: metrics.smallGap } });
+    orderRow.add(this.currentOrderLabel, { proportion: 1, expand: true });
+    orderRow.add(cancelButton.root, { align: 'center' });
+    prod.add(orderRow, { expand: true });
 
-    const barWidth = width - metrics.pad * 2;
-    const barHeight = Math.max(18, Math.round(metrics.scale * 18));
-    this.progressBg = this.add.rectangle(-barWidth / 2, 0, barWidth, barHeight, UI.SURFACE)
-      .setOrigin(0, 0.5)
-      .setStrokeStyle(2, UI.ACCENT, 0.9);
-    this.progressBar = this.add.rectangle(-barWidth / 2, 0, 0, Math.max(12, Math.round(metrics.scale * 12)), UI.ACCENT_SOFT)
-      .setOrigin(0, 0.5);
+    const barW = prodW - metrics.pad;
+    const barH = Math.max(8, Math.round(8 * metrics.scale));
+    this.progressBg = this.add.rectangle(-barW / 2, 0, barW, barH, UI.SURFACE)
+      .setOrigin(0, 0.5).setStrokeStyle(1, UI.ACCENT, 0.7);
+    this.progressBar = this.add.rectangle(-barW / 2, 0, 0, barH - 2, UI.ACCENT_SOFT).setOrigin(0, 0.5);
     const barContainer = this.add.container(0, 0, [this.progressBg, this.progressBar]);
-    barContainer.setSize(barWidth, barHeight);
-    card.add(barContainer, { expand: true, align: 'center' });
+    barContainer.setSize(barW, barH);
+    prod.add(barContainer, { expand: true, align: 'left' });
+    section.add(prod, { proportion: 1, expand: true });
 
-    const cancelButton = createButton(this, metrics, 'CANCEL ORDER', () => {
-      this.city.cancelOrder();
-      this.refresh();
-    }, {
-      variant: 'warning',
-      width: metrics.stacked ? width - metrics.pad * 2 : Math.round(170 * metrics.scale),
-      height: Math.round(metrics.buttonHeight * 0.82),
-    });
-    card.add(cancelButton.root, { align: 'left' });
-    return card;
+    // Right: resources in a 2×2 grid
+    const resW = inner - prodW - metrics.gap;
+    const resGrid = this.rexUI.add.sizer({ orientation: 'y', width: resW, space: { item: 4 } });
+    const pairs = [
+      [{ type: ResourceType.FOOD, color: '#8ee09d' }, { type: ResourceType.RAW_MATERIAL, color: '#f0bf7a' }],
+      [{ type: ResourceType.GOLD, color: UI.GOLD_C  }, { type: ResourceType.RESEARCH,     color: '#8fb8ff' }],
+    ] as const;
+    for (const pair of pairs) {
+      const row = this.rexUI.add.sizer({ orientation: 'x', width: resW, space: { item: metrics.smallGap } });
+      for (const { type, color } of pair) {
+        const cell = this.rexUI.add.sizer({ orientation: 'x', space: { item: 3 } });
+        cell.add(createText(this, RESOURCE_EMOJI[type], metrics, 'caption', { color }));
+        this.resourceTexts[type] = createText(this, '0', metrics, 'caption', { fontFamily: UI.FONT_DATA, fontStyle: 'bold', color });
+        cell.add(this.resourceTexts[type]!);
+        row.add(cell, { proportion: 1 });
+      }
+      resGrid.add(row, { expand: true });
+    }
+    section.add(resGrid, { align: 'center' });
+    return section;
   }
 
-  private buildResourceCard(metrics: ReturnType<typeof getUiMetrics>, width: number): Phaser.GameObjects.GameObject {
-    const card = createPanelSizer(this, metrics, width, Math.round(180 * metrics.scale), 'y', UI.PANEL_ALT);
-    card.add(createText(this, 'Nation Resources', metrics, 'caption', {
-      fontFamily: UI.FONT_DATA,
-      fontStyle: 'bold',
-      color: colorString(UI.ACCENT_SOFT),
-    }));
-
-    [
-      { type: ResourceType.FOOD, label: 'Food', color: '#8ee09d' },
-      { type: ResourceType.RAW_MATERIAL, label: 'Materials', color: '#f0bf7a' },
-      { type: ResourceType.GOLD, label: 'Gold', color: UI.GOLD_C },
-      { type: ResourceType.RESEARCH, label: 'Research', color: '#8fb8ff' },
-    ].forEach(({ type, label, color }) => {
-      const line = this.rexUI.add.sizer({
-        orientation: 'x',
-        width: width - metrics.pad * 2,
-        space: { item: metrics.smallGap },
-      });
-      line.add(createText(this, RESOURCE_EMOJI[type], metrics, 'body', {
-        fontFamily: UI.FONT_DATA,
-        fontStyle: 'bold',
-        color,
-      }));
-      line.add(createText(this, label, metrics, 'caption', {
-        color: UI.DIM,
-      }), { proportion: 1, expand: true });
-      this.resourceTexts[type] = createText(this, '0', metrics, 'body', {
-        fontFamily: UI.FONT_DATA,
-        fontStyle: 'bold',
-        color,
-      });
-      line.add(this.resourceTexts[type]!, { align: 'right' });
-      card.add(line, { expand: true });
-    });
-    return card;
-  }
-
-  private buildTabs(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+  private buildTabs(metrics: UiMetrics, panelWidth: number): Phaser.GameObjects.GameObject {
     const row = this.rexUI.add.sizer({
       orientation: metrics.stacked ? 'y' : 'x',
       width: panelWidth - metrics.pad * 2,
@@ -273,11 +235,11 @@ export class CityMenuScene extends Phaser.Scene {
   }
 
   private buildListArea(
-    metrics: ReturnType<typeof getUiMetrics>,
+    metrics: UiMetrics,
     panelWidth: number,
     panelHeight: number,
   ): Phaser.GameObjects.GameObject {
-    const listHeight = Math.round(panelHeight * 0.44);
+    const listHeight = Math.round(panelHeight * 0.52);
     const wrapper = this.rexUI.add.overlapSizer({
       width: panelWidth - metrics.pad * 2,
       height: listHeight,
@@ -290,7 +252,7 @@ export class CityMenuScene extends Phaser.Scene {
     return wrapper;
   }
 
-  private buildUnitList(metrics: ReturnType<typeof getUiMetrics>, width: number, height: number): Phaser.GameObjects.GameObject {
+  private buildUnitList(metrics: UiMetrics, width: number, height: number): Phaser.GameObjects.GameObject {
     const content = this.rexUI.add.sizer({
       orientation: 'y',
       width: width - metrics.pad * 2,
@@ -306,7 +268,7 @@ export class CityMenuScene extends Phaser.Scene {
     return createScrollablePanel(this, metrics, width, height, content, UI.PANEL_ALT);
   }
 
-  private buildBuildingList(metrics: ReturnType<typeof getUiMetrics>, width: number, height: number): Phaser.GameObjects.GameObject {
+  private buildBuildingList(metrics: UiMetrics, width: number, height: number): Phaser.GameObjects.GameObject {
     const content = this.rexUI.add.sizer({
       orientation: 'y',
       width: width - metrics.pad * 2,
@@ -325,55 +287,39 @@ export class CityMenuScene extends Phaser.Scene {
   }
 
   private buildUnitRow(
-    metrics: ReturnType<typeof getUiMetrics>,
+    metrics: UiMetrics,
     width: number,
     entry: CatalogEntry,
   ): { container: Phaser.GameObjects.GameObject; record: UnitRow } {
-    const row = createPanelSizer(this, metrics, width, Math.round((metrics.compact ? 168 : 138) * metrics.scale), 'y', UI.PANEL);
-    row.add(createText(this, entry.label, metrics, 'body', {
-      fontStyle: 'bold',
-      color: UI.WHITE,
-    }));
-    row.add(createText(this, entry.detail, metrics, 'caption', {
-      color: UI.DIM,
-      wordWrap: { width: width - metrics.pad * 2 },
-    }));
-
-    const meta = this.rexUI.add.sizer({
-      orientation: metrics.compact ? 'y' : 'x',
-      width: width - metrics.pad * 2,
-      space: { item: metrics.smallGap },
+    const rowH = Math.round(72 * metrics.scale);
+    const row = this.rexUI.add.sizer({
+      orientation: 'x',
+      width,
+      height: rowH,
+      space: { item: metrics.smallGap, left: metrics.smallGap, right: metrics.smallGap, top: metrics.smallGap, bottom: metrics.smallGap },
     });
+
+    const nameCol = this.rexUI.add.sizer({ orientation: 'y', space: { item: 2 } });
+    nameCol.add(createText(this, entry.label, metrics, 'body', { fontStyle: 'bold', color: UI.WHITE }));
     const secs = (entry.ticks / TICK_RATE).toFixed(1);
-    const costLabel = createText(this, formatCost(entry.cost as Record<string, number>), metrics, 'caption', {
-      color: UI.DIM,
-      fontFamily: UI.FONT_DATA,
+    const costLabel = createText(this, `${formatCost(entry.cost as Record<string, number>)}  ${secs}s`, metrics, 'caption', {
+      color: UI.DIM, fontFamily: UI.FONT_DATA,
     });
-    const statsLabel = createText(this, `Time ${secs}s`, metrics, 'caption', {
-      color: UI.DIM,
-      fontFamily: UI.FONT_DATA,
-    });
-    meta.add(costLabel, { proportion: 1, expand: true });
-    meta.add(statsLabel, { align: 'right' });
-    row.add(meta, { expand: true });
-
-    const footer = this.rexUI.add.sizer({
-      orientation: metrics.compact ? 'y' : 'x',
-      width: width - metrics.pad * 2,
-      space: { item: metrics.smallGap },
-    });
+    nameCol.add(costLabel);
     const statusLabel = createText(this, '', metrics, 'caption', {
       color: UI.DIM,
-      wordWrap: { width: width - metrics.pad * 4 },
+      wordWrap: { width: width - Math.round(180 * metrics.scale) },
     });
+    nameCol.add(statusLabel);
+
     const button = createButton(this, metrics, 'BUILD', () => { void this.startProduction(entry); }, {
       variant: 'primary',
-      width: metrics.compact ? width - metrics.pad * 2 : Math.round(150 * metrics.scale),
-      height: Math.round(metrics.buttonHeight * 0.82),
+      width: Math.round(120 * metrics.scale),
+      height: Math.round(metrics.buttonHeight * 0.78),
     });
-    footer.add(statusLabel, { proportion: 1, expand: true });
-    footer.add(button.root, { align: 'center' });
-    row.add(footer, { expand: true });
+
+    row.add(nameCol, { proportion: 1, expand: true });
+    row.add(button.root, { align: 'center' });
 
     return {
       container: row,
@@ -382,55 +328,39 @@ export class CityMenuScene extends Phaser.Scene {
   }
 
   private buildBuildingRow(
-    metrics: ReturnType<typeof getUiMetrics>,
+    metrics: UiMetrics,
     width: number,
     def: CityBuildingDef,
   ): { container: Phaser.GameObjects.GameObject; record: BuildingRow } {
-    const row = createPanelSizer(this, metrics, width, Math.round((metrics.compact ? 168 : 138) * metrics.scale), 'y', UI.PANEL);
-    row.add(createText(this, def.label, metrics, 'body', {
-      fontStyle: 'bold',
-      color: UI.WHITE,
-    }));
-    row.add(createText(this, def.perks, metrics, 'caption', {
-      color: UI.DIM,
-      wordWrap: { width: width - metrics.pad * 2 },
-    }));
-
-    const meta = this.rexUI.add.sizer({
-      orientation: metrics.compact ? 'y' : 'x',
-      width: width - metrics.pad * 2,
-      space: { item: metrics.smallGap },
+    const rowH = Math.round(72 * metrics.scale);
+    const row = this.rexUI.add.sizer({
+      orientation: 'x',
+      width,
+      height: rowH,
+      space: { item: metrics.smallGap, left: metrics.smallGap, right: metrics.smallGap, top: metrics.smallGap, bottom: metrics.smallGap },
     });
+
+    const nameCol = this.rexUI.add.sizer({ orientation: 'y', space: { item: 2 } });
+    nameCol.add(createText(this, def.label, metrics, 'body', { fontStyle: 'bold', color: UI.WHITE }));
     const secs = (def.ticks / TICK_RATE).toFixed(1);
-    const costLabel = createText(this, formatCost(def.cost as Record<string, number>), metrics, 'caption', {
-      color: UI.DIM,
-      fontFamily: UI.FONT_DATA,
+    const costLabel = createText(this, `${formatCost(def.cost as Record<string, number>)}  ${secs}s`, metrics, 'caption', {
+      color: UI.DIM, fontFamily: UI.FONT_DATA,
     });
-    const statsLabel = createText(this, `Time ${secs}s`, metrics, 'caption', {
-      color: UI.DIM,
-      fontFamily: UI.FONT_DATA,
-    });
-    meta.add(costLabel, { proportion: 1, expand: true });
-    meta.add(statsLabel, { align: 'right' });
-    row.add(meta, { expand: true });
-
-    const footer = this.rexUI.add.sizer({
-      orientation: metrics.compact ? 'y' : 'x',
-      width: width - metrics.pad * 2,
-      space: { item: metrics.smallGap },
-    });
+    nameCol.add(costLabel);
     const statusLabel = createText(this, '', metrics, 'caption', {
       color: UI.DIM,
-      wordWrap: { width: width - metrics.pad * 4 },
+      wordWrap: { width: width - Math.round(180 * metrics.scale) },
     });
+    nameCol.add(statusLabel);
+
     const button = createButton(this, metrics, 'BUILD', () => { void this.buildCityBuilding(def); }, {
       variant: 'primary',
-      width: metrics.compact ? width - metrics.pad * 2 : Math.round(150 * metrics.scale),
-      height: Math.round(metrics.buttonHeight * 0.82),
+      width: Math.round(120 * metrics.scale),
+      height: Math.round(metrics.buttonHeight * 0.78),
     });
-    footer.add(statusLabel, { proportion: 1, expand: true });
-    footer.add(button.root, { align: 'center' });
-    row.add(footer, { expand: true });
+
+    row.add(nameCol, { proportion: 1, expand: true });
+    row.add(button.root, { align: 'center' });
 
     return {
       container: row,

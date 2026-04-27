@@ -26,6 +26,10 @@ export class MenuScene extends Phaser.Scene {
     gameMode: 'skirmish',
     scenarioId: DEFAULT_SCENARIO_ID,
   });
+  // Standard match difficulty never shows sandbox (that's its own mode)
+  private get standardDifficulty(): Difficulty {
+    return this.setup.difficulty === 'sandbox' ? 'medium' : this.setup.difficulty;
+  }
 
   private scenarioBtns: Array<{ button: ButtonParts; value: string }> = [];
   private opponentBtns: Array<{ button: ButtonParts; value: number }> = [];
@@ -89,7 +93,7 @@ export class MenuScene extends Phaser.Scene {
       color: UI.WHITE,
     }).setOrigin(0.5), { align: 'center' });
 
-    header.add(createText(this, 'Choose a preset scenario on the left, or set up a standard match on the right.', metrics, 'body', {
+    header.add(createText(this, 'Pick a preset scenario, set up a standard match, or explore freely in sandbox mode.', metrics, 'body', {
       color: UI.DIM,
       align: 'center',
       wordWrap: { width: Math.min(720, Math.round(metrics.width * 0.6)) },
@@ -153,7 +157,7 @@ export class MenuScene extends Phaser.Scene {
     });
     const cardWidth = metrics.stacked
       ? panelWidth - metrics.pad * 2
-      : Math.round((panelWidth - metrics.pad * 3) / 2);
+      : Math.round((panelWidth - metrics.pad * 4) / 3);
     const hasScenario = Boolean(getScenarioById(this.setup.scenarioId));
 
     cardRow.add(this.buildScenarioSide(
@@ -165,6 +169,11 @@ export class MenuScene extends Phaser.Scene {
     ), { proportion: 1, expand: true });
 
     cardRow.add(this.buildStandardMatchSide(
+      metrics,
+      cardWidth,
+    ), { proportion: 1, expand: true });
+
+    cardRow.add(this.buildSandboxSide(
       metrics,
       cardWidth,
     ), { proportion: 1, expand: true });
@@ -280,7 +289,6 @@ export class MenuScene extends Phaser.Scene {
       { label: 'EASY', value: 'easy' },
       { label: 'MEDIUM', value: 'medium' },
       { label: 'HARD', value: 'hard' },
-      { label: 'SANDBOX', value: 'sandbox' },
     ], (value) => {
       this.setup.difficulty = value;
       this.refreshDiffBtns();
@@ -302,11 +310,51 @@ export class MenuScene extends Phaser.Scene {
         setup: {
           ...this.setup,
           gameMode: 'skirmish',
+          difficulty: this.standardDifficulty,
           scenarioId: null,
         },
       });
     }, {
       variant: 'success',
+      width: cardWidth - metrics.pad * 2,
+    });
+    card.add(button.root, { expand: true });
+    return card;
+  }
+
+  private buildSandboxSide(
+    metrics: ReturnType<typeof getUiMetrics>,
+    cardWidth: number,
+  ): Phaser.GameObjects.GameObject {
+    const cardHeight = metrics.stacked ? Math.round(420 * metrics.scale) : Math.round(430 * metrics.scale);
+    const card = createPanelSizer(this, metrics, cardWidth, cardHeight, 'y', UI.PANEL_ALT);
+    card.add(createText(this, 'SANDBOX', metrics, 'caption', {
+      color: '#7bd4ff',
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+    }), { align: 'left' });
+    card.add(createText(this, 'Free Play', metrics, 'heading', {
+      fontFamily: UI.FONT_DISPLAY,
+      fontStyle: 'bold',
+      color: UI.WHITE,
+    }));
+    card.add(createText(this, 'No resource costs. No fog of war. Adjust AI level and paint terrain mid-game using the left toolbar.', metrics, 'caption', {
+      color: UI.DIM,
+      wordWrap: { width: cardWidth - metrics.pad * 2 },
+    }), { proportion: 1, expand: true });
+
+    const button = createButton(this, metrics, 'START SANDBOX', () => {
+      this.scene.start('BootScene', {
+        setup: {
+          ...this.setup,
+          gameMode: 'sandbox',
+          difficulty: 'sandbox',
+          opponentCount: 1,
+          scenarioId: null,
+        },
+      });
+    }, {
+      variant: 'primary',
       width: cardWidth - metrics.pad * 2,
     });
     card.add(button.root, { expand: true });
@@ -376,6 +424,6 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private getStandardMatchSummary(): string {
-    return `${this.setup.opponentCount} Opponent${this.setup.opponentCount === 1 ? '' : 's'}  |  ${this.setup.difficulty.toUpperCase()}`;
+    return `${this.setup.opponentCount} Opponent${this.setup.opponentCount === 1 ? '' : 's'}  |  ${this.standardDifficulty.toUpperCase()}`;
   }
 }

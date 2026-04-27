@@ -12,6 +12,7 @@ import { ClaimTerritoryGoal } from '../goals/ClaimTerritoryGoal';
 import { BuildBuildingGoal } from '../goals/BuildBuildingGoal';
 import { ResearchTechGoal } from '../goals/ResearchTechGoal';
 import { UnitType } from '@/entities/units/Unit';
+import { DefenseStrategy } from './DefenseStrategy';
 
 const THREAT_RADIUS = 4;
 
@@ -40,8 +41,6 @@ export class MilitaryStrategy implements AIStrategy {
 
   nextStrategy(ctx: AIContext): AIStrategy | null {
     if (this.shouldSwitch(ctx)) {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { DefenseStrategy } = require('./DefenseStrategy') as typeof import('./DefenseStrategy');
       return new DefenseStrategy();
     }
     return null;

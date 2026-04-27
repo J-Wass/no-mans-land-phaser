@@ -42,6 +42,7 @@ export class CommandProcessor {
     private movementSystem: MovementSystem,
     private eventBus: GameEventBus,
     private diplomacySystem?: DiplomacySystem,
+    private sandboxMode: boolean = false,
   ) {}
 
   public dispatch(command: GameCommand): CommandResult {
@@ -102,7 +103,7 @@ export class CommandProcessor {
     if (!def) return { success: false, reason: 'Unknown building type' };
 
     // ── Tech requirement ────────────────────────────────────────────────────
-    if (def.requiresTech && !nation.hasResearched(def.requiresTech))
+    if (!this.sandboxMode && def.requiresTech && !nation.hasResearched(def.requiresTech))
       return { success: false, reason: `Requires research: ${def.requiresTech}` };
 
     // ── OUTPOST (special: claims unclaimed territory) ───────────────────────
@@ -118,10 +119,13 @@ export class CommandProcessor {
       if (!unitOnTile)
         return { success: false, reason: 'No friendly unit on territory' };
 
-      if (!nation.getTreasury().hasResources(def.cost))
+      if (!this.sandboxMode && !this.isAdjacentToOwnedTerritory(command.position, nation.getId()))
+        return { success: false, reason: 'Must be adjacent to your existing territory' };
+
+      if (!this.sandboxMode && !nation.getTreasury().hasResources(def.cost))
         return { success: false, reason: 'Insufficient resources' };
 
-      nation.getTreasury().consumeResources(def.cost);
+      if (!this.sandboxMode) nation.getTreasury().consumeResources(def.cost);
       territory.setControllingNation(nation.getId());
       territory.addBuilding(TerritoryBuildingType.OUTPOST);
       this.claimAdjacentImpassable(command.position, nation.getId());
@@ -154,10 +158,10 @@ export class CommandProcessor {
         return { success: false, reason: 'Required resource deposit not present' };
     }
 
-    if (!nation.getTreasury().hasResources(def.cost))
+    if (!this.sandboxMode && !nation.getTreasury().hasResources(def.cost))
       return { success: false, reason: 'Insufficient resources' };
 
-    nation.getTreasury().consumeResources(def.cost);
+    if (!this.sandboxMode) nation.getTreasury().consumeResources(def.cost);
     territory.addBuilding(command.building);
     this.eventBus.emit('territory:building-built', {
       position: command.position, building: command.building, tick: command.issuedAtTick,
@@ -189,10 +193,10 @@ export class CommandProcessor {
     if (currentLevel >= maxLevel)
       return { success: false, reason: `Already at maximum level (${maxLevel})` };
 
-    if (!nation.getTreasury().hasResources(def.upgradeCost))
+    if (!this.sandboxMode && !nation.getTreasury().hasResources(def.upgradeCost))
       return { success: false, reason: 'Insufficient resources' };
 
-    nation.getTreasury().consumeResources(def.upgradeCost);
+    if (!this.sandboxMode) nation.getTreasury().consumeResources(def.upgradeCost);
     territory.upgradeBuildingLevel(command.building);
     const newLevel = territory.getBuildingLevel(command.building);
     this.eventBus.emit('territory:building-upgraded', {
@@ -227,20 +231,21 @@ export class CommandProcessor {
     if (alreadyBuilt && !isUpgrade)
       return { success: false, reason: 'Building already constructed' };
 
-    if (def.requiresTech && !nation.hasResearched(def.requiresTech))
+    if (!this.sandboxMode && def.requiresTech && !nation.hasResearched(def.requiresTech))
       return { success: false, reason: `Requires research: ${def.requiresTech}` };
 
     const cost = isUpgrade ? def.upgradeCost : def.cost;
-    if (!nation.getTreasury().hasResources(cost))
+    if (!this.sandboxMode && !nation.getTreasury().hasResources(cost))
       return { success: false, reason: 'Insufficient resources' };
 
-    nation.getTreasury().consumeResources(cost);
+    if (!this.sandboxMode) nation.getTreasury().consumeResources(cost);
+    const ticks = this.sandboxMode ? Math.min(10, def.ticks || 10) : def.ticks;
     city.startOrder({
       kind:            'building',
       buildingType:    command.building,
       label:           isUpgrade ? `${def.label} Lvl ${currentLevel + 1}` : def.label,
-      ticksTotal:      def.ticks,
-      ticksRemaining:  def.ticks,
+      ticksTotal:      ticks,
+      ticksRemaining:  ticks,
     });
     return { success: true };
   }
@@ -260,18 +265,18 @@ export class CommandProcessor {
     if (nation.hasResearched(command.techId))
       return { success: false, reason: 'Already researched' };
 
-    if (!nation.canResearch(command.techId))
+    if (!this.sandboxMode && !nation.canResearch(command.techId))
       return { success: false, reason: 'Prerequisites not met' };
 
     const node = TECH_MAP.get(command.techId);
     if (!node) return { success: false, reason: 'Unknown tech' };
 
     const treasury = nation.getTreasury();
-    if (treasury.getAmount(ResourceType.RESEARCH) < node.researchCost)
+    if (!this.sandboxMode && treasury.getAmount(ResourceType.RESEARCH) < node.researchCost)
       return { success: false, reason: `Insufficient research points (need ${node.researchCost})` };
 
-    treasury.consumeResources({ [ResourceType.RESEARCH]: node.researchCost });
-    nation.startResearch(command.techId, node.ticks);
+    if (!this.sandboxMode) treasury.consumeResources({ [ResourceType.RESEARCH]: node.researchCost });
+    nation.startResearch(command.techId, this.sandboxMode ? 10 : node.ticks);
     this.eventBus.emit('nation:research-started', {
       nationId: nation.getId(), techId: command.techId,
     });
@@ -297,22 +302,24 @@ export class CommandProcessor {
     const entry = PRODUCTION_CATALOG.find(e => e.id === `unit:${command.unitType}`);
     if (!entry) return { success: false, reason: 'Unknown unit type' };
 
-    const techsOk = entry.requiresTechs.every(t => nation.hasResearched(t));
-    if (!techsOk) return { success: false, reason: 'Required tech not researched' };
+    if (!this.sandboxMode) {
+      const techsOk = entry.requiresTechs.every(t => nation.hasResearched(t));
+      if (!techsOk) return { success: false, reason: 'Required tech not researched' };
+    }
 
     if (entry.requiresBuilding && !city.hasBuilding(entry.requiresBuilding))
       return { success: false, reason: `Requires ${entry.requiresBuilding}` };
 
-    if (entry.requiresDeposit) {
+    if (!this.sandboxMode && entry.requiresDeposit) {
       const deposits = this.gameState.getNationActiveDeposits(nation.getId());
       if (!deposits.has(entry.requiresDeposit))
         return { success: false, reason: `Requires active ${entry.requiresDeposit} mine` };
     }
 
-    if (!nation.getTreasury().hasResources(entry.cost))
+    if (!this.sandboxMode && !nation.getTreasury().hasResources(entry.cost))
       return { success: false, reason: 'Insufficient resources' };
 
-    nation.getTreasury().consumeResources(entry.cost);
+    if (!this.sandboxMode) nation.getTreasury().consumeResources(entry.cost);
     city.startOrder(entry.makeOrder());
     return { success: true };
   }
@@ -383,6 +390,20 @@ export class CommandProcessor {
   }
 
   // ── Shared helpers ────────────────────────────────────────────────────────
+
+  /** Returns true if any cardinal neighbor of `position` is owned by `nationId`. */
+  private isAdjacentToOwnedTerritory(position: GridCoordinates, nationId: string): boolean {
+    const offsets = [
+      { row: -1, col: 0 }, { row: 1, col: 0 },
+      { row: 0, col: -1 }, { row: 0, col: 1 },
+    ];
+    const grid = this.gameState.getGrid();
+    for (const off of offsets) {
+      const nbr = grid.getTerritory({ row: position.row + off.row, col: position.col + off.col });
+      if (nbr?.getControllingNation() === nationId) return true;
+    }
+    return false;
+  }
 
   /** Claim unclaimed adjacent mountain/water tiles when an outpost is built. */
   private claimAdjacentImpassable(position: GridCoordinates, nationId: string): void {

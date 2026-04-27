@@ -10,6 +10,7 @@ import { ClaimTerritoryGoal } from '../goals/ClaimTerritoryGoal';
 import { ProduceUnitGoal } from '../goals/ProduceUnitGoal';
 import { AttackTargetGoal } from '../goals/AttackTargetGoal';
 import { UnitType } from '@/entities/units/Unit';
+import { MilitaryStrategy } from './MilitaryStrategy';
 
 const THREAT_RADIUS    = 5;
 const TERRITORY_ENOUGH = 12;
@@ -31,9 +32,6 @@ export class ExpansionStrategy implements AIStrategy {
 
   nextStrategy(ctx: AIContext): AIStrategy | null {
     if (this.shouldSwitch(ctx)) {
-      // Lazy import avoids circular dependency
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { MilitaryStrategy } = require('./MilitaryStrategy') as typeof import('./MilitaryStrategy');
       return new MilitaryStrategy();
     }
     return null;

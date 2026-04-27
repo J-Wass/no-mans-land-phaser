@@ -1,5 +1,5 @@
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'sandbox';
-export type GameMode = 'skirmish' | 'scenario';
+export type GameMode = 'skirmish' | 'scenario' | 'sandbox';
 
 export interface GameSetup {
   opponentCount: number; // 1-4

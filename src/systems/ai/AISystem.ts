@@ -26,8 +26,14 @@ export class AISystem {
     private readonly commandProcessor: CommandProcessor,
     private readonly movementSystem:   MovementSystem,
     private readonly pathfinder:       Pathfinder,
-    private readonly difficulty:       Difficulty,
+    private difficulty:                Difficulty,
   ) {
+    this.initControllers();
+  }
+
+  public setDifficulty(difficulty: Difficulty): void {
+    this.difficulty = difficulty;
+    this.controllers.clear();
     this.initControllers();
   }
 

@@ -11,16 +11,14 @@ import type { TechBranch, TechNode } from '@/systems/research/TechTree';
 import { TICK_RATE } from '@/config/constants';
 import { UI } from '@/config/uiTheme';
 import {
-  createBackdrop,
   createButton,
   createPanelSizer,
   createScrollablePanel,
   createText,
-  colorString,
-  fitPanel,
   getUiMetrics,
   setButtonEnabled,
   type ButtonParts,
+  type UiMetrics,
 } from '@/utils/rexUiHelpers';
 
 export interface ResearchSceneData {
@@ -77,15 +75,17 @@ export class ResearchScene extends Phaser.Scene {
     const metrics = getUiMetrics(this);
     const cx = metrics.width / 2;
     const cy = metrics.height / 2;
-    const size = fitPanel(metrics.width, metrics.height, 0.9, 1140, 980);
+    const panelW = Math.min(920, Math.round(metrics.width * 0.88));
+    const panelH = Math.min(780, Math.round(metrics.height * 0.92));
 
-    createBackdrop(this, 0.76);
+    this.add.rectangle(0, 0, metrics.width, metrics.height, UI.BG, 0.76)
+      .setOrigin(0, 0).setInteractive();
 
-    const root = createPanelSizer(this, metrics, size.width, size.height, 'y', UI.PANEL);
-    root.add(this.buildHeader(metrics, size.width), { expand: true });
-    root.add(this.buildCurrentResearch(metrics, size.width), { expand: true });
-    root.add(this.buildBranchTabs(metrics, size.width), { expand: true });
-    root.add(this.buildBranchList(metrics, size.width, size.height), { proportion: 1, expand: true });
+    const root = createPanelSizer(this, metrics, panelW, panelH, 'y', UI.PANEL);
+    root.add(this.buildHeader(metrics, panelW), { expand: true });
+    root.add(this.buildCurrentResearch(metrics, panelW), { expand: true });
+    root.add(this.buildBranchTabs(metrics, panelW), { expand: true });
+    root.add(this.buildBranchList(metrics, panelW, panelH), { proportion: 1, expand: true });
     root.setPosition(cx, cy).layout();
 
     const onRefresh = () => this.refreshNodes();
@@ -105,7 +105,7 @@ export class ResearchScene extends Phaser.Scene {
     this.refreshCurrentBar();
   }
 
-  private buildHeader(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+  private buildHeader(metrics: UiMetrics, panelWidth: number): Phaser.GameObjects.GameObject {
     const row = this.rexUI.add.sizer({
       orientation: 'x',
       width: panelWidth - metrics.pad * 2,
@@ -125,58 +125,42 @@ export class ResearchScene extends Phaser.Scene {
     return row;
   }
 
-  private buildCurrentResearch(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
-    const section = createPanelSizer(this, metrics, panelWidth - metrics.pad * 2, Math.round(140 * metrics.scale), 'y', UI.PANEL_ALT);
-    section.add(createText(this, 'Current Research', metrics, 'caption', {
-      fontFamily: UI.FONT_DATA,
-      fontStyle: 'bold',
-      color: colorString(UI.ACCENT_SOFT),
-    }));
+  private buildCurrentResearch(metrics: UiMetrics, panelWidth: number): Phaser.GameObjects.GameObject {
+    const inner = panelWidth - metrics.pad * 4;
+    const section = createPanelSizer(this, metrics, panelWidth - metrics.pad * 2, Math.round(80 * metrics.scale), 'y', UI.PANEL_ALT);
 
-    const row = this.rexUI.add.sizer({
-      orientation: metrics.stacked ? 'y' : 'x',
-      space: { item: metrics.gap },
-    });
-
-    const info = this.rexUI.add.sizer({
-      orientation: 'y',
-      width: metrics.stacked ? panelWidth - metrics.pad * 4 : Math.round(panelWidth * 0.35),
-      space: { item: metrics.smallGap },
-    });
+    // Label + cancel on one line
+    const row = this.rexUI.add.sizer({ orientation: 'x', width: inner, space: { item: metrics.smallGap } });
     this.currentResearchText = createText(this, 'Idle', metrics, 'body', {
-      color: UI.DIM,
-      fontFamily: UI.FONT_DATA,
+      color: UI.DIM, fontFamily: UI.FONT_DATA,
+      wordWrap: { width: inner - Math.round(90 * metrics.scale) },
     });
-    info.add(this.currentResearchText, { expand: true });
-
-    const barWidth = metrics.stacked ? panelWidth - metrics.pad * 4 : Math.round(panelWidth * 0.34);
-    this.currentResearchBg = this.add.rectangle(0, 0, barWidth, Math.max(18, Math.round(metrics.scale * 18)), UI.SURFACE)
-      .setOrigin(0, 0.5)
-      .setStrokeStyle(2, UI.ACCENT, 0.9);
-    this.currentResearchBar = this.add.rectangle(0, 0, 0, Math.max(12, Math.round(metrics.scale * 12)), UI.ACCENT_SOFT)
-      .setOrigin(0, 0.5);
-
-    const barContainer = this.add.container(0, 0, [this.currentResearchBg, this.currentResearchBar]);
-    info.add(barContainer, { expand: true, align: 'left' });
-
+    row.add(this.currentResearchText, { proportion: 1, expand: true });
     this.cancelButton = createButton(this, metrics, 'CANCEL', () => { void this.cancelResearch(); }, {
-      variant: 'warning',
-      width: metrics.stacked ? panelWidth - metrics.pad * 4 : Math.round(150 * metrics.scale),
+      variant: 'warning', width: Math.round(84 * metrics.scale), height: Math.round(metrics.buttonHeight * 0.68),
     });
-
-    row.add(info, { proportion: 1, expand: true });
     row.add(this.cancelButton.root, { align: 'center' });
     section.add(row, { expand: true });
+
+    // Thin progress bar
+    const barH = Math.max(8, Math.round(8 * metrics.scale));
+    this.currentResearchBg = this.add.rectangle(-inner / 2, 0, inner, barH, UI.SURFACE)
+      .setOrigin(0, 0.5).setStrokeStyle(1, UI.ACCENT, 0.7);
+    this.currentResearchBar = this.add.rectangle(-inner / 2, 0, 0, barH - 2, UI.ACCENT_SOFT).setOrigin(0, 0.5);
+    const barContainer = this.add.container(0, 0, [this.currentResearchBg, this.currentResearchBar]);
+    barContainer.setSize(inner, barH);
+    section.add(barContainer, { expand: true, align: 'center' });
     return section;
   }
 
   private buildBranchList(
-    metrics: ReturnType<typeof getUiMetrics>,
+    metrics: UiMetrics,
     panelWidth: number,
     panelHeight: number,
   ): Phaser.GameObjects.GameObject {
     const contentWidth = panelWidth - metrics.pad * 4;
-    const listHeight = Math.round(panelHeight - metrics.pad * 5 - 230 * metrics.scale);
+    // Remaining height after header + compact current-research + branch tabs + padding
+    const listHeight = Math.round(panelHeight - metrics.pad * 5 - 190 * metrics.scale);
     const wrapper = this.rexUI.add.overlapSizer({
       width: panelWidth - metrics.pad * 2,
       height: listHeight,
@@ -197,7 +181,7 @@ export class ResearchScene extends Phaser.Scene {
     return wrapper;
   }
 
-  private buildBranchTabs(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+  private buildBranchTabs(metrics: UiMetrics, panelWidth: number): Phaser.GameObjects.GameObject {
     const row = this.rexUI.add.sizer({
       orientation: metrics.stacked ? 'y' : 'x',
       width: panelWidth - metrics.pad * 2,
@@ -232,7 +216,7 @@ export class ResearchScene extends Phaser.Scene {
   }
 
   private buildBranchPanel(
-    metrics: ReturnType<typeof getUiMetrics>,
+    metrics: UiMetrics,
     width: number,
     branch: TechBranch,
   ): Phaser.GameObjects.GameObject {
@@ -274,12 +258,12 @@ export class ResearchScene extends Phaser.Scene {
     return wrapper;
   }
 
-  private getNodeRowHeight(metrics: ReturnType<typeof getUiMetrics>): number {
-    return Math.round(metrics.compact ? 140 * metrics.scale : 112 * metrics.scale);
+  private getNodeRowHeight(metrics: UiMetrics): number {
+    return Math.round(metrics.compact ? 100 * metrics.scale : 80 * metrics.scale);
   }
 
   private buildNodeRow(
-    metrics: ReturnType<typeof getUiMetrics>,
+    metrics: UiMetrics,
     width: number,
     node: TechNode,
   ): { container: Phaser.GameObjects.GameObject; record: NodeRow } {

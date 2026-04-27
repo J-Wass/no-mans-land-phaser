@@ -58,11 +58,16 @@ describe('ProductionSystem', () => {
     goldTile?.setResourceDeposit(TerritoryResourceType.GOLD_DEPOSIT);
     goldTile?.setBuildings([TerritoryBuildingType.IRON_MINE]);
 
-    system.tick(state, eventBus, 10);
+    // tick 300: all intervals fire (food@5, material@10, gold@10, research@10 with 30s delay guard, terrain@50)
+    system.tick(state, eventBus, 300);
 
-    expect(nation.getTreasury().getAmount(ResourceType.FOOD)).toBe(3);
-    expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(3);
+    // FOOD: city base+FARMS(2) + territory FARMS bldg(1) + PLAINS terrain on (0,0)/(0,2)/(0,3)/(2,2)=4 tiles(4) = 7
+    expect(nation.getTreasury().getAmount(ResourceType.FOOD)).toBe(7);
+    // RAW: city base+WORKSHOP(2) + territory WORKSHOP bldg(1) + FOREST terrain(1) = 4
+    expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(4);
+    // RESEARCH: city base+SCHOOL (delayed until tick 300) = 2
     expect(nation.getTreasury().getAmount(ResourceType.RESEARCH)).toBe(2);
+    // GOLD: city base+MARKET(2) + silver+gold deposit bonus(6) = 8
     expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(8);
   });
 

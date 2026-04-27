@@ -36,7 +36,16 @@ import type { ScenarioDepositDef } from '@/config/scenarios';
 /** Root-level techs (no prerequisites) - eligible for random starting grant. */
 const ROOT_TECHS: TechId[] = ['writing', 'hunting', 'masonry', 'scientific_method', 'mathematics'];
 
-const GRID_SIZE = 60;
+/** Compute grid size so there's ~2× neutral territory relative to starting territory. */
+function computeGridSize(totalNations: number): number {
+  // Each nation gets ~21 tiles of starting territory (ellipse blob around 2 cities).
+  // We want ~2× that in neutral space: total land ≈ 3 × 21 × totalNations ≈ 63 × totalNations.
+  // Playable area = (gridSize - 20)² (10 water tiles each side).
+  // Solve: (gridSize - 20)² = 63 × totalNations  →  gridSize = 20 + ceil(sqrt(63 × n))
+  // Add 50% headroom so the map feels open, not claustrophobic.
+  const landNeeded = Math.ceil(63 * totalNations * 1.5);
+  return Math.max(40, Math.min(72, 20 + Math.ceil(Math.sqrt(landNeeded))));
+}
 
 interface BootSceneData {
   setup?: GameSetup;
@@ -49,6 +58,8 @@ export class BootScene extends Phaser.Scene {
 
   create(data: BootSceneData): void {
     const setup: GameSetup = normalizeGameSetup(data?.setup);
+    const totalNations = 1 + Math.min(setup.opponentCount, 4);
+    const GRID_SIZE = computeGridSize(totalNations);
     const gameState = new GameState({ rows: GRID_SIZE, cols: GRID_SIZE });
     const grid = gameState.getGrid();
 
@@ -67,24 +78,24 @@ export class BootScene extends Phaser.Scene {
         const mapRows = getScenarioMap(scenario.id);
         if (mapRows) applyScenarioMap(grid, mapRows);
         applyScenarioDeposits(grid, scenario.deposits);
-        this.populateScenarioGameState(gameState, setup, grid);
+        this.populateScenarioGameState(gameState, setup, grid, GRID_SIZE);
       } else {
         placeProceduralTerrain(grid, GRID_SIZE);
-        placeResourceDeposits(grid);
-        this.populateSkirmishGameState(gameState, setup, grid);
+        placeResourceDeposits(grid, GRID_SIZE);
+        this.populateSkirmishGameState(gameState, setup, grid, GRID_SIZE);
       }
     } else {
       placeProceduralTerrain(grid, GRID_SIZE);
-      placeResourceDeposits(grid);
-      this.populateSkirmishGameState(gameState, setup, grid);
+      placeResourceDeposits(grid, GRID_SIZE);
+      this.populateSkirmishGameState(gameState, setup, grid, GRID_SIZE);
     }
 
     this.scene.start('GameScene', { gameState, setup });
   }
 
-  private populateSkirmishGameState(gameState: GameState, setup: GameSetup, grid: Grid): void {
+  private populateSkirmishGameState(gameState: GameState, setup: GameSetup, grid: Grid, gridSize: number): void {
     const totalNations  = 1 + Math.min(setup.opponentCount, 4);
-    const spawnPairs    = pickCoastalSpawnPairs(grid, GRID_SIZE, totalNations);
+    const spawnPairs    = pickCoastalSpawnPairs(grid, gridSize, totalNations);
     const takenPositions: GridCoordinates[] = [];
     const shuffledNations = [...GAME_NAMES.nations];
 
@@ -118,16 +129,17 @@ export class BootScene extends Phaser.Scene {
         pair,
         takenPositions,
         cfg.cities,
+        gridSize,
       );
 
-      assignStartingTerritory(grid, nationId, cityPositions, GRID_SIZE);
+      assignStartingTerritory(grid, nationId, cityPositions, gridSize);
     }
   }
 
-  private populateScenarioGameState(gameState: GameState, setup: GameSetup, grid: Grid): void {
+  private populateScenarioGameState(gameState: GameState, setup: GameSetup, grid: Grid, gridSize: number): void {
     const scenario = getScenarioById(setup.scenarioId);
     if (!scenario) {
-      this.populateSkirmishGameState(gameState, setup, grid);
+      this.populateSkirmishGameState(gameState, setup, grid, gridSize);
       return;
     }
 
@@ -169,7 +181,7 @@ export class BootScene extends Phaser.Scene {
         cityPositions.push(pos);
       }
 
-      assignStartingTerritory(grid, nationId, cityPositions, GRID_SIZE, { overwrite: true });
+      assignStartingTerritory(grid, nationId, cityPositions, gridSize, { overwrite: true });
     });
 
     // Apply diplomacy
@@ -214,28 +226,32 @@ function applyScenarioDeposits(grid: Grid, deposits: ScenarioDepositDef[]): void
   }
 }
 
-function placeResourceDeposits(grid: Grid): void {
+function placeResourceDeposits(grid: Grid, gridSize: number): void {
+  // Scale deposit counts with map area relative to a 60×60 reference.
+  const scale = Math.max(0.5, (gridSize * gridSize) / (60 * 60));
+  const s = (base: number) => Math.max(1, Math.round(base * scale));
+
   const oreSlots: Array<{ deposit: TerritoryResourceType; count: number; terrain: TerrainType[] }> = [
-    { deposit: TerritoryResourceType.COPPER, count: 5, terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN, TerrainType.FOREST] },
-    { deposit: TerritoryResourceType.IRON, count: 3, terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN] },
-    { deposit: TerritoryResourceType.FIRE_GLASS, count: 1, terrain: [TerrainType.DESERT, TerrainType.HILLS] },
-    { deposit: TerritoryResourceType.SILVER, count: 2, terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN] },
-    { deposit: TerritoryResourceType.GOLD_DEPOSIT, count: 1, terrain: [TerrainType.DESERT, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.COPPER,       count: s(8),  terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN, TerrainType.FOREST] },
+    { deposit: TerritoryResourceType.IRON,         count: s(6),  terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN] },
+    { deposit: TerritoryResourceType.FIRE_GLASS,   count: s(3),  terrain: [TerrainType.DESERT, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.SILVER,       count: s(4),  terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN] },
+    { deposit: TerritoryResourceType.GOLD_DEPOSIT, count: s(2),  terrain: [TerrainType.DESERT, TerrainType.HILLS] },
   ];
-  const manaSlots: Array<{ deposit: TerritoryResourceType; terrain: TerrainType[] }> = [
-    { deposit: TerritoryResourceType.WATER_MANA, terrain: [TerrainType.FOREST, TerrainType.PLAINS] },
-    { deposit: TerritoryResourceType.FIRE_MANA, terrain: [TerrainType.DESERT, TerrainType.HILLS] },
-    { deposit: TerritoryResourceType.LIGHTNING_MANA, terrain: [TerrainType.HILLS, TerrainType.PLAINS] },
-    { deposit: TerritoryResourceType.EARTH_MANA, terrain: [TerrainType.MOUNTAIN, TerrainType.HILLS] },
-    { deposit: TerritoryResourceType.AIR_MANA, terrain: [TerrainType.HILLS, TerrainType.PLAINS] },
-    { deposit: TerritoryResourceType.SHADOW_MANA, terrain: [TerrainType.FOREST, TerrainType.HILLS] },
+  const manaSlots: Array<{ deposit: TerritoryResourceType; count: number; terrain: TerrainType[] }> = [
+    { deposit: TerritoryResourceType.WATER_MANA,     count: s(2), terrain: [TerrainType.FOREST, TerrainType.PLAINS] },
+    { deposit: TerritoryResourceType.FIRE_MANA,      count: s(2), terrain: [TerrainType.DESERT, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.LIGHTNING_MANA, count: s(2), terrain: [TerrainType.HILLS, TerrainType.PLAINS] },
+    { deposit: TerritoryResourceType.EARTH_MANA,     count: s(2), terrain: [TerrainType.MOUNTAIN, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.AIR_MANA,       count: s(2), terrain: [TerrainType.HILLS, TerrainType.PLAINS] },
+    { deposit: TerritoryResourceType.SHADOW_MANA,    count: s(2), terrain: [TerrainType.FOREST, TerrainType.HILLS] },
   ];
 
   for (const slot of oreSlots) {
-    placeDeposits(grid, slot.deposit, slot.count, slot.terrain);
+    placeDeposits(grid, slot.deposit, slot.count, slot.terrain, gridSize);
   }
   for (const slot of manaSlots) {
-    placeDeposits(grid, slot.deposit, 1, slot.terrain);
+    placeDeposits(grid, slot.deposit, slot.count, slot.terrain, gridSize);
   }
 }
 
@@ -247,6 +263,7 @@ function seedNation(
   pair: { infantry: GridCoordinates; scout: GridCoordinates },
   takenPositions: GridCoordinates[],
   cityNames: string[],
+  gridSize: number,
 ): GridCoordinates[] {
   const infantry = new Infantry(`unit-inf-${serial}`, nationId, pair.infantry);
   const scout    = new Scout(`unit-scout-${serial}`, nationId, pair.scout);
@@ -255,7 +272,7 @@ function seedNation(
 
   takenPositions.push(pair.infantry, pair.scout);
 
-  const cityPositions = findCityPositions(grid, pair.infantry, takenPositions, GRID_SIZE);
+  const cityPositions = findCityPositions(grid, pair.infantry, takenPositions, gridSize);
   for (let j = 0; j < 2; j++) {
     const pos = cityPositions[j];
     if (!pos) continue;
@@ -371,10 +388,11 @@ function placeDeposits(
   deposit: TerritoryResourceType,
   count: number,
   terrainTypes: TerrainType[],
+  gridSize: number,
 ): void {
   const candidates: GridCoordinates[] = [];
-  for (let r = 1; r < GRID_SIZE - 1; r++) {
-    for (let c = 1; c < GRID_SIZE - 1; c++) {
+  for (let r = 1; r < gridSize - 1; r++) {
+    for (let c = 1; c < gridSize - 1; c++) {
       const territory = grid.getTerritory({ row: r, col: c });
       if (!territory) continue;
       if (territory.getResourceDeposit()) continue;

@@ -10,6 +10,7 @@ import { ProduceUnitGoal } from '../goals/ProduceUnitGoal';
 import { AttackTargetGoal } from '../goals/AttackTargetGoal';
 import { UnitType } from '@/entities/units/Unit';
 import type { GridCoordinates } from '@/types/common';
+import { MilitaryStrategy } from './MilitaryStrategy';
 
 const SAFE_RADIUS = 6;
 
@@ -33,8 +34,6 @@ export class DefenseStrategy implements AIStrategy {
   }
 
   nextStrategy(_ctx: AIContext): AIStrategy | null {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { MilitaryStrategy } = require('./MilitaryStrategy') as typeof import('./MilitaryStrategy');
     return new MilitaryStrategy();
   }
 

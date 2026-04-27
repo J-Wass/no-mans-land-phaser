@@ -15,6 +15,7 @@ import type { CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { TechId } from '@/systems/research/TechTree';
 import type { Unit } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
+import type { Difficulty } from '@/types/gameSetup';
 
 export type GameEventMap = {
   'unit:step-complete':        { unitId: EntityId; from: GridCoordinates; to: GridCoordinates; tick: number };
@@ -87,6 +88,10 @@ export type GameEventMap = {
   'territory:highlighted':     { position: GridCoordinates | null };
   /** A UIScene interactive element consumed a click — GameScene should ignore it. */
   'ui:click-consumed':         Record<string, never>;
+  /** Sandbox toolbar: player changed AI difficulty (or 'sandbox' = off). */
+  'sandbox:ai-difficulty-changed': { difficulty: Difficulty };
+  /** Sandbox toolbar: tile paint mode toggled. */
+  'sandbox:tile-edit-mode':    { active: boolean };
 };
 
 export class GameEventBus {

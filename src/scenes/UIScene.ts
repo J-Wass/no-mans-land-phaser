@@ -123,6 +123,8 @@ export class UIScene extends Phaser.Scene {
   private notifications: AlertEntry[] = [];
   private toastIds: number[] = [];
   private nextAlertId = 1;
+  private sandboxAiDifficulty: import('@/types/gameSetup').Difficulty = 'sandbox';
+  private tileEditActive = false;
   constructor() {
     super({ key: 'UIScene' });
   }
@@ -327,6 +329,7 @@ export class UIScene extends Phaser.Scene {
     this.buildAlertHistoryPanel(W, H, scale);
     this.buildDiplomacyWidget(W, H, scale);
     this.buildInfoPanel(H, scale);
+    if (this.setup.gameMode === 'sandbox') this.buildSandboxToolbar(H, scale);
     this.refreshResources();
   }
 
@@ -995,6 +998,83 @@ export class UIScene extends Phaser.Scene {
 
   private isLocalNation(nationId: string): boolean {
     return this.getLocalNation()?.getId() === nationId;
+  }
+
+  private buildSandboxToolbar(H: number, scale: number): void {
+    const topBarH = Math.round(52 * scale);
+    const btnW = Math.round(76 * scale);
+    const btnH = Math.round(26 * scale);
+    const pad = Math.round(8 * scale);
+    const gap = Math.round(5 * scale);
+    const x = pad + btnW / 2;
+    let y = topBarH + pad + Math.round(14 * scale);
+
+    const panelH = H - topBarH - pad * 2;
+    this.track(this.add.rectangle(0, topBarH, btnW + pad * 2, panelH, 0x080e1c, 0.92)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, 0x2a3f6a));
+
+    this.track(this.add.text(x, y, 'SANDBOX', {
+      ...MONO, fontSize: fs(9, scale), color: '#7bd4ff', fontStyle: 'bold',
+    }).setOrigin(0.5, 0));
+    y += Math.round(16 * scale) + gap;
+
+    this.track(this.add.text(x, y, 'AI LEVEL', {
+      ...MONO, fontSize: fs(9, scale), color: '#8fa6d8',
+    }).setOrigin(0.5, 0));
+    y += Math.round(14 * scale) + gap;
+
+    const aiOptions: Array<{ label: string; value: import('@/types/gameSetup').Difficulty }> = [
+      { label: 'OFF', value: 'sandbox' },
+      { label: 'EASY', value: 'easy' },
+      { label: 'MED', value: 'medium' },
+      { label: 'HARD', value: 'hard' },
+    ];
+    for (const { label, value } of aiOptions) {
+      const active = this.sandboxAiDifficulty === value;
+      const fill = active ? 0x1e3d6e : 0x10192e;
+      const stroke = active ? 0x6aabff : 0x2a3f6a;
+      const bg = this.track(this.add.rectangle(x, y, btnW, btnH, fill)
+        .setStrokeStyle(1, stroke)
+        .setInteractive({ useHandCursor: true })) as Phaser.GameObjects.Rectangle;
+      this.track(this.add.text(x, y, label, {
+        ...MONO, fontSize: fs(10, scale), color: active ? '#d0e8ff' : '#7a9acc',
+      }).setOrigin(0.5));
+      const val = value;
+      bg.on('pointerover', () => bg.setFillStyle(fill + 0x0a0a18));
+      bg.on('pointerout', () => bg.setFillStyle(fill));
+      bg.on('pointerup', () => {
+        this.eventBus.emit('ui:click-consumed', {});
+        this.sandboxAiDifficulty = val;
+        this.eventBus.emit('sandbox:ai-difficulty-changed', { difficulty: val });
+        this.rebuildHUD();
+      });
+      y += btnH + gap;
+    }
+
+    y += gap;
+    this.track(this.add.text(x, y, 'TOOLS', {
+      ...MONO, fontSize: fs(9, scale), color: '#8fa6d8',
+    }).setOrigin(0.5, 0));
+    y += Math.round(14 * scale) + gap;
+
+    const paintActive = this.tileEditActive;
+    const paintFill = paintActive ? 0x2a4a1a : 0x10192e;
+    const paintStroke = paintActive ? 0x6aff5a : 0x2a3f6a;
+    const paintBg = this.track(this.add.rectangle(x, y, btnW, btnH, paintFill)
+      .setStrokeStyle(1, paintStroke)
+      .setInteractive({ useHandCursor: true })) as Phaser.GameObjects.Rectangle;
+    this.track(this.add.text(x, y, paintActive ? 'PAINT ON' : 'PAINT', {
+      ...MONO, fontSize: fs(10, scale), color: paintActive ? '#aaffaa' : '#7a9acc',
+    }).setOrigin(0.5));
+    paintBg.on('pointerover', () => paintBg.setFillStyle(paintFill + 0x0a0a08));
+    paintBg.on('pointerout', () => paintBg.setFillStyle(paintFill));
+    paintBg.on('pointerup', () => {
+      this.eventBus.emit('ui:click-consumed', {});
+      this.tileEditActive = !this.tileEditActive;
+      this.eventBus.emit('sandbox:tile-edit-mode', { active: this.tileEditActive });
+      this.rebuildHUD();
+    });
   }
 
   private track<T extends Phaser.GameObjects.GameObject>(obj: T): T {

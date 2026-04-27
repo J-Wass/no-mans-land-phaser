@@ -175,7 +175,9 @@ describe('CommandProcessor', () => {
       nation.getTreasury().addResource(ResourceType.GOLD, 10);
       nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 20);
       nation.getTreasury().addResource(ResourceType.FOOD, 10);
-      // unit-1 is already at (0,0) from the outer beforeEach
+      // unit-1 is already at (0,0) from the outer beforeEach.
+      // Pre-own an adjacent tile so the adjacency check passes.
+      gameState.getGrid().getTerritory({ row: 0, col: 1 })?.setControllingNation('nation-1');
     });
 
     it('claims unclaimed territory when a friendly unit is present', () => {

@@ -18,9 +18,14 @@ import { DiplomaticStatus } from '@/types/diplomacy';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
 import { normalizeGameSetup } from '@/types/gameSetup';
+import { VisionSystem } from '@/systems/vision/VisionSystem';
 
 const WATER_BORDER = 0;
 const GRID_SIZE    = 60;
+const TERRAIN_CYCLE: TerrainType[] = [
+  TerrainType.PLAINS, TerrainType.HILLS, TerrainType.FOREST,
+  TerrainType.MOUNTAIN, TerrainType.DESERT, TerrainType.WATER,
+];
 import type { GameSetup, GameSaveData } from '@/types/gameSetup';
 import type { GridCoordinates } from '@/types/common';
 import type { Unit, BattleOrder } from '@/entities/units/Unit';
@@ -79,6 +84,10 @@ export class GameScene extends Phaser.Scene {
   private contactMarkers: Map<string, Phaser.GameObjects.Text> = new Map();
   /** Tiles visible this frame — used to cull borders/conquest overlays */
   private currentVisible: Set<string> = new Set();
+  private visionSystem!: VisionSystem;
+  /** Terrain tile images tracked for sandbox tile editing */
+  private terrainImages: Map<string, Phaser.GameObjects.Image> = new Map();
+  private tileEditActive = false;
 
   private uiClickConsumed = false;
   private stanceBadges: Map<string, Phaser.GameObjects.Container> = new Map();
@@ -123,6 +132,8 @@ export class GameScene extends Phaser.Scene {
     this.cityLabels.clear();
     this.cityDots.clear();
     this.contactMarkers.clear();
+    this.terrainImages.clear();
+    this.tileEditActive = false;
     this.selectedUnitId = null;
     this.selectedCityId = null;
     this.selectedTerritory = null;
@@ -134,8 +145,10 @@ export class GameScene extends Phaser.Scene {
     this.eventBus = new GameEventBus();
     this.tickEngine = new TickEngine(this.gameState, this.movementSystem, this.eventBus);
     this.diplomacySystem  = new DiplomacySystem(this.gameState, this.eventBus);
+    this.visionSystem     = new VisionSystem();
+    const isSandbox = this.setup.gameMode === 'sandbox';
     this.commandProcessor = new CommandProcessor(
-      this.gameState, this.movementSystem, this.eventBus, this.diplomacySystem,
+      this.gameState, this.movementSystem, this.eventBus, this.diplomacySystem, isSandbox,
     );
     // Wrap the processor in the local adapter — all player commands go through here.
     // Swap LocalServerAdapter for a real transport adapter to enable multiplayer.
@@ -275,11 +288,14 @@ export class GameScene extends Phaser.Scene {
       this.activeConquests.delete(`${position.row},${position.col}`);
     });
 
-    // Camera bounds include the visual water border
-    const totalSize = (GRID_SIZE + WATER_BORDER * 2) * TILE_SIZE;
+    // Camera bounds extend a bit past the water border so scrolling feels free at the edges
+    const SCROLL_PAD = 20 * TILE_SIZE;
+    const totalSize  = (GRID_SIZE + WATER_BORDER * 2) * TILE_SIZE;
     this.cameras.main.setBounds(
-      -WATER_BORDER * TILE_SIZE, -WATER_BORDER * TILE_SIZE,
-      totalSize, totalSize,
+      -WATER_BORDER * TILE_SIZE - SCROLL_PAD,
+      -WATER_BORDER * TILE_SIZE - SCROLL_PAD,
+      totalSize + SCROLL_PAD * 2,
+      totalSize + SCROLL_PAD * 2,
     );
     // Set minimum zoom so user can't zoom out past the water ring
     this.minZoom = Math.max(0.15, Math.min(
@@ -313,6 +329,12 @@ export class GameScene extends Phaser.Scene {
 
     this.eventBus.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
     this.eventBus.on('game:speed-change', ({ speed }) => { this.gameSpeed = speed; });
+    this.eventBus.on('sandbox:ai-difficulty-changed', ({ difficulty }) => {
+      this.aiSystem.setDifficulty(difficulty);
+    });
+    this.eventBus.on('sandbox:tile-edit-mode', ({ active }) => {
+      this.tileEditActive = active;
+    });
 
     this.scene.launch('UIScene', {
       setup:          this.setup,
@@ -420,10 +442,11 @@ export class GameScene extends Phaser.Scene {
         const cx = c * TILE_SIZE + TILE_SIZE / 2;
         const bottomY = (r + 1) * TILE_SIZE;
 
-        this.add.image(cx, bottomY, TERRAIN_TEXTURE[territory.getTerrainType()])
+        const img = this.add.image(cx, bottomY, TERRAIN_TEXTURE[territory.getTerrainType()])
           .setDisplaySize(TILE_SIZE, imgH)
           .setOrigin(0.5, 1)
           .setDepth(r);
+        this.terrainImages.set(`${r},${c}`, img);
       }
     }
   }
@@ -558,6 +581,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateFog(): void {
+    if (this.setup.gameMode === 'sandbox') {
+      this.updateFogDisabled();
+    } else {
+      this.updateFogWithVision();
+    }
+  }
+
+  private updateFogDisabled(): void {
     const grid = this.gameState.getGrid();
     const { rows, cols } = grid.getSize();
     const visible = new Set<string>();
@@ -566,29 +597,88 @@ export class GameScene extends Phaser.Scene {
         visible.add(`${r},${c}`);
       }
     }
-
     this.currentVisible = visible;
     const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
     if (localNationId) this.gameState.markDiscovered(localNationId, visible);
     this.drawTerritoryBorders();
     this.fogGraphic.clear();
-
     for (const city of this.gameState.getAllCities()) {
       this.citySprites.get(city.id)?.setVisible(true);
       this.cityLabels.get(city.id)?.setVisible(true);
       this.cityDots.get(city.id)?.setVisible(true);
     }
-
     for (const unit of this.gameState.getAllUnits()) {
       if (!unit.isAlive()) continue;
       this.unitSprites.get(unit.id)?.setVisible(true);
       this.unitLabels.get(unit.id)?.setVisible(true);
     }
-
-    for (const marker of this.contactMarkers.values()) {
-      marker.destroy();
-    }
+    for (const marker of this.contactMarkers.values()) marker.destroy();
     this.contactMarkers.clear();
+  }
+
+  private updateFogWithVision(): void {
+    const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
+    if (!localNationId) { this.updateFogDisabled(); return; }
+
+    const { visible, nearVisible, discovered } = this.visionSystem.compute(this.gameState, localNationId);
+    this.currentVisible = visible;
+    this.drawTerritoryBorders();
+
+    // Draw fog: solid black for undiscovered, dark tint for discovered-but-not-visible
+    this.fogGraphic.clear();
+    const grid = this.gameState.getGrid();
+    const { rows, cols } = grid.getSize();
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const key = `${r},${c}`;
+        if (!discovered.has(key)) {
+          this.fogGraphic.fillStyle(0x000000, 1.0);
+          this.fogGraphic.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        } else if (!visible.has(key)) {
+          this.fogGraphic.fillStyle(0x000000, 0.55);
+          this.fogGraphic.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+      }
+    }
+
+    // Cities: show if discovered (own cities are always in discovered)
+    for (const city of this.gameState.getAllCities()) {
+      const pos = city.position;
+      const show = city.getOwnerId() === localNationId || discovered.has(`${pos.row},${pos.col}`);
+      this.citySprites.get(city.id)?.setVisible(show);
+      this.cityLabels.get(city.id)?.setVisible(show);
+      this.cityDots.get(city.id)?.setVisible(show);
+    }
+
+    // Clean up contact markers, rebuild below
+    for (const marker of this.contactMarkers.values()) marker.destroy();
+    this.contactMarkers.clear();
+
+    // Units: show own always, enemy only when in visible set
+    for (const unit of this.gameState.getAllUnits()) {
+      if (!unit.isAlive()) continue;
+      const isOwn = unit.getOwnerId() === localNationId;
+      if (isOwn) {
+        this.unitSprites.get(unit.id)?.setVisible(true);
+        this.unitLabels.get(unit.id)?.setVisible(true);
+        continue;
+      }
+      const vis = this.visionSystem.unitVisibility(unit, visible, nearVisible, this.gameState, localNationId);
+      this.unitSprites.get(unit.id)?.setVisible(vis === 'visible');
+      this.unitLabels.get(unit.id)?.setVisible(vis === 'visible');
+      if (vis === 'near') {
+        const key = `${unit.position.row},${unit.position.col}`;
+        if (!this.contactMarkers.has(key)) {
+          const cx = unit.position.col * TILE_SIZE + TILE_SIZE / 2;
+          const cy = unit.position.row * TILE_SIZE + TILE_SIZE / 2;
+          const marker = this.add.text(cx, cy, '?', {
+            fontSize: '14px', color: '#ff8844', fontFamily: 'monospace', fontStyle: 'bold',
+            stroke: '#000000', strokeThickness: 2,
+          }).setOrigin(0.5).setDepth(290);
+          this.contactMarkers.set(key, marker);
+        }
+      }
+    }
   }
 
   private drawPaths(): void {
@@ -759,9 +849,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private shouldShowLiveUnitOverlay(unit: Unit, localNationId: string | null): boolean {
-    void unit;
-    void localNationId;
-    return true;
+    if (this.setup.gameMode === 'sandbox') return true;
+    if (!localNationId) return true;
+    if (unit.getOwnerId() === localNationId) return true;
+    return this.currentVisible.has(`${unit.position.row},${unit.position.col}`);
   }
 
   private handleLeftClick(worldX: number, worldY: number): void {
@@ -771,6 +862,11 @@ export class GameScene extends Phaser.Scene {
     const target = { row, col };
 
     if (!this.gameState.getGrid().isValidCoordinate(target)) return;
+
+    if (this.tileEditActive) {
+      this.cycleTileTerrain(row, col);
+      return;
+    }
 
     // ── Ranged target-selection mode ─────────────────────────────────────────
     // Double-click detection for city/territory menus
@@ -962,6 +1058,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     return Array.from(found);
+  }
+
+  private cycleTileTerrain(row: number, col: number): void {
+    const territory = this.gameState.getGrid().getTerritory({ row, col });
+    if (!territory) return;
+    const current = territory.getTerrainType();
+    const idx = TERRAIN_CYCLE.indexOf(current);
+    const next = TERRAIN_CYCLE[(idx + 1) % TERRAIN_CYCLE.length]!;
+    territory.setTerrainType(next);
+    this.terrainImages.get(`${row},${col}`)?.setTexture(TERRAIN_TEXTURE[next]);
   }
 
   private handleRightClick(): void {

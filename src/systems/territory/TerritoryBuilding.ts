@@ -56,7 +56,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.WALLS,
     label: 'Walls',
-    perks: 'Lvl1: +50HP +8dmg  Lvl2: +100HP +12dmg range2  Lvl3: +150HP +16dmg  Lvl4: +200HP +20dmg range3  Lvl5: +250HP +24dmg',
+    perks: 'Fortifies this territory. Each level adds HP and attack damage; higher levels also extend attack range. Up to 5 levels.',
     cost: { [ResourceType.GOLD]: 5, [ResourceType.RAW_MATERIAL]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -67,7 +67,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.FARMS,
     label: 'Farms',
-    perks: '🍎 +2 Food/s — sustains your army and cities.',
+    perks: 'Generates +2 Food per second from this territory. Food is used for unit upkeep and city growth.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -78,7 +78,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.WORKSHOP,
     label: 'Workshop',
-    perks: '🧱 +1 Raw Material/s — accelerates construction and unit production.',
+    perks: 'Generates +1 Raw Material per second from this territory. Raw materials are used to build units and structures.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -89,7 +89,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.WATCHTOWER,
     label: 'Watchtower',
-    perks: 'Extends vision radius by 2 tiles around this territory.',
+    perks: 'Removes fog of war in a 2-tile radius around this territory, even when no units are nearby.',
     cost: { [ResourceType.RAW_MATERIAL]: 15 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -100,7 +100,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.COPPER_MINE,
     label: 'Copper Mine',
-    perks: '⊛ Activates copper supply — +2 weapon damage (tier 1). Req: copper deposit.',
+    perks: 'Mines the copper deposit here. Gives all your units Bronze weapons, adding +2 melee and ranged damage.',
     cost: { [ResourceType.RAW_MATERIAL]: 25 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
@@ -111,7 +111,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.IRON_MINE,
     label: 'Iron Mine',
-    perks: '⊗ Activates iron supply — +4 weapon damage (tier 2). Req: iron deposit.',
+    perks: 'Mines the iron deposit here. Gives all your units Iron weapons, adding +4 melee and ranged damage.',
     cost: { [ResourceType.RAW_MATERIAL]: 30 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'iron_working',
@@ -122,7 +122,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.FIRE_GLASS_MINE,
     label: 'Fire Glass Mine',
-    perks: '◈ Activates fire glass supply — +6 weapon damage (tier 3). Req: fire glass deposit.',
+    perks: 'Mines the fire glass deposit here. Gives all your units Fire Glass weapons, adding +6 melee and ranged damage.',
     cost: { [ResourceType.RAW_MATERIAL]: 40 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'steel_working',
@@ -133,7 +133,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
   {
     type: TerritoryBuildingType.MANA_MINE,
     label: 'Mana Mine',
-    perks: '◆ Activates this tile\'s mana deposit effect. Req: any mana deposit.',
+    perks: 'Activates the mana deposit on this tile, granting a nation-wide magical bonus (varies by mana type).',
     cost: { [ResourceType.RAW_MATERIAL]: 35, [ResourceType.FOOD]: 10 },
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'mana_studies',

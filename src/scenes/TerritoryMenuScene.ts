@@ -25,11 +25,12 @@ export interface TerritoryMenuSceneData {
 }
 
 // ── Palette ───────────────────────────────────────────────────────────────────
-const { BG, PANEL, HEADER, ACCENT, BTN, BTN_HOV, RED_BTN, RED_H, DIM, LT, WHITE, GOLD_C } = UI;
+const { PANEL, HEADER, ACCENT, BTN, BTN_HOV, RED_BTN, RED_H, DIM, LT, WHITE, GOLD_C } = UI;
 const GREEN = '#44dd99';
 
-const PW = 720; const PH = 500;
-const ROW_H = 38;
+const PANEL_W = 620;
+const ROW_H   = 38;
+const HDR_H   = 62;
 
 export class TerritoryMenuScene extends Phaser.Scene {
   private position!:         GridCoordinates;
@@ -39,15 +40,15 @@ export class TerritoryMenuScene extends Phaser.Scene {
   private playerId!:         string;
 
   private buildingRows: Array<{
-    def:        TerritoryBuildingDef;
-    btn:        Phaser.GameObjects.Rectangle;
-    btnText:    Phaser.GameObjects.Text;
-    costLbl:    Phaser.GameObjects.Text;
-    upgradeBtn: Phaser.GameObjects.Rectangle | null;
-    upgradeTxt: Phaser.GameObjects.Text | null;
-    levelLbl:   Phaser.GameObjects.Text | null;
-    objects:    Phaser.GameObjects.GameObject[];
-    baseY:      number;
+    def:      TerritoryBuildingDef;
+    btn:      Phaser.GameObjects.Rectangle;
+    btnText:  Phaser.GameObjects.Text;
+    costLbl:  Phaser.GameObjects.Text;
+    levelLbl: Phaser.GameObjects.Text | null;
+    objects:  Phaser.GameObjects.GameObject[];
+    baseY:    number;
+    /** 'build' | 'upgrade' — set each refresh to know what the button does */
+    action:   'build' | 'upgrade';
   }> = [];
 
   private feedbackText!: Phaser.GameObjects.Text;
@@ -78,75 +79,79 @@ export class TerritoryMenuScene extends Phaser.Scene {
     const W  = this.scale.width;
     const H  = this.scale.height;
     const cx = W / 2;
-    const cy = H / 2 - 28;
+    const PW = Math.min(PANEL_W, Math.round(W * 0.82));
+    const PH = Math.min(520, Math.round(H * 0.88));
     const px = cx - PW / 2;
-    const py = cy - PH / 2;
+    const py = H / 2 - PH / 2;
 
-    this.add.rectangle(0, 0, W, H, BG, 0.5).setOrigin(0, 0).setInteractive();
-    this.add.rectangle(cx, cy, PW, PH, PANEL).setStrokeStyle(1, ACCENT);
+    // Dark backdrop
+    this.add.rectangle(0, 0, W, H, 0x000000, 0.5).setOrigin(0, 0).setInteractive();
+
+    // Panel background
+    this.add.rectangle(cx, H / 2, PW, PH, PANEL).setOrigin(0.5, 0.5).setStrokeStyle(1, ACCENT).setInteractive();
 
     // Hover hint — shown when mousing over a locked row
-    this.hoverHintText = this.add.text(cx, py + PH - 30, '', {
-      fontSize: '12px', color: '#aa99cc', fontFamily: 'monospace', fontStyle: 'italic',
+    this.hoverHintText = this.add.text(px + PW / 2, py + PH - 22, '', {
+      fontSize: '11px', color: '#aa99cc', fontFamily: 'monospace', fontStyle: 'italic',
     }).setOrigin(0.5).setDepth(10);
 
     // ── Header ────────────────────────────────────────────────────────────────
-    const HDR_H = 50;
-    this.add.rectangle(cx, py + HDR_H / 2, PW, HDR_H, HEADER).setOrigin(0.5, 0.5);
+    this.add.rectangle(px, py, PW, HDR_H, HEADER, 1).setOrigin(0, 0);
 
     const territory = this.gameState.getGrid().getTerritory(this.position);
     const ownerId   = territory?.getControllingNation() ?? null;
     const nation    = ownerId ? this.gameState.getNation(ownerId) : null;
     const colorHex  = nation?.getColor() ?? '#ffffff';
     const color     = parseInt(colorHex.replace('#', ''), 16);
+    const terrain   = territory?.getTerrainType() ?? 'UNKNOWN';
 
-    this.add.circle(px + 26, py + HDR_H / 2, 9, color);
-    const terrain = territory?.getTerrainType() ?? 'UNKNOWN';
-    this.add.text(px + 46, py + HDR_H / 2,
-      `Territory (${this.position.row}, ${this.position.col}) — ${terrain}`, {
-        fontSize: '17px', color: WHITE, fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0, 0.5);
-    this.add.text(px + 46 + 380, py + HDR_H / 2,
-      nation ? `— ${nation.getName()}` : '— Unclaimed', {
-        fontSize: '14px', color: DIM, fontFamily: 'monospace',
-      }).setOrigin(0, 0.5);
+    this.add.circle(px + 14, py + 20, 7, color);
+    this.add.text(px + 28, py + 12,
+      `(${this.position.row}, ${this.position.col}) — ${terrain}`, {
+        fontSize: '14px', color: WHITE, fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0, 0);
+    this.add.text(px + 28, py + 32,
+      nation ? nation.getName() : 'Unclaimed', {
+        fontSize: '12px', color: DIM, fontFamily: 'monospace',
+      }).setOrigin(0, 0);
+
+    // Deposit badge in header
+    const tileDeposit = territory?.getResourceDeposit();
+    if (tileDeposit) {
+      const deposit = tileDeposit;
+      const DEPOSIT_LABEL: Record<TerritoryResourceType, string> = {
+        [TerritoryResourceType.COPPER]:         '⊛ Copper',
+        [TerritoryResourceType.IRON]:           '⊗ Iron',
+        [TerritoryResourceType.FIRE_GLASS]:     '◈ Fire Glass',
+        [TerritoryResourceType.SILVER]:         '◇ Silver',
+        [TerritoryResourceType.GOLD_DEPOSIT]:   '◆ Gold',
+        [TerritoryResourceType.WATER_MANA]:     '~ Water Mana',
+        [TerritoryResourceType.FIRE_MANA]:      '▲ Fire Mana',
+        [TerritoryResourceType.LIGHTNING_MANA]: '⚡ Lightning',
+        [TerritoryResourceType.EARTH_MANA]:     '◉ Earth Mana',
+        [TerritoryResourceType.AIR_MANA]:       '≋ Air Mana',
+        [TerritoryResourceType.SHADOW_MANA]:    '◐ Shadow',
+      };
+      this.add.text(px + PW / 2, py + HDR_H / 2, DEPOSIT_LABEL[deposit], {
+        fontSize: '12px', color: '#ffe066', fontFamily: 'monospace', fontStyle: 'bold',
+      }).setOrigin(0.5, 0.5);
+    }
 
     // Close
-    const closeBg = this.add.rectangle(px + PW - 30, py + HDR_H / 2, 48, 36, RED_BTN)
+    const closeBg = this.add.rectangle(px + PW - 26, py + HDR_H / 2, 40, 32, RED_BTN)
       .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
-    this.add.text(px + PW - 30, py + HDR_H / 2, '✕', {
-      fontSize: '18px', color: '#ff9999', fontFamily: 'monospace',
+    this.add.text(px + PW - 26, py + HDR_H / 2, '✕', {
+      fontSize: '15px', color: '#ff9999', fontFamily: 'monospace',
     }).setOrigin(0.5);
     closeBg.on('pointerup',   () => this.close());
     closeBg.on('pointerover', () => closeBg.setFillStyle(RED_H));
     closeBg.on('pointerout',  () => closeBg.setFillStyle(RED_BTN));
     this.input.keyboard!.once('keydown-ESC', () => this.close());
 
-    // ── Resource deposit (shown in header band) ───────────────────────────────
-    const deposit = territory?.getResourceDeposit();
-    if (deposit) {
-      const DEPOSIT_LABEL: Record<TerritoryResourceType, string> = {
-        [TerritoryResourceType.COPPER]:         '⊛ Copper deposit',
-        [TerritoryResourceType.IRON]:           '⊗ Iron deposit',
-        [TerritoryResourceType.FIRE_GLASS]:     '◈ Fire Glass deposit',
-        [TerritoryResourceType.SILVER]:         '◇ Silver deposit',
-        [TerritoryResourceType.GOLD_DEPOSIT]:   '◆ Gold deposit',
-        [TerritoryResourceType.WATER_MANA]:     '~ Water Mana',
-        [TerritoryResourceType.FIRE_MANA]:      '▲ Fire Mana',
-        [TerritoryResourceType.LIGHTNING_MANA]: '⚡ Lightning Mana',
-        [TerritoryResourceType.EARTH_MANA]:     '◉ Earth Mana',
-        [TerritoryResourceType.AIR_MANA]:       '≋ Air Mana',
-        [TerritoryResourceType.SHADOW_MANA]:    '◐ Shadow Mana',
-      };
-      this.add.text(px + PW - 160, py + HDR_H / 2, DEPOSIT_LABEL[deposit], {
-        fontSize: '13px', color: '#ffe066', fontFamily: 'monospace', fontStyle: 'bold',
-      }).setOrigin(0, 0.5);
-    }
-
     // ── Current buildings ─────────────────────────────────────────────────────
-    const secY = py + HDR_H + 14;
-    this.add.text(px + 18, secY, 'CURRENT BUILDINGS', {
-      fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2,
+    const secY = py + HDR_H + 10;
+    this.add.text(px + 12, secY, 'BUILT', {
+      fontSize: '11px', color: DIM, fontFamily: 'monospace', letterSpacing: 2,
     });
 
     const buildings = territory?.getBuildings() ?? [];
@@ -154,32 +159,58 @@ export class TerritoryMenuScene extends Phaser.Scene {
       ? 'None'
       : buildings.map(b => {
           const lvl = territory?.getBuildingLevel(b) ?? 1;
-          const lvlTag = (b === TerritoryBuildingType.WALLS) ? ` Lvl${lvl}` : '';
+          const lvlTag = (b === TerritoryBuildingType.WALLS) ? ` L${lvl}` : '';
           return `${BUILDING_MAP_ICON[b]} ${b.replace(/_/g, ' ')}${lvlTag}`;
-        }).join('   ');
-    this.add.text(px + 18, secY + 22, builtStr, {
-      fontSize: '13px', color: GREEN, fontFamily: 'monospace',
+        }).join('  ');
+    this.add.text(px + 12, secY + 16, builtStr, {
+      fontSize: '12px', color: GREEN, fontFamily: 'monospace',
+      wordWrap: { width: PW - 24 },
     });
 
     // ── Available buildings list ───────────────────────────────────────────────
-    const listTop = secY + 58;
+    const listTop = secY + 46;
     this.add.rectangle(cx, listTop, PW - 16, 1, ACCENT).setOrigin(0.5, 0);
-    this.add.text(px + 18,  listTop + 10, 'BUILDING', { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
-    this.add.text(px + 290, listTop + 10, 'COST',     { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
-    this.add.text(px + 440, listTop + 10, 'REQ',      { fontSize: '12px', color: DIM, fontFamily: 'monospace', letterSpacing: 2 });
+    this.add.text(px + 14,          listTop + 8, 'BUILDING', { fontSize: '11px', color: DIM, fontFamily: 'monospace', letterSpacing: 1 });
+    this.add.text(px + PW * 0.44,   listTop + 8, 'COST',     { fontSize: '11px', color: DIM, fontFamily: 'monospace', letterSpacing: 1 });
+    this.add.text(px + PW * 0.62,   listTop + 8, 'REQ',      { fontSize: '11px', color: DIM, fontFamily: 'monospace', letterSpacing: 1 });
 
-    const rowStartY = listTop + 32;
+    const rowStartY = listTop + 28;
     this.listViewportTop = rowStartY + 4;
-    this.listViewportBottom = py + PH - 54;
+    this.listViewportBottom = py + PH - 46;
 
-    const listable = TERRITORY_BUILDING_CATALOG.filter(
-      b => b.type !== TerritoryBuildingType.OUTPOST,
-    );
+    const deposit = territory?.getResourceDeposit() ?? null;
+    const MINE_TYPES = new Set([
+      TerritoryBuildingType.COPPER_MINE,
+      TerritoryBuildingType.IRON_MINE,
+      TerritoryBuildingType.FIRE_GLASS_MINE,
+      TerritoryBuildingType.MANA_MINE,
+    ]);
+    const MINE_DEPOSIT_MATCH: Partial<Record<TerritoryBuildingType, TerritoryResourceType>> = {
+      [TerritoryBuildingType.COPPER_MINE]:     TerritoryResourceType.COPPER,
+      [TerritoryBuildingType.IRON_MINE]:       TerritoryResourceType.IRON,
+      [TerritoryBuildingType.FIRE_GLASS_MINE]: TerritoryResourceType.FIRE_GLASS,
+    };
+    const MANA_DEPOSITS = new Set([
+      TerritoryResourceType.WATER_MANA,
+      TerritoryResourceType.FIRE_MANA,
+      TerritoryResourceType.LIGHTNING_MANA,
+      TerritoryResourceType.EARTH_MANA,
+      TerritoryResourceType.AIR_MANA,
+      TerritoryResourceType.SHADOW_MANA,
+    ]);
 
+    const listable = TERRITORY_BUILDING_CATALOG.filter(b => {
+      if (b.type === TerritoryBuildingType.OUTPOST) return false;
+      if (!MINE_TYPES.has(b.type)) return true;
+      if (b.type === TerritoryBuildingType.MANA_MINE) return deposit !== null && MANA_DEPOSITS.has(deposit as TerritoryResourceType);
+      return deposit !== null && MINE_DEPOSIT_MATCH[b.type] === deposit;
+    });
+
+    const midX = px + PW / 2;
     listable.forEach((def, i) => {
       const ry = rowStartY + i * ROW_H;
 
-      const rowBg = this.add.rectangle(cx, ry + ROW_H / 2 - 2, PW - 10, ROW_H - 2, 0)
+      const rowBg = this.add.rectangle(midX, ry + ROW_H / 2 - 2, PW - 8, ROW_H - 2, 0)
         .setOrigin(0.5, 0.5).setInteractive({ useHandCursor: true });
       rowBg.on('pointerover', () => {
         rowBg.setFillStyle(0x1e2240);
@@ -191,66 +222,47 @@ export class TerritoryMenuScene extends Phaser.Scene {
         this.hoverHintText.setVisible(false);
       });
 
-      const nameText = this.add.text(px + 18, ry + ROW_H / 2,
+      const nameText = this.add.text(px + 14, ry + ROW_H / 2,
         `${BUILDING_MAP_ICON[def.type]} ${def.label}`, {
-          fontSize: '15px', color: LT, fontFamily: 'monospace',
+          fontSize: '14px', color: LT, fontFamily: 'monospace',
         }).setOrigin(0, 0.5);
 
-      const costLbl = this.add.text(px + 290, ry + ROW_H / 2,
+      const costLbl = this.add.text(px + PW * 0.44, ry + ROW_H / 2,
         formatCost(def.cost as Record<string, number>), {
-          fontSize: '14px', color: DIM, fontFamily: 'monospace',
+          fontSize: '13px', color: DIM, fontFamily: 'monospace',
         }).setOrigin(0, 0.5);
 
       const reqText = def.requiresTech ?? (def.requires ? def.requires : '—');
-      const reqLbl = this.add.text(px + 440, ry + ROW_H / 2, String(reqText), {
-        fontSize: '12px', color: '#8a8aaa', fontFamily: 'monospace',
+      const reqLbl = this.add.text(px + PW * 0.62, ry + ROW_H / 2, String(reqText).replace(/_/g, ' '), {
+        fontSize: '11px', color: '#8a8aaa', fontFamily: 'monospace',
       }).setOrigin(0, 0.5);
 
-      const btnX    = px + PW - 100;
-      const btn     = this.add.rectangle(btnX, ry + ROW_H / 2, 80, 26, BTN)
+      const btnX = px + PW - 52;
+      const btn  = this.add.rectangle(btnX, ry + ROW_H / 2, 82, 26, BTN)
         .setStrokeStyle(1, ACCENT).setInteractive({ useHandCursor: true });
       const btnText = this.add.text(btnX, ry + ROW_H / 2, 'BUILD', {
-        fontSize: '13px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
+        fontSize: '12px', color: LT, fontFamily: 'monospace', fontStyle: 'bold',
       }).setOrigin(0.5);
 
       btn.on('pointerover', () => { if (btn.getData('enabled')) btn.setFillStyle(BTN_HOV); });
       btn.on('pointerout',  () => { if (btn.getData('enabled')) btn.setFillStyle(BTN); });
-      btn.on('pointerup',   () => { this.build(def); });
+      btn.on('pointerup',   () => {
+        const row = this.buildingRows.find(r => r.def === def);
+        if (row?.action === 'upgrade') { void this.upgrade(def); }
+        else { void this.build(def); }
+      });
 
-      // Upgrade button (only for upgradeable buildings like WALLS)
-      let upgradeBtn: Phaser.GameObjects.Rectangle | null = null;
-      let upgradeTxt: Phaser.GameObjects.Text | null = null;
-      let levelLbl:   Phaser.GameObjects.Text | null = null;
-
+      let levelLbl: Phaser.GameObjects.Text | null = null;
       if (def.maxLevel > 1) {
-        const upX = px + PW - 18;
-        upgradeBtn = this.add.rectangle(upX, ry + ROW_H / 2, 70, 26, 0x1a2a1a)
-          .setStrokeStyle(1, 0x33aa55).setInteractive({ useHandCursor: true });
-        upgradeTxt = this.add.text(upX, ry + ROW_H / 2, '▲ UP', {
-          fontSize: '12px', color: '#77ee99', fontFamily: 'monospace', fontStyle: 'bold',
-        }).setOrigin(0.5);
-        upgradeBtn.on('pointerover', () => { if (upgradeBtn!.getData('enabled')) upgradeBtn!.setFillStyle(0x284428); });
-        upgradeBtn.on('pointerout',  () => { if (upgradeBtn!.getData('enabled')) upgradeBtn!.setFillStyle(0x1a2a1a); });
-        upgradeBtn.on('pointerup',   () => { this.upgrade(def); });
-
-        levelLbl = this.add.text(px + 560, ry + ROW_H / 2, '', {
-          fontSize: '12px', color: '#aaddcc', fontFamily: 'monospace',
+        levelLbl = this.add.text(px + PW * 0.78, ry + ROW_H / 2, '', {
+          fontSize: '11px', color: '#aaddcc', fontFamily: 'monospace',
         }).setOrigin(0, 0.5);
       }
 
-      const objects = [
-        rowBg,
-        nameText,
-        costLbl,
-        reqLbl,
-        btn,
-        btnText,
-        ...(upgradeBtn ? [upgradeBtn] : []),
-        ...(upgradeTxt ? [upgradeTxt] : []),
-        ...(levelLbl ? [levelLbl] : []),
-      ];
+      const objects: Phaser.GameObjects.GameObject[] = [rowBg, nameText, costLbl, reqLbl, btn, btnText];
+      if (levelLbl) objects.push(levelLbl);
       objects.forEach(o => {
-        o.setData('baseY', (o as Phaser.GameObjects.Components.Transform).y);
+        o.setData('baseY', (o as unknown as Phaser.GameObjects.Components.Transform).y);
         o.setData('baseVisible', true);
       });
       this.buildingRows.push({
@@ -258,11 +270,10 @@ export class TerritoryMenuScene extends Phaser.Scene {
         btn,
         btnText,
         costLbl,
-        upgradeBtn,
-        upgradeTxt,
         levelLbl,
         objects,
         baseY: ry + ROW_H / 2,
+        action: 'build',
       });
     });
 
@@ -297,8 +308,8 @@ export class TerritoryMenuScene extends Phaser.Scene {
     };
     this.input.on('wheel', onWheel);
 
-    this.feedbackText = this.add.text(cx, py + PH - 20, '', {
-      fontSize: '14px', color: GOLD_C, fontFamily: 'monospace',
+    this.feedbackText = this.add.text(px + PW / 2, py + PH - 20, '', {
+      fontSize: '13px', color: GOLD_C, fontFamily: 'monospace',
     }).setOrigin(0.5);
 
     const onRefresh = () => this.refreshButtons();
@@ -384,36 +395,34 @@ export class TerritoryMenuScene extends Phaser.Scene {
 
     for (const row of this.buildingRows) {
       const alreadyBuilt = territory.hasBuilding(row.def.type);
+      const curLevel     = territory.getBuildingLevel(row.def.type);
+      const maxLevel     = row.def.type === TerritoryBuildingType.WALLS ? MAX_WALLS_LEVEL : row.def.maxLevel;
+      const atMax        = curLevel >= maxLevel;
       const prereqMet    = !row.def.requires || territory.hasBuilding(row.def.requires);
       const techMet      = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
       const canAfford    = treasury?.hasResources(row.def.cost) ?? false;
       const owned        = ownerId !== null;
-      const enabled      = owned && !alreadyBuilt && prereqMet && techMet && canAfford;
 
+      const canUpgrade = alreadyBuilt && !atMax && (treasury?.hasResources(row.def.upgradeCost) ?? false);
+      const canBuild   = owned && !alreadyBuilt && prereqMet && techMet && canAfford;
+      const enabled    = canBuild || canUpgrade;
+
+      row.action = canUpgrade ? 'upgrade' : 'build';
       row.btn.setData('enabled', enabled);
-      row.btn.setFillStyle(enabled ? BTN : 0x0e101e);
-      row.btn.setStrokeStyle(1, enabled ? ACCENT : 0x2a2a44);
-      row.btnText.setColor(enabled ? LT : '#444466');
-      row.btnText.setText(alreadyBuilt ? 'BUILT' : 'BUILD');
-      row.costLbl.setColor(canAfford ? DIM : '#995555');
+      row.btn.setFillStyle(enabled ? (canUpgrade ? 0x1a2a1a : BTN) : 0x0e101e);
+      row.btn.setStrokeStyle(1, enabled ? (canUpgrade ? 0x33aa55 : ACCENT) : 0x2a2a44);
+      row.btnText.setColor(enabled ? (canUpgrade ? '#77ee99' : LT) : '#444466');
 
-      // Upgrade button state
-      if (row.upgradeBtn && row.upgradeTxt && row.levelLbl) {
-        const curLevel  = territory.getBuildingLevel(row.def.type);
-        const maxLevel  = row.def.type === TerritoryBuildingType.WALLS ? MAX_WALLS_LEVEL : row.def.maxLevel;
-        const atMax     = curLevel >= maxLevel;
-        const canUpgrade = alreadyBuilt && !atMax && (treasury?.hasResources(row.def.upgradeCost) ?? false);
+      if (alreadyBuilt && atMax) row.btnText.setText('MAX');
+      else if (alreadyBuilt && canUpgrade) row.btnText.setText('▲ UP');
+      else if (alreadyBuilt) row.btnText.setText('BUILT');
+      else row.btnText.setText('BUILD');
 
-        row.upgradeBtn.setData('enabled', canUpgrade);
-        row.upgradeBtn.setVisible(alreadyBuilt);
-        row.upgradeBtn.setData('baseVisible', alreadyBuilt);
-        row.upgradeTxt.setVisible(alreadyBuilt);
-        row.upgradeTxt.setData('baseVisible', alreadyBuilt);
-        row.upgradeBtn.setFillStyle(canUpgrade ? 0x1a2a1a : 0x0e130e);
-        row.upgradeBtn.setStrokeStyle(1, canUpgrade ? 0x33aa55 : 0x223322);
-        row.upgradeTxt.setColor(canUpgrade ? '#77ee99' : '#336633');
-        row.upgradeTxt.setText(atMax ? 'MAX' : '▲ UP');
+      const costForDisplay = canUpgrade ? row.def.upgradeCost : row.def.cost;
+      row.costLbl.setText(formatCost(costForDisplay as Record<string, number>));
+      row.costLbl.setColor(canAfford || canUpgrade ? DIM : '#995555');
 
+      if (row.levelLbl) {
         if (alreadyBuilt) {
           row.levelLbl.setText(`Lvl ${curLevel}/${maxLevel}`).setVisible(true);
           row.levelLbl.setData('baseVisible', true);

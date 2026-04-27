@@ -16,6 +16,8 @@ import { mineralGoldBonus } from '@/systems/resources/ResourceBonuses';
 
 // ── Passive yield intervals (in ticks) ────────────────────────────────────────
 // TICK_RATE = 10 → 5 ticks = 0.5s, 10 ticks = 1s
+/** Research doesn't start accumulating until 30 seconds into the game. */
+const RESEARCH_START_TICK  = 300;
 const FOOD_INTERVAL        = 5;   // base +2/s per city
 const MATERIAL_INTERVAL    = 10;  // base +1/s per city
 const GOLD_INTERVAL        = 10;
@@ -42,7 +44,7 @@ export class ProductionSystem {
       if (currentTick % FOOD_INTERVAL     === 0) t.addResource(ResourceType.FOOD,         1);
       if (currentTick % MATERIAL_INTERVAL === 0) t.addResource(ResourceType.RAW_MATERIAL, 1);
       if (currentTick % GOLD_INTERVAL     === 0) t.addResource(ResourceType.GOLD,         1);
-      if (currentTick % RESEARCH_INTERVAL === 0) t.addResource(ResourceType.RESEARCH,     1);
+      if (currentTick >= RESEARCH_START_TICK && currentTick % RESEARCH_INTERVAL === 0) t.addResource(ResourceType.RESEARCH, 1);
 
       // City building bonuses
       if (city.hasBuilding(CityBuildingType.FARMS)
@@ -50,7 +52,7 @@ export class ProductionSystem {
       if (city.hasBuilding(CityBuildingType.WORKSHOP)
           && currentTick % MATERIAL_INTERVAL === 0)      t.addResource(ResourceType.RAW_MATERIAL, 1);
       if (city.hasBuilding(CityBuildingType.SCHOOL)
-          && currentTick % RESEARCH_INTERVAL === 0)      t.addResource(ResourceType.RESEARCH,     1);
+          && currentTick >= RESEARCH_START_TICK && currentTick % RESEARCH_INTERVAL === 0) t.addResource(ResourceType.RESEARCH, 1);
       if (city.hasBuilding(CityBuildingType.MARKET)
           && currentTick % GOLD_INTERVAL === 0)          t.addResource(ResourceType.GOLD,         1);
     }
