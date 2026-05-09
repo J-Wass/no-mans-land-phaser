@@ -56,9 +56,10 @@ export class GameScene extends Phaser.Scene {
   private commandProcessor!: CommandProcessor;  // server-side: used by AI + TickEngine
   private networkAdapter!: NetworkAdapter;       // client-side: used by all player input
 
-  private unitSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private unitSprites: Map<string, Phaser.GameObjects.Sprite> = new Map();
   private unitLabels: Map<string, Phaser.GameObjects.Text> = new Map();
-  private unitColors: Map<string, number> = new Map();   // base fill color per unit
+  private unitRings: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private unitColors: Map<string, number> = new Map();   // nation color per unit (ring stroke)
   private citySprites: Map<string, Phaser.GameObjects.Image> = new Map();
   private cityLabels: Map<string, Phaser.GameObjects.Text> = new Map();
   private cityDots: Map<string, Phaser.GameObjects.Arc> = new Map();
@@ -111,6 +112,7 @@ export class GameScene extends Phaser.Scene {
     this.load.image('terrain_water', 'terrain_squares/ocean.png');
     this.load.image('terrain_desert', 'terrain_squares/desert.png');
     this.load.image('city_town', 'terrain_squares/town.png');
+    this.load.spritesheet('infantry_neutral', 'sprites/infantry_neutral_4x.png', { frameWidth: 128, frameHeight: 128 });
   }
 
   init(data: GameSceneData): void {
@@ -127,6 +129,7 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.unitSprites.clear();
     this.unitLabels.clear();
+    this.unitRings.clear();
     this.unitColors.clear();
     this.citySprites.clear();
     this.cityLabels.clear();
@@ -182,10 +185,12 @@ export class GameScene extends Phaser.Scene {
     this.pathGraphic      = this.add.graphics().setDepth(92); // below fog
     this.selectionGraphic = this.add.graphics().setDepth(200);
 
+    this.createUnitAnimations();
     this.createCitySprites();
     this.createUnitSprites();
 
     this.eventBus.on('unit:step-complete', ({ unitId, to }) => {
+      this.playWalkAnim(unitId, to);
       this.moveSpriteTo(unitId, to);
     });
 
@@ -203,11 +208,10 @@ export class GameScene extends Phaser.Scene {
     // Flash the firing unit briefly white on each ranged shot
     this.eventBus.on('ranged:fired', ({ unitId }) => {
       const sprite = this.unitSprites.get(unitId);
-      const baseColor = this.unitColors.get(unitId);
-      if (!sprite || baseColor === undefined) return;
-      sprite.setFillStyle(0xffffff);
+      if (!sprite) return;
+      sprite.setTintFill(0xffffff);
       this.time.delayedCall(130, () => {
-        if (sprite.active) sprite.setFillStyle(baseColor);
+        if (sprite.active) sprite.clearTint();
       });
     });
 
@@ -355,6 +359,7 @@ export class GameScene extends Phaser.Scene {
       this.aiSystem.tick(this.tickEngine.getCurrentTick());
     }
     this.updateFog();
+    this.updateUnitAnimations();
     this.drawPaths();
     this.drawSelection();
     this.drawUnitHealthBars();
@@ -530,6 +535,29 @@ export class GameScene extends Phaser.Scene {
     this.cityLabels.set(city.id, label);
   }
 
+  private createUnitAnimations(): void {
+    const ANIMS: Record<string, { row: number; frames: number; fps: number; loop: boolean }> = {
+      'walk-down':    { row: 0, frames: 4, fps: 7,  loop: true  },
+      'walk-left':    { row: 1, frames: 4, fps: 7,  loop: true  },
+      'walk-right':   { row: 2, frames: 4, fps: 7,  loop: true  },
+      'walk-up':      { row: 3, frames: 4, fps: 7,  loop: true  },
+      'idle':         { row: 4, frames: 4, fps: 3,  loop: true  },
+      'attack-left':  { row: 5, frames: 4, fps: 10, loop: true  },
+      'attack-right': { row: 6, frames: 4, fps: 10, loop: true  },
+      'rest':         { row: 7, frames: 4, fps: 2,  loop: true  },
+    };
+    for (const [suffix, a] of Object.entries(ANIMS)) {
+      const key = `infantry_neutral_${suffix}`;
+      if (this.anims.exists(key)) continue;
+      this.anims.create({
+        key,
+        frames: this.anims.generateFrameNumbers('infantry_neutral', { start: a.row * 4, end: a.row * 4 + a.frames - 1 }),
+        frameRate: a.fps,
+        repeat: a.loop ? -1 : 0,
+      });
+    }
+  }
+
   private createUnitSprites(): void {
     for (const unit of this.gameState.getAllUnits()) {
       this.createSpriteForUnit(unit);
@@ -545,36 +573,92 @@ export class GameScene extends Phaser.Scene {
     const cx = pos.col * TILE_SIZE + TILE_SIZE / 2;
     const cy = pos.row * TILE_SIZE + TILE_SIZE / 2;
 
-    const circle = this.add.circle(cx, cy, TILE_SIZE * 0.35, color)
-      .setStrokeStyle(2, 0xffffff, 0.8)
-      .setDepth(300 + pos.row);
+    const ring = this.add.arc(cx, cy, TILE_SIZE * 0.25 + 2, 0, 360, false, 0, 0)
+      .setStrokeStyle(1, color, 1)
+      .setDepth(299 + pos.row);
 
-    const label = this.add.text(cx, cy, unitInitial(unit), {
-      fontSize: '11px',
+    const sprite = this.add.sprite(cx, cy, 'infantry_neutral')
+      .setDisplaySize(TILE_SIZE, TILE_SIZE)
+      .setDepth(300 + pos.row)
+      .play('infantry_neutral_idle');
+
+    const label = this.add.text(cx, cy - TILE_SIZE * 0.4, unitInitial(unit), {
+      fontSize: '9px',
       color: '#ffffff',
       fontFamily: 'monospace',
       fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
     }).setOrigin(0.5, 0.5).setDepth(400 + pos.row);
 
-    this.unitSprites.set(unit.id, circle);
+    this.unitRings.set(unit.id, ring);
+    this.unitSprites.set(unit.id, sprite);
     this.unitLabels.set(unit.id, label);
     this.unitColors.set(unit.id, color);
   }
 
   private moveSpriteTo(unitId: string, coords: GridCoordinates): void {
-    const circle = this.unitSprites.get(unitId);
+    const sprite = this.unitSprites.get(unitId);
     const label = this.unitLabels.get(unitId);
-    if (!circle || !label) return;
+    const ring = this.unitRings.get(unitId);
+    if (!sprite || !label) return;
 
     const cx = coords.col * TILE_SIZE + TILE_SIZE / 2;
     const cy = coords.row * TILE_SIZE + TILE_SIZE / 2;
-    circle.setPosition(cx, cy).setDepth(300 + coords.row);
-    label.setPosition(cx, cy).setDepth(400 + coords.row);
+    sprite.setPosition(cx, cy).setDepth(300 + coords.row);
+    label.setPosition(cx, cy - TILE_SIZE * 0.4).setDepth(400 + coords.row);
+    ring?.setPosition(cx, cy).setDepth(299 + coords.row);
+  }
+
+  private playWalkAnim(unitId: string, to: GridCoordinates): void {
+    const sprite = this.unitSprites.get(unitId);
+    if (!sprite) return;
+
+    const fromCol = Math.round((sprite.x - TILE_SIZE / 2) / TILE_SIZE);
+    const fromRow = Math.round((sprite.y - TILE_SIZE / 2) / TILE_SIZE);
+    const dc = to.col - fromCol;
+    const dr = to.row - fromRow;
+
+    let animKey = 'infantry_neutral_walk-down';
+    if (Math.abs(dc) >= Math.abs(dr)) {
+      animKey = dc >= 0 ? 'infantry_neutral_walk-right' : 'infantry_neutral_walk-left';
+    } else {
+      animKey = dr >= 0 ? 'infantry_neutral_walk-down' : 'infantry_neutral_walk-up';
+    }
+    sprite.play(animKey, true);
+  }
+
+  private updateUnitAnimations(): void {
+    for (const unit of this.gameState.getAllUnits()) {
+      if (!unit.isAlive()) continue;
+      const sprite = this.unitSprites.get(unit.id);
+      if (!sprite) continue;
+
+      if (unit.isEngagedInBattle()) {
+        const attackKey = this.time.now % 1600 < 800
+          ? 'infantry_neutral_attack-left'
+          : 'infantry_neutral_attack-right';
+        if (sprite.anims.currentAnim?.key !== attackKey) sprite.play(attackKey, true);
+        return;
+      }
+
+      const movState = this.movementSystem.getAllStates().get(unit.id);
+      const isMoving = (movState?.path.length ?? 0) > 0;
+      if (isMoving) {
+        // keep whatever walk anim playWalkAnim last set
+        const cur = sprite.anims.currentAnim?.key ?? '';
+        if (!cur.startsWith('infantry_neutral_walk-')) sprite.play('infantry_neutral_walk-down', true);
+      } else {
+        sprite.play('infantry_neutral_idle', true);
+      }
+    }
   }
 
   private removeUnitSprite(unitId: string): void {
+    this.unitRings.get(unitId)?.destroy();
     this.unitSprites.get(unitId)?.destroy();
     this.unitLabels.get(unitId)?.destroy();
+    this.unitRings.delete(unitId);
     this.unitSprites.delete(unitId);
     this.unitLabels.delete(unitId);
     this.unitColors.delete(unitId);
@@ -611,6 +695,7 @@ export class GameScene extends Phaser.Scene {
       if (!unit.isAlive()) continue;
       this.unitSprites.get(unit.id)?.setVisible(true);
       this.unitLabels.get(unit.id)?.setVisible(true);
+      this.unitRings.get(unit.id)?.setVisible(true);
     }
     for (const marker of this.contactMarkers.values()) marker.destroy();
     this.contactMarkers.clear();
@@ -661,11 +746,13 @@ export class GameScene extends Phaser.Scene {
       if (isOwn) {
         this.unitSprites.get(unit.id)?.setVisible(true);
         this.unitLabels.get(unit.id)?.setVisible(true);
+        this.unitRings.get(unit.id)?.setVisible(true);
         continue;
       }
       const vis = this.visionSystem.unitVisibility(unit, visible, nearVisible, this.gameState, localNationId);
       this.unitSprites.get(unit.id)?.setVisible(vis === 'visible');
       this.unitLabels.get(unit.id)?.setVisible(vis === 'visible');
+      this.unitRings.get(unit.id)?.setVisible(vis === 'visible');
       if (vis === 'near') {
         const key = `${unit.position.row},${unit.position.col}`;
         if (!this.contactMarkers.has(key)) {
