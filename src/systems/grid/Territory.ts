@@ -21,12 +21,12 @@ export const WALLS_HP_BONUS      = WALLS_HP_PER_LEVEL;
 export const WALLS_ATTACK_DAMAGE = WALLS_DMG_BASE;
 
 export enum TerrainType {
-  PLAINS   = 'PLAINS',
-  HILLS    = 'HILLS',
-  FOREST   = 'FOREST',
-  MOUNTAIN = 'MOUNTAIN',
-  WATER    = 'WATER',
-  DESERT   = 'DESERT',
+  PLAINS      = 'PLAINS',
+  SNOW_FOREST = 'SNOW_FOREST',
+  FOREST      = 'FOREST',
+  MOUNTAIN    = 'MOUNTAIN',
+  WATER       = 'WATER',
+  DESERT      = 'DESERT',
 }
 
 export interface TerritoryData {

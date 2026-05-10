@@ -78,6 +78,8 @@ export type GameEventMap = {
   'nation:research-started':   { nationId: EntityId; techId: TechId };
   /** TickEngine completed one game tick. */
   'game:tick':                 { tick: number };
+  /** A nation dominates a geographic region (controls ≥66% of its tiles). */
+  'region:dominated':          { regionId: string; nationId: EntityId; tick: number };
   /** Player toggled game speed (1 = normal, 2 = fast, 4 = very fast). */
   'game:speed-change':         { speed: number };
   /** Player selected (or deselected) a unit. */

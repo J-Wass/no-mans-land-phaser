@@ -70,7 +70,7 @@ describe('DiplomacySystem', () => {
 
     movement.issueOrder(returningUnit, [{ row: 4, col: 3 }]);
 
-    expect(diplomacy.proposePeace(nationA.getId(), nationB.getId(), 20, movement)).toBe(true);
+    expect(diplomacy.proposePeace(nationA.getId(), nationB.getId(), 20, movement).accepted).toBe(true);
     expect(nationA.getRelation(nationB.getId())).toBe(DiplomaticStatus.NEUTRAL);
     expect(nationB.getRelation(nationA.getId())).toBe(DiplomaticStatus.NEUTRAL);
     expect(returningUnit.position).toEqual({ row: 0, col: 1 });

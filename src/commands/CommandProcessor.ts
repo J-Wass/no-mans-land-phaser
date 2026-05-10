@@ -383,10 +383,10 @@ export class CommandProcessor {
     const nation = this.gameState.getNation(player.getControlledNationId());
     if (!nation) return { success: false, reason: 'Nation not found' };
 
-    const ok = this.diplomacySystem.proposePeace(
+    const result = this.diplomacySystem.proposePeace(
       nation.getId(), command.targetNationId, command.issuedAtTick, this.movementSystem,
     );
-    return ok ? { success: true } : { success: false, reason: 'Not at war with this nation' };
+    return result.accepted ? { success: true } : { success: false, reason: result.reason ?? 'Peace rejected' };
   }
 
   // ── Shared helpers ────────────────────────────────────────────────────────

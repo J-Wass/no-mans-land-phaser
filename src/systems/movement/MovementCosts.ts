@@ -12,12 +12,12 @@ import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType
 import { lightningManaSpeedBonus } from '@/systems/resources/ResourceBonuses';
 
 export const TERRAIN_BASE_COST: Record<TerrainType, number> = {
-  [TerrainType.PLAINS]:   10,
-  [TerrainType.HILLS]:    15,
-  [TerrainType.FOREST]:   20,
+  [TerrainType.PLAINS]:   20,
+  [TerrainType.SNOW_FOREST]:    30,
+  [TerrainType.FOREST]:   40,
   [TerrainType.MOUNTAIN]: Infinity,
   [TerrainType.WATER]:    Infinity,
-  [TerrainType.DESERT]:   15,
+  [TerrainType.DESERT]:   30,
 };
 
 /** Units that move at effective speed=1 through FOREST. */
@@ -49,9 +49,9 @@ export function stepCost(
 
   if (!isFinite(base) && activeDeposits) {
     if (terrain === TerrainType.MOUNTAIN && activeDeposits.has(TerritoryResourceType.EARTH_MANA)) {
-      base = TERRAIN_BASE_COST[TerrainType.HILLS];
+      base = TERRAIN_BASE_COST[TerrainType.SNOW_FOREST];
     } else if (terrain === TerrainType.WATER && activeDeposits.has(TerritoryResourceType.WATER_MANA)) {
-      base = TERRAIN_BASE_COST[TerrainType.HILLS];
+      base = TERRAIN_BASE_COST[TerrainType.SNOW_FOREST];
     }
   }
 

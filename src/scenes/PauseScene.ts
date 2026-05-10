@@ -11,6 +11,10 @@ import type { GameSetup, GameSaveData } from '@/types/gameSetup';
 import { SaveSystem } from '@/systems/save/SaveSystem';
 import { UI } from '@/config/uiTheme';
 import {
+  FONT_OPTIONS, SIZE_OPTIONS,
+  getFont, setFont, getFontSizeScale, setFontSizeScale,
+} from '@/config/accessibility';
+import {
   colorString,
   createBackdrop,
   createButton,
@@ -65,6 +69,7 @@ export class PauseScene extends Phaser.Scene {
     root.add(this.buildTopActions(metrics, size.width), { expand: true });
     root.add(this.buildSlotsSection(metrics, size.width, size.height), { proportion: 1, expand: true });
     root.add(this.buildTransferRow(metrics, size.width), { expand: true });
+    root.add(this.buildAccessibilitySection(metrics, size.width), { expand: true });
     this.feedbackText = createText(this, '', metrics, 'body', {
       color: UI.SUCCESS,
       align: 'center',
@@ -261,6 +266,64 @@ export class PauseScene extends Phaser.Scene {
     row.add(exportButton.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
     row.add(importButton.root, { proportion: metrics.stacked ? 0 : 1, expand: !metrics.stacked });
     wrapper.add(row, { expand: true });
+    return wrapper;
+  }
+
+  private buildAccessibilitySection(metrics: ReturnType<typeof getUiMetrics>, panelWidth: number): Phaser.GameObjects.GameObject {
+    const wrapper = this.rexUI.add.sizer({
+      orientation: 'y',
+      width: panelWidth - metrics.pad * 2,
+      space: { item: metrics.smallGap },
+    });
+
+    wrapper.add(createText(this, 'Accessibility', metrics, 'caption', {
+      fontFamily: UI.FONT_DATA,
+      fontStyle: 'bold',
+      color: colorString(UI.ACCENT_SOFT),
+    }));
+
+    // Font family row
+    const fontRow = this.rexUI.add.sizer({
+      orientation: 'x',
+      space: { item: metrics.smallGap },
+    });
+    fontRow.add(createText(this, 'Font:', metrics, 'caption', { color: UI.DIM }), { align: 'center' });
+    const currentFont = getFont();
+    for (const opt of FONT_OPTIONS) {
+      const isActive = opt.value === currentFont;
+      const btn = createButton(this, metrics, opt.label, () => {
+        setFont(opt.value);
+        this.scene.restart({
+          gameState: this.gameState, tickEngine: this.tickEngine,
+          movementSystem: this.movementSystem, diplomacySystem: this.diplomacySystem,
+          setup: this.setup,
+        });
+      }, { variant: isActive ? 'primary' : 'ghost', width: Math.round(110 * metrics.scale), height: Math.round(metrics.buttonHeight * 0.75) });
+      fontRow.add(btn.root);
+    }
+    wrapper.add(fontRow, { expand: false });
+
+    // Font size row
+    const sizeRow = this.rexUI.add.sizer({
+      orientation: 'x',
+      space: { item: metrics.smallGap },
+    });
+    sizeRow.add(createText(this, 'Size:', metrics, 'caption', { color: UI.DIM }), { align: 'center' });
+    const currentSize = getFontSizeScale();
+    for (const opt of SIZE_OPTIONS) {
+      const isActive = Math.abs(opt.value - currentSize) < 0.01;
+      const btn = createButton(this, metrics, opt.label, () => {
+        setFontSizeScale(opt.value);
+        this.scene.restart({
+          gameState: this.gameState, tickEngine: this.tickEngine,
+          movementSystem: this.movementSystem, diplomacySystem: this.diplomacySystem,
+          setup: this.setup,
+        });
+      }, { variant: isActive ? 'primary' : 'ghost', width: Math.round(90 * metrics.scale), height: Math.round(metrics.buttonHeight * 0.75) });
+      sizeRow.add(btn.root);
+    }
+    wrapper.add(sizeRow, { expand: false });
+
     return wrapper;
   }
 

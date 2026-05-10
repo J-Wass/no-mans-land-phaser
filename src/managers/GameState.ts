@@ -20,6 +20,7 @@ import type { ProductionOrder } from '@/systems/production/ProductionOrder';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
+import type { RegionSystem } from '@/systems/regions/RegionSystem';
 
 export class GameState implements Serializable<ReturnType<GameState['toJSON']>> {
   private grid:             Grid;
@@ -33,6 +34,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   private unitTypeCounters: Map<string, number>;
   /** Tiles each nation has ever had line-of-sight on. */
   private discoveredTiles:  Map<EntityId, Set<string>>;
+  private regionSystem:     RegionSystem | null = null;
 
   constructor(gridConfig: GridConfig) {
     this.grid             = new Grid(gridConfig);
@@ -100,6 +102,9 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   }
 
   public getGrid(): Grid { return this.grid; }
+
+  public setRegionSystem(rs: RegionSystem): void { this.regionSystem = rs; }
+  public getRegionSystem(): RegionSystem | null { return this.regionSystem; }
 
   // ── Player management ─────────────────────────────────────────────────────
   public addPlayer(player: Player): void  { this.players.set(player.getId(), player); }

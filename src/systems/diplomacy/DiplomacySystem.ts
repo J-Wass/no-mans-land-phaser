@@ -107,21 +107,28 @@ export class DiplomacySystem {
   }
 
   /**
-   * Propose (and immediately accept in single-player) a peace treaty.
-   * Sets both nations to NEUTRAL, starts the cooldown, and returns
-   * any unit sitting on the other nation's territory back to the nearest
-   * tile its own nation controls.
+   * Propose a peace treaty. If the target nation is AI-controlled, it evaluates
+   * whether to accept based on its current military strength. Returns false if
+   * the AI refuses, or if the nations are not at war.
    */
   public proposePeace(
     fromNationId:   EntityId,
     toNationId:     EntityId,
     tick:           number,
     movementSystem: MovementSystem,
-  ): boolean {
+  ): { accepted: boolean; reason?: string } {
     const n1 = this.gameState.getNation(fromNationId);
     const n2 = this.gameState.getNation(toNationId);
-    if (!n1 || !n2) return false;
-    if (n1.getRelation(toNationId) !== DiplomaticStatus.WAR) return false;
+    if (!n1 || !n2) return { accepted: false, reason: 'Nation not found' };
+    if (n1.getRelation(toNationId) !== DiplomaticStatus.WAR) return { accepted: false, reason: 'Not at war' };
+
+    // AI nations evaluate whether to accept peace
+    if (n2.isAIControlled()) {
+      const accepted = this.aiEvaluatesPeace(fromNationId, toNationId);
+      if (!accepted) {
+        return { accepted: false, reason: `${n2.getName()} refuses — they are winning this war.` };
+      }
+    }
 
     n1.makePeace(toNationId);
     n2.makePeace(fromNationId);
@@ -134,6 +141,23 @@ export class DiplomacySystem {
     this.returnUnitsFromEnemyTerritory(toNationId, fromNationId, movementSystem, tick);
 
     this.eventBus.emit('diplomacy:peace-signed', { fromNationId, toNationId, tick });
+    return { accepted: true };
+  }
+
+  /**
+   * AI evaluates a peace proposal. Accepts if it is losing (weaker force)
+   * or roughly matched; refuses if it has a significant strength advantage.
+   */
+  private aiEvaluatesPeace(proposerNationId: EntityId, aiNationId: EntityId): boolean {
+    const proposerStrength = this.gameState.getUnitsByNation(proposerNationId)
+      .filter(u => u.isAlive())
+      .reduce((sum, u) => sum + u.getHealth(), 0);
+    const aiStrength = this.gameState.getUnitsByNation(aiNationId)
+      .filter(u => u.isAlive())
+      .reduce((sum, u) => sum + u.getHealth(), 0);
+
+    // AI refuses peace if its strength is more than 40% greater than the proposer's
+    if (aiStrength > proposerStrength * 1.4) return false;
     return true;
   }
 

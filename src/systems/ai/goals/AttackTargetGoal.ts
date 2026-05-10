@@ -8,6 +8,7 @@
 
 import type { AIContext, AIGoal, GoalStatus } from '../AITypes';
 import type { GridCoordinates } from '@/types/common';
+import type { Unit } from '@/entities/units/Unit';
 import { manhattan } from '../strategies/AIStrategy';
 
 export class AttackTargetGoal implements AIGoal {
@@ -24,9 +25,35 @@ export class AttackTargetGoal implements AIGoal {
 
   isFeasible(ctx: AIContext): boolean {
     if (ctx.currentTick < this.minTickToAttack) return false;
-    const hasIdle = ctx.gameState.getUnitsByNation(ctx.nationId)
-      .some(u => u.isAlive() && !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id));
-    return hasIdle && this.findTarget(ctx) !== null;
+    const myUnits = ctx.gameState.getUnitsByNation(ctx.nationId).filter(u => u.isAlive());
+    const hasIdle = myUnits.some(u => !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id));
+    if (!hasIdle) return false;
+
+    const target = this.findTarget(ctx);
+    if (!target) return false;
+
+    // Don't attack if significantly outmatched
+    if (this.isOutmatched(ctx, myUnits)) return false;
+
+    return true;
+  }
+
+  private isOutmatched(ctx: AIContext, myAliveUnits: Unit[]): boolean {
+    const myStrength = myAliveUnits.reduce((sum, u) => sum + u.getHealth(), 0);
+    const nation = ctx.gameState.getNation(ctx.nationId);
+
+    // Sum HP of all non-allied enemy nations
+    let enemyStrength = 0;
+    for (const other of ctx.gameState.getAllNations()) {
+      if (other.getId() === ctx.nationId) continue;
+      if (nation?.isAlly(other.getId())) continue;
+      enemyStrength += ctx.gameState.getUnitsByNation(other.getId())
+        .filter(u => u.isAlive())
+        .reduce((sum, u) => sum + u.getHealth(), 0);
+    }
+
+    // Don't attack if our strength is less than 55% of combined enemy strength
+    return enemyStrength > 0 && myStrength < enemyStrength * 0.55;
   }
 
   execute(ctx: AIContext): GoalStatus {

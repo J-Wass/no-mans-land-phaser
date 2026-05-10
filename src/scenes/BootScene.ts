@@ -43,8 +43,8 @@ function computeGridSize(totalNations: number): number {
   // Playable area = (gridSize - 20)² (10 water tiles each side).
   // Solve: (gridSize - 20)² = 63 × totalNations  →  gridSize = 20 + ceil(sqrt(63 × n))
   // Add 50% headroom so the map feels open, not claustrophobic.
-  const landNeeded = Math.ceil(63 * totalNations * 1.5);
-  return Math.max(40, Math.min(72, 20 + Math.ceil(Math.sqrt(landNeeded))));
+  const landNeeded = Math.ceil(63 * totalNations * 1.0);
+  return Math.max(32, Math.min(60, 20 + Math.ceil(Math.sqrt(landNeeded))));
 }
 
 interface BootSceneData {
@@ -200,7 +200,7 @@ export class BootScene extends Phaser.Scene {
 const TERRAIN_CHAR: Record<string, TerrainType> = {
   W: TerrainType.WATER,
   '.': TerrainType.PLAINS,
-  H: TerrainType.HILLS,
+  H: TerrainType.SNOW_FOREST,
   F: TerrainType.FOREST,
   M: TerrainType.MOUNTAIN,
   D: TerrainType.DESERT,
@@ -232,19 +232,19 @@ function placeResourceDeposits(grid: Grid, gridSize: number): void {
   const s = (base: number) => Math.max(1, Math.round(base * scale));
 
   const oreSlots: Array<{ deposit: TerritoryResourceType; count: number; terrain: TerrainType[] }> = [
-    { deposit: TerritoryResourceType.COPPER,       count: s(8),  terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN, TerrainType.FOREST] },
-    { deposit: TerritoryResourceType.IRON,         count: s(6),  terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN] },
-    { deposit: TerritoryResourceType.FIRE_GLASS,   count: s(3),  terrain: [TerrainType.DESERT, TerrainType.HILLS] },
-    { deposit: TerritoryResourceType.SILVER,       count: s(4),  terrain: [TerrainType.HILLS, TerrainType.MOUNTAIN] },
-    { deposit: TerritoryResourceType.GOLD_DEPOSIT, count: s(2),  terrain: [TerrainType.DESERT, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.COPPER,       count: s(8),  terrain: [TerrainType.SNOW_FOREST, TerrainType.MOUNTAIN, TerrainType.FOREST] },
+    { deposit: TerritoryResourceType.IRON,         count: s(6),  terrain: [TerrainType.SNOW_FOREST, TerrainType.MOUNTAIN] },
+    { deposit: TerritoryResourceType.FIRE_GLASS,   count: s(3),  terrain: [TerrainType.DESERT, TerrainType.SNOW_FOREST] },
+    { deposit: TerritoryResourceType.SILVER,       count: s(4),  terrain: [TerrainType.SNOW_FOREST, TerrainType.MOUNTAIN] },
+    { deposit: TerritoryResourceType.GOLD_DEPOSIT, count: s(2),  terrain: [TerrainType.DESERT, TerrainType.SNOW_FOREST] },
   ];
   const manaSlots: Array<{ deposit: TerritoryResourceType; count: number; terrain: TerrainType[] }> = [
     { deposit: TerritoryResourceType.WATER_MANA,     count: s(2), terrain: [TerrainType.FOREST, TerrainType.PLAINS] },
-    { deposit: TerritoryResourceType.FIRE_MANA,      count: s(2), terrain: [TerrainType.DESERT, TerrainType.HILLS] },
-    { deposit: TerritoryResourceType.LIGHTNING_MANA, count: s(2), terrain: [TerrainType.HILLS, TerrainType.PLAINS] },
-    { deposit: TerritoryResourceType.EARTH_MANA,     count: s(2), terrain: [TerrainType.MOUNTAIN, TerrainType.HILLS] },
-    { deposit: TerritoryResourceType.AIR_MANA,       count: s(2), terrain: [TerrainType.HILLS, TerrainType.PLAINS] },
-    { deposit: TerritoryResourceType.SHADOW_MANA,    count: s(2), terrain: [TerrainType.FOREST, TerrainType.HILLS] },
+    { deposit: TerritoryResourceType.FIRE_MANA,      count: s(2), terrain: [TerrainType.DESERT, TerrainType.SNOW_FOREST] },
+    { deposit: TerritoryResourceType.LIGHTNING_MANA, count: s(2), terrain: [TerrainType.SNOW_FOREST, TerrainType.PLAINS] },
+    { deposit: TerritoryResourceType.EARTH_MANA,     count: s(2), terrain: [TerrainType.MOUNTAIN, TerrainType.SNOW_FOREST] },
+    { deposit: TerritoryResourceType.AIR_MANA,       count: s(2), terrain: [TerrainType.SNOW_FOREST, TerrainType.PLAINS] },
+    { deposit: TerritoryResourceType.SHADOW_MANA,    count: s(2), terrain: [TerrainType.FOREST, TerrainType.SNOW_FOREST] },
   ];
 
   for (const slot of oreSlots) {
@@ -352,7 +352,7 @@ function placeProceduralTerrain(grid: Grid, gridSize: number): void {
 
       let terrain = TerrainType.PLAINS;
       if (latitude > 0.74) {
-        terrain = roughness > 0.8 ? TerrainType.MOUNTAIN : TerrainType.HILLS;
+        terrain = roughness > 0.8 ? TerrainType.MOUNTAIN : TerrainType.SNOW_FOREST;
       } else if (latitude < 0.18 && moisture < 0.35) {
         terrain = TerrainType.DESERT;
       } else if (latitude < 0.34 && moisture < -0.2) {
@@ -360,7 +360,7 @@ function placeProceduralTerrain(grid: Grid, gridSize: number): void {
       } else if (moisture > 0.55) {
         terrain = TerrainType.FOREST;
       } else if (roughness > 1.35) {
-        terrain = TerrainType.HILLS;
+        terrain = TerrainType.SNOW_FOREST;
       }
 
       territory.setTerrainType(terrain);
@@ -459,7 +459,7 @@ function paintMountainCell(grid: Grid, row: number, col: number): void {
   for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
     const neighbor = grid.getTerritory({ row: row + dr, col: col + dc });
     if (!neighbor || neighbor.getTerrainType() === TerrainType.WATER || neighbor.getTerrainType() === TerrainType.MOUNTAIN) continue;
-    if (Math.random() < 0.55) neighbor.setTerrainType(TerrainType.HILLS);
+    if (Math.random() < 0.55) neighbor.setTerrainType(TerrainType.SNOW_FOREST);
   }
 }
 

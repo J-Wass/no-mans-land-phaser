@@ -494,7 +494,7 @@ function getTerrainAttackFactor(
       if (unitType === 'CAVALRY') return 0.82;
       if (useRanged) return 0.94;
       return 1.08;
-    case TerrainType.HILLS:
+    case TerrainType.SNOW_FOREST:
       if (useRanged) return 1.12;
       if (order === 'HOLD') return 1.05;
       return 1;
@@ -513,7 +513,7 @@ function getTerrainAttackFactor(
 function getTerrainMitigation(unitType: UnitType, terrain: TerrainType, order: BattleOrder): number {
   let bonus = 0;
   if (terrain === TerrainType.FOREST && unitType !== 'CAVALRY') bonus += 0.06;
-  if (terrain === TerrainType.HILLS && (order === 'HOLD' || order === 'FALL_BACK')) bonus += 0.08;
+  if (terrain === TerrainType.SNOW_FOREST && (order === 'HOLD' || order === 'FALL_BACK')) bonus += 0.08;
   if (terrain === TerrainType.PLAINS && unitType === 'CAVALRY' && order === 'ADVANCE') bonus -= 0.04;
   return bonus;
 }

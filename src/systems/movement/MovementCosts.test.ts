@@ -24,8 +24,8 @@ describe('stepCost', () => {
     expect(stepCost(TerrainType.PLAINS, UnitType.INFANTRY, infantryStats)).toBe(5);
   });
 
-  it('infantry on HILLS costs 8 ticks', () => {
-    expect(stepCost(TerrainType.HILLS, UnitType.INFANTRY, infantryStats)).toBe(8);
+  it('infantry on SNOW_FOREST costs 8 ticks', () => {
+    expect(stepCost(TerrainType.SNOW_FOREST, UnitType.INFANTRY, infantryStats)).toBe(8);
   });
 
   it('infantry on FOREST costs 10 ticks', () => {

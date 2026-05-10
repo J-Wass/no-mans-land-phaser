@@ -13,6 +13,7 @@ import { ResourceType } from '@/systems/resources/ResourceType';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { mineralGoldBonus } from '@/systems/resources/ResourceBonuses';
+import { REGION_BONUS_INTERVAL, regionBonusResource, regionBonusAmount } from '@/systems/regions/RegionSystem';
 
 // ── Passive yield intervals (in ticks) ────────────────────────────────────────
 // TICK_RATE = 10 → 5 ticks = 0.5s, 10 ticks = 1s
@@ -72,7 +73,7 @@ export class ProductionSystem {
         const terrain = territory.getTerrainType();
         if (terrain === TerrainType.PLAINS && currentTick % TERRAIN_FOOD_INTERVAL === 0) {
           t.addResource(ResourceType.FOOD, 1);
-        } else if ((terrain === TerrainType.FOREST || terrain === TerrainType.HILLS)
+        } else if ((terrain === TerrainType.FOREST || terrain === TerrainType.SNOW_FOREST)
             && currentTick % TERRAIN_MATERIAL_INTERVAL === 0) {
           t.addResource(ResourceType.RAW_MATERIAL, 1);
         } else if (terrain === TerrainType.DESERT && currentTick % TERRAIN_GOLD_INTERVAL === 0) {
@@ -86,6 +87,23 @@ export class ProductionSystem {
         const counts   = gameState.getNationActiveDepositCounts(nation.getId());
         const goldBonus = mineralGoldBonus(deposits, counts);
         if (goldBonus > 0) t.addResource(ResourceType.GOLD, goldBonus);
+      }
+    }
+
+    // ── Region domination bonuses ─────────────────────────────────────────────
+    if (currentTick % REGION_BONUS_INTERVAL === 0) {
+      const regionSystem = gameState.getRegionSystem();
+      if (regionSystem) {
+        for (const region of regionSystem.getAllRegions()) {
+          const resource = regionBonusResource(region.terrain);
+          if (!resource) continue;
+          const controller = regionSystem.getControllingNation(region.id, gameState);
+          if (!controller) continue;
+          const nation = gameState.getNation(controller);
+          if (!nation) continue;
+          nation.getTreasury().addResource(resource, regionBonusAmount(region));
+          eventBus.emit('region:dominated', { regionId: region.id, nationId: controller, tick: currentTick });
+        }
       }
     }
 

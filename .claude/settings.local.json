@@ -29,7 +29,10 @@
       "Bash(wmic memphysical *)",
       "Bash(wmic memorydevice *)",
       "Bash(wmic MEMORYQUERY *)",
-      "Bash(xargs ls *)"
+      "Bash(xargs ls *)",
+      "Bash(Get-ChildItem -Recurse \"C:\\\\Users\\\\jonah\\\\Desktop\\\\phaser-test\\\\src\" -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)"
     ],
     "deny": [],
     "ask": []

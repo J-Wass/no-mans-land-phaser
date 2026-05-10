@@ -8,6 +8,7 @@ import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { TECH_CATALOG } from '@/systems/research/TechTree';
 import type { TechBranch, TechNode } from '@/systems/research/TechTree';
+import { ResourceType } from '@/systems/resources/ResourceType';
 import { TICK_RATE } from '@/config/constants';
 import { UI } from '@/config/uiTheme';
 import {
@@ -75,8 +76,8 @@ export class ResearchScene extends Phaser.Scene {
     const metrics = getUiMetrics(this);
     const cx = metrics.width / 2;
     const cy = metrics.height / 2;
-    const panelW = Math.min(920, Math.round(metrics.width * 0.88));
-    const panelH = Math.min(780, Math.round(metrics.height * 0.92));
+    const panelW = Math.min(1100, Math.round(metrics.width * 0.94));
+    const panelH = Math.min(860, Math.round(metrics.height * 0.95));
 
     this.add.rectangle(0, 0, metrics.width, metrics.height, UI.BG, 0.76)
       .setOrigin(0, 0).setInteractive();
@@ -101,8 +102,14 @@ export class ResearchScene extends Phaser.Scene {
     this.refreshNodes();
   }
 
+  private tickCounter = 0;
   override update(): void {
     this.refreshCurrentBar();
+    // Refresh node states (incl. "NEED RP") every ~2s to show point accumulation
+    this.tickCounter++;
+    if (this.tickCounter % 120 === 0) {
+      this.refreshNodes();
+    }
   }
 
   private buildHeader(metrics: UiMetrics, panelWidth: number): Phaser.GameObjects.GameObject {
@@ -370,11 +377,14 @@ export class ResearchScene extends Phaser.Scene {
   private refreshNodes(): void {
     const nation = this.getNation();
     const busy = !!nation?.getCurrentResearch();
+    const currentPoints = nation?.getTreasury().getAmount(ResourceType.RESEARCH) ?? 0;
 
     for (const row of this.nodeRows) {
       const researched = nation?.hasResearched(row.node.id) ?? false;
       const isActive = nation?.getCurrentResearch()?.techId === row.node.id;
-      const canStart = !busy && !researched && (nation?.canResearch(row.node.id) ?? false);
+      const prereqsMet = !busy && !researched && (nation?.canResearch(row.node.id) ?? false);
+      const hasPoints = currentPoints >= row.node.researchCost;
+      const canStart = prereqsMet && hasPoints;
 
       if (researched) {
         row.background.setFillStyle(0x143222).setStrokeStyle(2, 0x7fe7a6, 0.9);
@@ -388,6 +398,12 @@ export class ResearchScene extends Phaser.Scene {
         row.subLabel.setText('Research in progress').setColor(UI.GOLD_C);
         row.button.text.setText('...');
         setButtonEnabled(row.button, false, 'warning');
+      } else if (prereqsMet && !hasPoints) {
+        row.background.setFillStyle(UI.PANEL).setStrokeStyle(2, 0x8b3a3a, 0.8);
+        row.label.setColor(UI.LT);
+        row.button.text.setText('NEED RP');
+        setButtonEnabled(row.button, false, 'secondary');
+        row.subLabel.setColor('#e8917a');
       } else if (canStart) {
         row.background.setFillStyle(UI.PANEL).setStrokeStyle(2, UI.ACCENT, 0.8);
         row.label.setColor(UI.LT);
@@ -404,16 +420,19 @@ export class ResearchScene extends Phaser.Scene {
 
       if (!researched && !isActive) {
         const secs = (row.node.ticks / TICK_RATE).toFixed(0);
-        const cost = `Research ${row.node.researchCost}  |  ${secs}s`;
+        const pointsNote = !hasPoints && prereqsMet
+          ? `  (have ${currentPoints}/${row.node.researchCost} RP)`
+          : '';
+        const cost = `Cost: ${row.node.researchCost} RP${pointsNote}  |  ${secs}s`;
         const description = row.node.description;
         if (row.node.requires.length > 0) {
           const prereqs = row.node.requires.map(req => req.replace(/_/g, ' ')).join(', ');
           const allMet = row.node.requires.every(req => nation?.hasResearched(req));
           row.subLabel.setText(`${description}\nRequires: ${prereqs}\n${cost}`);
-          row.subLabel.setColor(allMet ? UI.DIM : '#b98e8e');
+          row.subLabel.setColor(allMet ? (hasPoints ? UI.DIM : '#e8917a') : '#b98e8e');
         } else {
           row.subLabel.setText(`${description}\n${cost}`);
-          row.subLabel.setColor(UI.DIM);
+          row.subLabel.setColor(hasPoints ? UI.DIM : '#e8917a');
         }
       }
     }

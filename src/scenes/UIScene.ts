@@ -16,9 +16,11 @@ import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType
 import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 import type { GridCoordinates } from '@/types/common';
 import { weaponTierDamageBonus, mineralGoldBonus, fireManaDamageFactor, earthManaHPFactor, waterManaRegenBonus, lightningManaSpeedBonus, airManaVisionBonus, shadowManaVisionReduction, shadowManaWithdrawBonus } from '@/systems/resources/ResourceBonuses';
+import { REGION_BONUS_INTERVAL, regionBonusResource, regionBonusAmount } from '@/systems/regions/RegionSystem';
 import { DiplomaticStatus } from '@/types/diplomacy';
 import { TICK_RATE } from '@/config/constants';
 import type { TechId } from '@/systems/research/TechTree';
+import { getFont, getFontSizeScale } from '@/config/accessibility';
 
 interface UISceneData {
   setup: GameSetup;
@@ -35,7 +37,16 @@ interface AlertEntry {
   createdAt: number;
 }
 
-const MONO: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: 'monospace' };
+let MONO: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: 'monospace' };
+
+const TERRAIN_DISPLAY_NAME: Record<string, string> = {
+  [TerrainType.PLAINS]:      'Plains',
+  [TerrainType.SNOW_FOREST]: 'Snowy Forest',
+  [TerrainType.FOREST]:      'Forest',
+  [TerrainType.MOUNTAIN]:    'Mountain',
+  [TerrainType.DESERT]:      'Desert',
+  [TerrainType.WATER]:       'Water',
+};
 const STANCE_ORDERS: Array<{ order: BattleOrder; label: string }> = [
   { order: 'FALL_BACK', label: 'FALLBACK' },
   { order: 'HOLD', label: 'HOLD' },
@@ -48,7 +59,7 @@ const RESOURCE_BUTTONS: ResourceType[] = [
   ResourceType.RESEARCH,
 ];
 const TICKS_PER_DAY = 100;
-const SPEED_CYCLE = [1, 2, 4] as const;
+const SPEED_CYCLE = [0, 0.5, 1, 2, 4] as const;
 const FOOD_INTERVAL = 5;
 const MATERIAL_INTERVAL = 10;
 const GOLD_INTERVAL = 10;
@@ -63,7 +74,7 @@ function uiScale(h: number): number {
 }
 
 function fs(base: number, scale: number): string {
-  return `${Math.round(base * scale)}px`;
+  return `${Math.round(base * scale * getFontSizeScale())}px`;
 }
 
 function perSecond(amount: number, intervalTicks: number): number {
@@ -105,6 +116,10 @@ export class UIScene extends Phaser.Scene {
   private selectedTerritoryPos: GridCoordinates | null = null;
 
   private gameSpeed: typeof SPEED_CYCLE[number] = 1;
+  private researchBtnText: Phaser.GameObjects.Text | null = null;
+  private researchProgressRect: Phaser.GameObjects.Rectangle | null = null;
+  private researchBtnFullW = 0;
+  private outpostErrorMsg: string | null = null;
   private hudObjects: Phaser.GameObjects.GameObject[] = [];
   private tickText: Phaser.GameObjects.Text | null = null;
   private speedBtnText: Phaser.GameObjects.Text | null = null;
@@ -300,15 +315,29 @@ export class UIScene extends Phaser.Scene {
     this.eventBus.on('unit:step-complete', ({ unitId }) => {
       if (this.selectedUnit?.id === unitId) this.rebuildHUD();
     });
+
+    // Track which regions we've already notified about to avoid repeat messages
+    const dominatedNotified = new Set<string>();
+    this.eventBus.on('region:dominated', ({ regionId, nationId }) => {
+      if (!this.isLocalNation(nationId)) return;
+      if (dominatedNotified.has(regionId)) return;
+      dominatedNotified.add(regionId);
+      const region = this.gameState.getRegionSystem()?.getRegion(regionId);
+      if (region) this.pushNotification(`You now dominate the ${region.name}! Bonus resources granted.`);
+    });
   }
 
   private rebuildHUD(): void {
+    MONO = { fontFamily: getFont() };
     for (const obj of this.hudObjects) {
       if (obj.active) obj.destroy();
     }
     this.hudObjects = [];
     this.tickText = null;
     this.speedBtnText = null;
+    this.researchBtnText = null;
+    this.researchProgressRect = null;
+    this.researchBtnFullW = 0;
     this.resourceValueTexts.clear();
     this.hpFillRect = null;
     this.hpText = null;
@@ -356,10 +385,10 @@ export class UIScene extends Phaser.Scene {
     }).setOrigin(0, 0.5));
 
     const speedX = pad + Math.round((skinny ? 142 : 196) * scale * widthFactor);
-    this.makeButton(speedX, midY, Math.round(52 * scale * widthFactor), btnH, `${this.gameSpeed}x`, scale, () => {
+    this.makeButton(speedX, midY, Math.round(60 * scale * widthFactor), btnH, speedLabel(this.gameSpeed), scale, () => {
       const idx = SPEED_CYCLE.indexOf(this.gameSpeed);
       this.gameSpeed = SPEED_CYCLE[(idx + 1) % SPEED_CYCLE.length]!;
-      this.speedBtnText?.setText(`${this.gameSpeed}x`);
+      this.speedBtnText?.setText(speedLabel(this.gameSpeed));
       this.eventBus.emit('game:speed-change', { speed: this.gameSpeed });
     }, 0x1b2442);
     this.speedBtnText = this.hudObjects[this.hudObjects.length - 1] as Phaser.GameObjects.Text;
@@ -384,7 +413,13 @@ export class UIScene extends Phaser.Scene {
     const researchX = W - pad - btnW - gap - btnW / 2;
     const menuX = W - pad - btnW / 2;
 
-    this.makeButton(researchX, midY, btnW, btnH, skinny ? 'TECH' : 'RESEARCH', scale, () => {
+    const nation = this.getLocalNation();
+    const currentResearch = nation?.getCurrentResearch();
+    const researchBtnLabel = currentResearch
+      ? currentResearch.techId.replace(/_/g, ' ').toUpperCase().slice(0, skinny ? 6 : 10)
+      : (skinny ? 'TECH' : 'RESEARCH');
+    const researchBtnFill = currentResearch ? 0x1e2810 : 0x1a1e3c;
+    this.makeButton(researchX, midY, btnW, btnH, researchBtnLabel, scale, () => {
       if (this.scene.isActive('ResearchScene')) {
         this.scene.stop('ResearchScene');
       } else {
@@ -394,7 +429,16 @@ export class UIScene extends Phaser.Scene {
           eventBus: this.eventBus,
         });
       }
-    }, 0x1a1e3c);
+    }, researchBtnFill);
+    this.researchBtnText = this.hudObjects[this.hudObjects.length - 1] as Phaser.GameObjects.Text;
+    // Thin progress bar across the bottom of the research button
+    const barThick = Math.max(3, Math.round(3 * scale));
+    this.researchProgressRect = this.track(this.add.rectangle(
+      researchX - btnW / 2,
+      midY + btnH / 2 - barThick,
+      0, barThick, 0x44cc22,
+    ).setOrigin(0, 0)) as Phaser.GameObjects.Rectangle;
+    this.researchBtnFullW = btnW;
 
     this.makeButton(menuX, midY, btnW, btnH, skinny ? 'MENU' : 'MENU [ESC]', scale, () => {
       this.scene.get('GameScene')?.input.keyboard?.emit('keydown-ESC');
@@ -512,7 +556,7 @@ export class UIScene extends Phaser.Scene {
 
     const pad = Math.round(12 * scale);
     const panelW = Math.round(320 * scale);
-    const panelH = Math.round(250 * scale);
+    const panelH = Math.round(290 * scale);
     const x = this.scale.width - panelW - Math.round(230 * scale);
     const y = Math.round(62 * scale);
     const breakdown = this.getResourceBreakdown(this.activeResourceBreakdown);
@@ -537,6 +581,12 @@ export class UIScene extends Phaser.Scene {
     this.track(this.add.text(x + pad, y + Math.round(38 * scale), lines.join('\n'), {
       ...MONO, fontSize: fs(11, scale), color: '#dfe8ff',
       lineSpacing: Math.round(2 * scale),
+      wordWrap: { width: panelW - pad * 2 },
+    }).setOrigin(0, 0));
+
+    // Tip line at bottom of panel
+    this.track(this.add.text(x + pad, y + panelH - Math.round(36 * scale), `Tip: ${breakdown.tip}`, {
+      ...MONO, fontSize: fs(10, scale), color: '#8dd8a8',
       wordWrap: { width: panelW - pad * 2 },
     }).setOrigin(0, 0));
   }
@@ -600,12 +650,16 @@ export class UIScene extends Phaser.Scene {
       const btnFill = relation === DiplomaticStatus.WAR ? 0x21402c : 0x402020;
       this.makeButton(x + panelW - pad - Math.round(34 * scale), rowY + rowH / 2 - Math.round(2 * scale), Math.round(68 * scale), Math.round(24 * scale), btnLabel, scale, () => {
         if (relation === DiplomaticStatus.WAR) {
-          void this.networkAdapter.sendCommand({
+          this.networkAdapter.sendCommand({
             type: 'PROPOSE_PEACE',
             playerId: this.playerId,
             targetNationId: nation.getId(),
             issuedAtTick: this.tickEngine.getCurrentTick(),
-          });
+          }).then(result => {
+            if (!result.success && result.reason) {
+              this.pushNotification(result.reason);
+            }
+          }).catch(() => { /* ignore */ });
         } else {
           void this.networkAdapter.sendCommand({
             type: 'DECLARE_WAR',
@@ -720,17 +774,32 @@ export class UIScene extends Phaser.Scene {
         cost[ResourceType.FOOD] ? `${cost[ResourceType.FOOD]}${RESOURCE_EMOJI[ResourceType.FOOD]}` : '',
       ].filter(Boolean).join(' ');
       this.makeButton(x + pad + Math.round(50 * scale), rowY, Math.round(100 * scale), btnH, 'OUTPOST', scale, () => {
-        void this.networkAdapter.sendCommand({
+        this.networkAdapter.sendCommand({
           type: 'BUILD_TERRITORY',
           playerId: this.playerId,
           position: unit.position,
           building: TerritoryBuildingType.OUTPOST,
           issuedAtTick: this.tickEngine.getCurrentTick(),
-        });
+        }).then(result => {
+          if (!result.success) {
+            this.outpostErrorMsg = result.reason ?? 'Cannot build outpost';
+            this.rebuildHUD();
+            this.time.delayedCall(3500, () => {
+              this.outpostErrorMsg = null;
+              this.rebuildHUD();
+            });
+          }
+        }).catch(() => { /* ignore */ });
       }, 0x203320);
       this.track(this.add.text(x + pad + Math.round(110 * scale), rowY - Math.round(16 * scale), label, {
         ...MONO, fontSize: fs(9, scale), color: '#8acc9a',
       }).setOrigin(0.5, 0));
+      if (this.outpostErrorMsg) {
+        this.track(this.add.text(x + pad, rowY + Math.round(16 * scale), this.outpostErrorMsg, {
+          ...MONO, fontSize: fs(10, scale), color: '#ff8080',
+          wordWrap: { width: panelW - pad * 2 },
+        }).setOrigin(0, 0));
+      }
       rowY -= btnH + gap;
     }
 
@@ -766,11 +835,11 @@ export class UIScene extends Phaser.Scene {
     const nation = this.gameState.getNation(city.getOwnerId());
     const pad = Math.round(12 * scale);
     const panelW = Math.round(340 * scale);
-    const panelH = Math.round(126 * scale);
+    const currentOrder = city.getCurrentOrder();
+    const panelH = Math.round((currentOrder ? 148 : 126) * scale);
     const x = 0;
     const y = H - panelH;
     const buildings = city.getBuildings().map(building => CITY_BUILDING_MAP.get(building)?.label ?? building.replace(/_/g, ' '));
-    const currentOrder = city.getCurrentOrder();
 
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
       .setOrigin(0, 0)
@@ -788,9 +857,24 @@ export class UIScene extends Phaser.Scene {
       ...MONO, fontSize: fs(11, scale), color: '#b9c7eb',
       wordWrap: { width: panelW - pad * 2 },
     }).setOrigin(0, 0));
-    this.track(this.add.text(x + pad, y + Math.round(86 * scale), `Production: ${currentOrder ? currentOrder.label : 'Idle'}`, {
-      ...MONO, fontSize: fs(11, scale), color: '#a8d4a8',
-    }).setOrigin(0, 0));
+
+    if (currentOrder) {
+      const pct = (currentOrder.ticksTotal - currentOrder.ticksRemaining) / currentOrder.ticksTotal;
+      const secsLeft = (currentOrder.ticksRemaining / TICK_RATE).toFixed(0);
+      const barW = panelW - pad * 2;
+      const barH = Math.max(6, Math.round(7 * scale));
+      const barY = y + Math.round(86 * scale);
+
+      this.track(this.add.text(x + pad, barY - Math.round(14 * scale), `Building: ${currentOrder.label}  (${secsLeft}s left)`, {
+        ...MONO, fontSize: fs(11, scale), color: '#a8d4a8',
+      }).setOrigin(0, 0));
+      this.track(this.add.rectangle(x + pad, barY, barW, barH, 0x0d1e14).setOrigin(0, 0));
+      this.track(this.add.rectangle(x + pad, barY, Math.max(2, Math.round(barW * pct)), barH, 0x3dbb6d).setOrigin(0, 0));
+    } else {
+      this.track(this.add.text(x + pad, y + Math.round(86 * scale), 'Production: Idle', {
+        ...MONO, fontSize: fs(11, scale), color: '#5a7a5a',
+      }).setOrigin(0, 0));
+    }
   }
 
   private buildTerritoryPanel(H: number, scale: number): void {
@@ -799,7 +883,19 @@ export class UIScene extends Phaser.Scene {
     const ownerId = territory?.getControllingNation() ?? null;
     const ownerName = ownerId ? this.gameState.getNation(ownerId)?.getName() ?? 'Unknown' : 'Unclaimed';
     const pad = Math.round(12 * scale);
-    const panelW = Math.round(360 * scale);
+    const panelW = Math.round(380 * scale);
+
+    // Region info
+    const regionSystem = this.gameState.getRegionSystem();
+    const region = regionSystem?.getRegionAt(position) ?? null;
+    const regionController = region ? regionSystem!.getControllingNation(region.id, this.gameState) : null;
+    const localNation = this.getLocalNation();
+    const regionFrac = region && localNation
+      ? regionSystem!.getControlFraction(region.id, localNation.getId(), this.gameState)
+      : 0;
+    const hasRegion = region !== null;
+    const nearestRegion = !hasRegion && regionSystem ? regionSystem.getNearestRegion(position) : null;
+
     const panelH = Math.round(118 * scale);
     const x = 0;
     const y = H - panelH;
@@ -807,8 +903,15 @@ export class UIScene extends Phaser.Scene {
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
       .setOrigin(0, 0)
       .setStrokeStyle(1, 0x3355bb));
-    this.track(this.add.text(x + pad, y + pad, `${territory?.getTerrainType() ?? 'Unknown'} (${position.row}, ${position.col})`, {
+    const terrain = TERRAIN_DISPLAY_NAME[territory?.getTerrainType() ?? ''] ?? territory?.getTerrainType() ?? 'Unknown';
+    const titleText = region
+      ? `(${position.row},${position.col}) ${terrain} in ${region.name}`
+      : nearestRegion
+        ? `(${position.row},${position.col}) ${terrain} near ${nearestRegion.region.name}`
+        : `(${position.row},${position.col}) ${terrain}`;
+    this.track(this.add.text(x + pad, y + pad, titleText, {
       ...MONO, fontSize: fs(14, scale), color: '#dce6ff', fontStyle: 'bold',
+      wordWrap: { width: panelW - pad * 2 - Math.round(80 * scale) },
     }).setOrigin(0, 0));
     this.track(this.add.text(x + panelW - pad, y + pad, ownerName, {
       ...MONO, fontSize: fs(11, scale), color: '#8fa6d8',
@@ -827,6 +930,14 @@ export class UIScene extends Phaser.Scene {
       ...MONO, fontSize: fs(11, scale), color: buildings.length > 0 ? '#9dd1a9' : '#8a96ad',
       wordWrap: { width: panelW - pad * 2 },
     }).setOrigin(0, 0));
+
+    if (hasRegion && region) {
+      const pctStr = `${Math.round(regionFrac * 100)}%`;
+      const regionColor = regionController === localNation?.getId() ? '#f0c060' : regionController ? '#d08080' : '#a0b8d8';
+      this.track(this.add.text(x + pad, y + Math.round(92 * scale), `⬡ ${region.name} (${pctStr} controlled)`, {
+        ...MONO, fontSize: fs(11, scale), color: regionColor, fontStyle: 'italic',
+      }).setOrigin(0, 0));
+    }
   }
 
   private buildBar(x: number, y: number, barW: number, barH: number, scale: number, label: string): void {
@@ -866,6 +977,20 @@ export class UIScene extends Phaser.Scene {
       if (!text) continue;
       text.setText(`${RESOURCE_EMOJI[resource]} ${treasury.getAmount(resource)}`);
     }
+
+    // Update research button label and progress bar
+    if (this.researchBtnText) {
+      const skinny = this.scale.width < 820;
+      const cr = nation?.getCurrentResearch();
+      this.researchBtnText.setText(
+        cr ? cr.techId.replace(/_/g, ' ').toUpperCase().slice(0, skinny ? 6 : 10) : (skinny ? 'TECH' : 'RESEARCH'),
+      );
+      this.researchBtnText.setColor(cr ? '#b8e89a' : '#d8e4ff');
+      if (this.researchProgressRect) {
+        const frac = cr && cr.ticksTotal > 0 ? 1 - cr.ticksRemaining / cr.ticksTotal : 0;
+        this.researchProgressRect.setSize(Math.round(this.researchBtnFullW * frac), this.researchProgressRect.height);
+      }
+    }
   }
 
   private getResourceBreakdown(resource: ResourceType): {
@@ -873,11 +998,12 @@ export class UIScene extends Phaser.Scene {
     current: number;
     sources: string[];
     outgoing: string[];
+    tip: string;
   } {
     const nation = this.getLocalNation();
     const treasury = nation?.getTreasury();
     const current = treasury?.getAmount(resource) ?? 0;
-    if (!nation) return { title: resource, current, sources: [], outgoing: [] };
+    if (!nation) return { title: resource, current, sources: [], outgoing: [], tip: '' };
 
     const cities = this.gameState.getCitiesByNation(nation.getId());
     const territories = this.gameState.getGrid().getTerritoriesByNation(nation.getId());
@@ -891,7 +1017,7 @@ export class UIScene extends Phaser.Scene {
     const plainsCount = territories.filter(territory => territory.getTerrainType() === TerrainType.PLAINS).length;
     const forestHillCount = territories.filter(territory => {
       const terrain = territory.getTerrainType();
-      return terrain === TerrainType.FOREST || terrain === TerrainType.HILLS;
+      return terrain === TerrainType.FOREST || terrain === TerrainType.SNOW_FOREST;
     }).length;
     const desertCount = territories.filter(territory => territory.getTerrainType() === TerrainType.DESERT).length;
     const deposits = this.gameState.getNationActiveDeposits(nation.getId());
@@ -905,6 +1031,23 @@ export class UIScene extends Phaser.Scene {
       }
     }
 
+    // Region domination bonuses
+    const regionSystem = this.gameState.getRegionSystem();
+    let regionFoodBonus = 0;
+    let regionMaterialBonus = 0;
+    let regionGoldBonus = 0;
+    if (nation && regionSystem) {
+      for (const region of regionSystem.getAllRegions()) {
+        const controller = regionSystem.getControllingNation(region.id, this.gameState);
+        if (controller !== nation.getId()) continue;
+        const res = regionBonusResource(region.terrain);
+        const amt = regionBonusAmount(region);
+        if (res === ResourceType.FOOD)         regionFoodBonus     += amt;
+        if (res === ResourceType.RAW_MATERIAL) regionMaterialBonus += amt;
+        if (res === ResourceType.GOLD)         regionGoldBonus     += amt;
+      }
+    }
+
     switch (resource) {
       case ResourceType.FOOD:
         return {
@@ -915,10 +1058,12 @@ export class UIScene extends Phaser.Scene {
             `City farms ${formatRate(perSecond(cityFarmCount, FOOD_INTERVAL))}`,
             `Territory farms ${formatRate(perSecond(territoryFarmCount, FOOD_INTERVAL))}`,
             `Plains harvest ${formatRate(perSecond(plainsCount, TERRAIN_FOOD_INTERVAL))}`,
+            ...(regionFoodBonus > 0 ? [`Region domination ${formatRate(perSecond(regionFoodBonus, REGION_BONUS_INTERVAL))}`] : []),
           ],
           outgoing: upkeep.get(ResourceType.FOOD)
             ? [`Unit upkeep ${formatRate(-perSecond(upkeep.get(ResourceType.FOOD) ?? 0, UPKEEP_INTERVAL))}`]
             : [],
+          tip: 'Claim Plains tiles, build Farms in cities or on territory outposts.',
         };
       case ResourceType.RAW_MATERIAL:
         return {
@@ -929,10 +1074,12 @@ export class UIScene extends Phaser.Scene {
             `City workshops ${formatRate(perSecond(cityWorkshopCount, MATERIAL_INTERVAL))}`,
             `Territory workshops ${formatRate(perSecond(territoryWorkshopCount, MATERIAL_INTERVAL))}`,
             `Forests and hills ${formatRate(perSecond(forestHillCount, TERRAIN_MATERIAL_INTERVAL))}`,
+            ...(regionMaterialBonus > 0 ? [`Region domination ${formatRate(perSecond(regionMaterialBonus, REGION_BONUS_INTERVAL))}`] : []),
           ],
           outgoing: upkeep.get(ResourceType.RAW_MATERIAL)
             ? [`Unit upkeep ${formatRate(-perSecond(upkeep.get(ResourceType.RAW_MATERIAL) ?? 0, UPKEEP_INTERVAL))}`]
             : [],
+          tip: 'Claim Forest/Hills tiles, build Workshops in cities or on outposts.',
         };
       case ResourceType.GOLD:
         return {
@@ -943,10 +1090,12 @@ export class UIScene extends Phaser.Scene {
             `Markets ${formatRate(perSecond(cityMarketCount, GOLD_INTERVAL))}`,
             `Desert revenue ${formatRate(perSecond(desertCount, TERRAIN_GOLD_INTERVAL))}`,
             `Silver and gold deposits ${formatRate(perSecond(mineralGoldBonus(deposits, counts), GOLD_INTERVAL))}`,
+            ...(regionGoldBonus > 0 ? [`Region domination ${formatRate(perSecond(regionGoldBonus, REGION_BONUS_INTERVAL))}`] : []),
           ],
           outgoing: upkeep.get(ResourceType.GOLD)
             ? [`Unit upkeep ${formatRate(-perSecond(upkeep.get(ResourceType.GOLD) ?? 0, UPKEEP_INTERVAL))}`]
             : [],
+          tip: 'Build Markets in cities, claim Desert tiles, mine silver/gold deposits.',
         };
       case ResourceType.RESEARCH:
         return {
@@ -957,6 +1106,7 @@ export class UIScene extends Phaser.Scene {
             `Schools ${formatRate(perSecond(citySchoolCount, RESEARCH_INTERVAL))}`,
           ],
           outgoing: [],
+          tip: 'Build Schools in cities (requires Education tech).',
         };
     }
   }
@@ -1081,6 +1231,11 @@ export class UIScene extends Phaser.Scene {
     this.hudObjects.push(obj);
     return obj;
   }
+}
+
+function speedLabel(speed: typeof SPEED_CYCLE[number]): string {
+  if (speed === 0) return 'PAUSE';
+  return `${speed}x`;
 }
 
 function difficultyColor(difficulty: GameSetup['difficulty']): string {

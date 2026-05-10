@@ -19,11 +19,12 @@ import { TerrainType } from '@/systems/grid/Territory';
 import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
 import { normalizeGameSetup } from '@/types/gameSetup';
 import { VisionSystem } from '@/systems/vision/VisionSystem';
+import { RegionSystem } from '@/systems/regions/RegionSystem';
 
 const WATER_BORDER = 0;
 const GRID_SIZE    = 60;
 const TERRAIN_CYCLE: TerrainType[] = [
-  TerrainType.PLAINS, TerrainType.HILLS, TerrainType.FOREST,
+  TerrainType.PLAINS, TerrainType.SNOW_FOREST, TerrainType.FOREST,
   TerrainType.MOUNTAIN, TerrainType.DESERT, TerrainType.WATER,
 ];
 import type { GameSetup, GameSaveData } from '@/types/gameSetup';
@@ -39,7 +40,7 @@ interface GameSceneData {
 
 const TERRAIN_TEXTURE: Record<TerrainType, string> = {
   [TerrainType.PLAINS]: 'terrain_plains',
-  [TerrainType.HILLS]: 'terrain_hills',
+  [TerrainType.SNOW_FOREST]: 'terrain_snow_forest',
   [TerrainType.FOREST]: 'terrain_forest',
   [TerrainType.MOUNTAIN]: 'terrain_mountain',
   [TerrainType.WATER]: 'terrain_water',
@@ -106,7 +107,7 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image('terrain_plains', 'terrain_squares/plains.png');
-    this.load.image('terrain_hills', 'terrain_squares/snowforest.png');
+    this.load.image('terrain_snow_forest', 'terrain_squares/snowforest.png');
     this.load.image('terrain_forest', 'terrain_squares/forest.png');
     this.load.image('terrain_mountain', 'terrain_squares/mountains.png');
     this.load.image('terrain_water', 'terrain_squares/ocean.png');
@@ -176,6 +177,11 @@ export class GameScene extends Phaser.Scene {
     this.drawWaterBorder();
     this.drawGrid();
     this.drawResourceDeposits();
+
+    // Build named geographic regions from the grid
+    const regionSystem = new RegionSystem();
+    regionSystem.generateFromGrid(this.gameState.getGrid());
+    this.gameState.setRegionSystem(regionSystem);
 
     this.territoryGraphic = this.add.graphics().setDepth(80);
     this.conquestGraphic  = this.add.graphics().setDepth(81);
@@ -312,11 +318,27 @@ export class GameScene extends Phaser.Scene {
       this.scale.height / (GRID_SIZE * TILE_SIZE),
       1.5,
     );
-    this.cameras.main.setZoom(defaultZoom);
-    this.cameras.main.centerOn(
-      (GRID_SIZE * TILE_SIZE) / 2,
-      (GRID_SIZE * TILE_SIZE) / 2,
-    );
+    // Try to start zoomed in on the local player's starting city/unit
+    const localPlayer  = this.gameState.getLocalPlayer();
+    const startNation  = localPlayer?.getControlledNationId();
+    const startCity    = startNation ? this.gameState.getCitiesByNation(startNation)[0] : null;
+    const startUnit    = startNation ? this.gameState.getUnitsByNation(startNation)[0] : null;
+    const startTile    = startCity?.position ?? startUnit?.position;
+
+    if (startTile) {
+      const startZoom = Math.min(2.0, Math.max(1.2, this.scale.height / (12 * TILE_SIZE)));
+      this.cameras.main.setZoom(startZoom);
+      this.cameras.main.centerOn(
+        startTile.col * TILE_SIZE + TILE_SIZE / 2,
+        startTile.row * TILE_SIZE + TILE_SIZE / 2,
+      );
+    } else {
+      this.cameras.main.setZoom(defaultZoom);
+      this.cameras.main.centerOn(
+        (GRID_SIZE * TILE_SIZE) / 2,
+        (GRID_SIZE * TILE_SIZE) / 2,
+      );
+    }
     this.scale.on('resize', this.onResize, this);
 
     this.setupMouseControls();
