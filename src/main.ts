@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
 import Phaser from 'phaser';
 import { gameConfig } from './config/gameConfig';
+import { UIManager } from './ui/UIManager';
+
+UIManager.init();
 
 class Game {
   private game: Phaser.Game | null = null;

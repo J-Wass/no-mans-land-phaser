@@ -20,6 +20,7 @@ import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
 import { normalizeGameSetup } from '@/types/gameSetup';
 import { VisionSystem } from '@/systems/vision/VisionSystem';
 import { RegionSystem } from '@/systems/regions/RegionSystem';
+import { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 
 const WATER_BORDER = 0;
 const GRID_SIZE    = 60;
@@ -95,6 +96,7 @@ export class GameScene extends Phaser.Scene {
   private stanceBadges: Map<string, Phaser.GameObjects.Container> = new Map();
   private minZoom = 0.25;
   private gameSpeed = 1;
+  private bridge!: PhaserUIBridge;
 
   // Double-click detection for city/territory menus
   private lastClickMs     = 0;
@@ -164,6 +166,17 @@ export class GameScene extends Phaser.Scene {
       this.pathfinder,
       this.setup.difficulty,
     );
+
+    this.bridge = new PhaserUIBridge({
+      phaserScene:     this,
+      gameState:       this.gameState,
+      networkAdapter:  this.networkAdapter,
+      eventBus:        this.eventBus,
+      diplomacySystem: this.diplomacySystem,
+      tickEngine:      this.tickEngine,
+      movementSystem:  this.movementSystem,
+      setup:           this.setup,
+    });
 
     const sceneData = this.scene.settings.data as GameSceneData;
     if (sceneData.saveData) {
@@ -344,13 +357,7 @@ export class GameScene extends Phaser.Scene {
     this.setupMouseControls();
 
     this.input.keyboard!.on('keydown-ESC', () => {
-        this.scene.launch('PauseScene', {
-        gameState:       this.gameState,
-        tickEngine:      this.tickEngine,
-        movementSystem:  this.movementSystem,
-        diplomacySystem: this.diplomacySystem,
-        setup:           this.setup,
-      });
+      this.bridge.openPause();
     });
 
     this.eventBus.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
@@ -363,12 +370,13 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.scene.launch('UIScene', {
-      setup:          this.setup,
-      gameState:      this.gameState,
-      networkAdapter: this.networkAdapter,
-      eventBus:       this.eventBus,
+      setup:           this.setup,
+      gameState:       this.gameState,
+      networkAdapter:  this.networkAdapter,
+      eventBus:        this.eventBus,
       diplomacySystem: this.diplomacySystem,
-      tickEngine: this.tickEngine,
+      tickEngine:      this.tickEngine,
+      bridge:          this.bridge,
     });
   }
 
@@ -1062,8 +1070,7 @@ export class GameScene extends Phaser.Scene {
           this.selectedCityId    = clickedCity.id;
           this.selectedUnitId    = null;
           this.selectedTerritory = null;
-          this.scene.stop('TerritoryMenuScene');
-          this.scene.stop('CityMenuScene');
+          this.bridge.closeMenu();
           this.updateUISelection(undefined);
           this.eventBus.emit('city:selected', { city: clickedCity });
           this.rangeGraphic.clear();
@@ -1114,9 +1121,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Show war confirmation popup; dispatch only if player confirms
-    this.scene.launch('WarConfirmScene', {
-      nationNames: neutralsHit.map(id => this.gameState.getNation(id)?.getName() ?? id),
-      onConfirm: async () => {
+    this.bridge.openWarConfirm(
+      neutralsHit.map(id => this.gameState.getNation(id)?.getName() ?? id),
+      async () => {
         for (const targetNationId of neutralsHit) {
           await this.networkAdapter.sendCommand({
             type: 'DECLARE_WAR',
@@ -1127,7 +1134,7 @@ export class GameScene extends Phaser.Scene {
         }
         dispatchMove();
       },
-    });
+    );
   }
 
   /**
@@ -1188,8 +1195,7 @@ export class GameScene extends Phaser.Scene {
     this.selectedUnitId = unit.id;
     this.selectedCityId = null;
     this.selectedTerritory = null;
-    this.scene.stop('CityMenuScene');
-    this.scene.stop('TerritoryMenuScene');
+    this.bridge.closeMenu();
     this.updateUISelection(unit);
     this.eventBus.emit('city:selected', { city: null });
     this.drawRangeOverlay(unit);
@@ -1199,30 +1205,16 @@ export class GameScene extends Phaser.Scene {
     this.selectedCityId = city.id;
     this.selectedUnitId = null;
     this.selectedTerritory = null;
-    this.scene.stop('TerritoryMenuScene');
-    this.scene.stop('CityMenuScene');
     this.updateUISelection(undefined);
-    this.scene.launch('CityMenuScene', {
-      city,
-      gameState:      this.gameState,
-      networkAdapter: this.networkAdapter,
-      eventBus:       this.eventBus,
-    });
+    this.bridge.openCityMenu(city);
   }
 
   private selectTerritory(position: GridCoordinates): void {
     this.selectedTerritory = { ...position };
     this.selectedUnitId = null;
     this.selectedCityId = null;
-    this.scene.stop('CityMenuScene');
-    this.scene.stop('TerritoryMenuScene');
     this.updateUISelection(undefined);
-    this.scene.launch('TerritoryMenuScene', {
-      position,
-      gameState:      this.gameState,
-      networkAdapter: this.networkAdapter,
-      eventBus:       this.eventBus,
-    });
+    this.bridge.openTerritoryMenu(position);
   }
 
   /** Single-click: highlight the city tile without opening the menu. */
@@ -1230,8 +1222,7 @@ export class GameScene extends Phaser.Scene {
     this.selectedCityId = city.id;
     this.selectedUnitId = null;
     this.selectedTerritory = null;
-    this.scene.stop('TerritoryMenuScene');
-    this.scene.stop('CityMenuScene');
+    this.bridge.closeMenu();
     this.updateUISelection(undefined);
     this.eventBus.emit('city:selected', { city });
     this.rangeGraphic.clear();
@@ -1242,8 +1233,7 @@ export class GameScene extends Phaser.Scene {
     this.selectedTerritory = { ...position };
     this.selectedUnitId = null;
     this.selectedCityId = null;
-    this.scene.stop('CityMenuScene');
-    this.scene.stop('TerritoryMenuScene');
+    this.bridge.closeMenu();
     this.updateUISelection(undefined);
     this.eventBus.emit('city:selected', { city: null });
     this.eventBus.emit('territory:highlighted', { position: { ...position } });
@@ -1251,25 +1241,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private openDiplomacy(targetNationId?: string): void {
-    this.scene.stop('CityMenuScene');
-    this.scene.stop('TerritoryMenuScene');
-    this.scene.stop('DiplomacyScene');
-    this.scene.launch('DiplomacyScene', {
-      targetNationId,
-      gameState:       this.gameState,
-      networkAdapter:  this.networkAdapter,
-      diplomacySystem: this.diplomacySystem,
-      eventBus:        this.eventBus,
-      currentTick:     this.tickEngine.getCurrentTick(),
-    });
+    this.bridge.closeMenu();
+    this.bridge.openDiplomacy(targetNationId);
   }
 
   private clearSelection(): void {
     this.selectedUnitId = null;
     this.selectedCityId = null;
     this.selectedTerritory = null;
-    this.scene.stop('CityMenuScene');
-    this.scene.stop('TerritoryMenuScene');
+    this.bridge.closeMenu();
     this.updateUISelection(undefined);
     this.eventBus.emit('city:selected', { city: null });
     this.eventBus.emit('territory:highlighted', { position: null });

@@ -4,12 +4,6 @@ import { MenuScene } from '@/scenes/MenuScene';
 import { BootScene } from '@/scenes/BootScene';
 import { GameScene } from '@/scenes/GameScene';
 import { UIScene } from '@/scenes/UIScene';
-import { PauseScene } from '@/scenes/PauseScene';
-import { CityMenuScene } from '@/scenes/CityMenuScene';
-import { TerritoryMenuScene } from '@/scenes/TerritoryMenuScene';
-import { ResearchScene } from '@/scenes/ResearchScene';
-import { DiplomacyScene } from '@/scenes/DiplomacyScene';
-import { WarConfirmScene } from '@/scenes/WarConfirmScene';
 
 export const gameConfig: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -35,6 +29,5 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
-  // MenuScene first = entry point; overlay scenes last = render on top
-  scene: [MenuScene, BootScene, GameScene, UIScene, PauseScene, CityMenuScene, TerritoryMenuScene, ResearchScene, DiplomacyScene, WarConfirmScene],
+  scene: [MenuScene, BootScene, GameScene, UIScene],
 };

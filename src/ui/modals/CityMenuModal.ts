@@ -1,0 +1,450 @@
+import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
+import type { City } from '@/entities/cities/City';
+import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
+import type { CatalogEntry } from '@/systems/production/ProductionCatalog';
+import { CITY_BUILDING_CATALOG, CityBuildingType } from '@/systems/territory/CityBuilding';
+import type { CityBuildingDef } from '@/systems/territory/CityBuilding';
+import type { UnitOrder } from '@/systems/production/ProductionOrder';
+import { ResourceType } from '@/systems/resources/ResourceType';
+import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
+import { TICK_RATE } from '@/config/constants';
+import { formatCost } from '@/utils/uiHelpers';
+
+type Tab = 'units' | 'buildings';
+
+export class CityMenuModal {
+  private escHandler: (e: KeyboardEvent) => void;
+  private activeTab: Tab = 'units';
+  private unitPanel!: HTMLElement;
+  private buildingPanel!: HTMLElement;
+  private tabBtns!: Record<Tab, HTMLButtonElement>;
+  private orderLabel!: HTMLElement;
+  private progressFill!: HTMLElement;
+  private resourceTexts = new Map<ResourceType, HTMLElement>();
+  private unitRows: Array<{ entry: CatalogEntry; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
+  private buildingRows: Array<{ def: CityBuildingDef; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
+  private rafId = 0;
+
+  constructor(private bridge: PhaserUIBridge, private city: City) {
+    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') this.close(); };
+  }
+
+  render(): HTMLElement {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+
+    const panel = document.createElement('div');
+    panel.className = 'modal-panel wide';
+    panel.style.maxHeight = '92vh';
+
+    panel.appendChild(this.buildHeader());
+    panel.appendChild(this.buildStatus());
+    panel.appendChild(this.buildTabs());
+
+    const listWrap = document.createElement('div');
+    listWrap.className = 'scrollable';
+
+    this.unitPanel = this.buildUnitList();
+    this.buildingPanel = this.buildBuildingList();
+    this.buildingPanel.style.display = 'none';
+
+    listWrap.appendChild(this.unitPanel);
+    listWrap.appendChild(this.buildingPanel);
+    panel.appendChild(listWrap);
+
+    backdrop.appendChild(panel);
+    document.addEventListener('keydown', this.escHandler);
+    this.subscribeEvents();
+    this.refresh();
+    this.scheduleUpdate();
+    return backdrop;
+  }
+
+  private buildHeader(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'row spread';
+
+    const info = document.createElement('div');
+    info.className = 'col tight grow';
+
+    const name = document.createElement('div');
+    name.className = 'text-heading text-bold';
+    name.textContent = this.city.getName();
+
+    const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
+    const owner = document.createElement('div');
+    owner.className = 'text-body text-dim text-mono';
+    owner.textContent = nation?.getName() ?? 'Unknown';
+
+    info.appendChild(name);
+    info.appendChild(owner);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-danger btn-sm';
+    closeBtn.textContent = 'CLOSE';
+    closeBtn.addEventListener('click', () => this.close());
+
+    row.appendChild(info);
+    row.appendChild(closeBtn);
+    return row;
+  }
+
+  private buildStatus(): HTMLElement {
+    const section = document.createElement('div');
+    section.className = 'panel-alt';
+
+    const inner = document.createElement('div');
+    inner.className = 'row';
+    inner.style.alignItems = 'flex-start';
+
+    // Production side
+    const prodSide = document.createElement('div');
+    prodSide.className = 'col tight grow';
+
+    const orderRow = document.createElement('div');
+    orderRow.className = 'row spread';
+
+    this.orderLabel = document.createElement('div');
+    this.orderLabel.className = 'text-caption text-mono grow text-wrap';
+    this.orderLabel.textContent = 'Idle';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-warning btn-sm';
+    cancelBtn.textContent = 'CANCEL';
+    cancelBtn.addEventListener('click', () => { this.city.cancelOrder(); this.refresh(); });
+
+    orderRow.appendChild(this.orderLabel);
+    orderRow.appendChild(cancelBtn);
+
+    const track = document.createElement('div');
+    track.className = 'progress-track';
+    this.progressFill = document.createElement('div');
+    this.progressFill.className = 'progress-fill';
+    this.progressFill.style.width = '0%';
+    track.appendChild(this.progressFill);
+
+    prodSide.appendChild(orderRow);
+    prodSide.appendChild(track);
+
+    // Resources side
+    const resGrid = document.createElement('div');
+    resGrid.className = 'col tight';
+    resGrid.style.flexShrink = '0';
+
+    const pairs: Array<Array<{ type: ResourceType; color: string }>> = [
+      [{ type: ResourceType.FOOD, color: '#8ee09d' }, { type: ResourceType.RAW_MATERIAL, color: '#f0bf7a' }],
+      [{ type: ResourceType.GOLD, color: 'var(--color-gold)' }, { type: ResourceType.RESEARCH, color: '#8fb8ff' }],
+    ];
+    for (const pair of pairs) {
+      const pairRow = document.createElement('div');
+      pairRow.className = 'row tight';
+      for (const { type, color } of pair) {
+        const cell = document.createElement('div');
+        cell.className = 'row tight';
+        cell.style.minWidth = '80px';
+
+        const emoji = document.createElement('span');
+        emoji.textContent = RESOURCE_EMOJI[type];
+        emoji.style.color = color;
+
+        const val = document.createElement('span');
+        val.className = 'text-caption text-mono text-bold';
+        val.style.color = color;
+        val.textContent = '0';
+        this.resourceTexts.set(type, val);
+
+        cell.appendChild(emoji);
+        cell.appendChild(val);
+        pairRow.appendChild(cell);
+      }
+      resGrid.appendChild(pairRow);
+    }
+
+    inner.appendChild(prodSide);
+    inner.appendChild(resGrid);
+    section.appendChild(inner);
+    return section;
+  }
+
+  private buildTabs(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'tabs';
+
+    const unitBtn = document.createElement('button');
+    unitBtn.className = 'btn btn-primary tab';
+    unitBtn.textContent = 'UNITS';
+    unitBtn.addEventListener('click', () => this.switchTab('units'));
+
+    const bldgBtn = document.createElement('button');
+    bldgBtn.className = 'btn btn-secondary tab';
+    bldgBtn.textContent = 'BUILDINGS';
+    bldgBtn.addEventListener('click', () => this.switchTab('buildings'));
+
+    this.tabBtns = { units: unitBtn, buildings: bldgBtn };
+    row.appendChild(unitBtn);
+    row.appendChild(bldgBtn);
+    return row;
+  }
+
+  private buildUnitList(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'col tight';
+
+    for (const entry of PRODUCTION_CATALOG) {
+      const { row, record } = this.buildUnitRow(entry);
+      this.unitRows.push(record);
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
+  private buildBuildingList(): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'col tight';
+
+    for (const def of CITY_BUILDING_CATALOG.filter(d => d.ticks > 0)) {
+      const { row, record } = this.buildBuildingRow(def);
+      this.buildingRows.push(record);
+      wrap.appendChild(row);
+    }
+    return wrap;
+  }
+
+  private buildUnitRow(entry: CatalogEntry): { row: HTMLElement; record: { entry: CatalogEntry; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement } } {
+    const row = document.createElement('div');
+    row.className = 'list-row';
+
+    const info = document.createElement('div');
+    info.className = 'col tight grow';
+
+    const name = document.createElement('div');
+    name.className = 'text-label text-bold';
+    name.textContent = entry.label;
+
+    const costLbl = document.createElement('div');
+    costLbl.className = 'text-caption text-mono';
+    costLbl.style.color = 'var(--color-dim)';
+    const secs = (entry.ticks / TICK_RATE).toFixed(1);
+    costLbl.textContent = `${formatCost(entry.cost as Record<string, number>)}  ${secs}s`;
+
+    const statusLbl = document.createElement('div');
+    statusLbl.className = 'text-caption text-wrap';
+    statusLbl.style.color = 'var(--color-dim)';
+
+    info.appendChild(name);
+    info.appendChild(costLbl);
+    info.appendChild(statusLbl);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary btn-sm';
+    btn.textContent = 'BUILD';
+    btn.addEventListener('click', () => void this.startProduction(entry));
+
+    row.appendChild(info);
+    row.appendChild(btn);
+
+    return { row, record: { entry, btn, costLbl, statusLbl } };
+  }
+
+  private buildBuildingRow(def: CityBuildingDef): { row: HTMLElement; record: { def: CityBuildingDef; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement } } {
+    const row = document.createElement('div');
+    row.className = 'list-row';
+
+    const info = document.createElement('div');
+    info.className = 'col tight grow';
+
+    const name = document.createElement('div');
+    name.className = 'text-label text-bold';
+    name.textContent = def.label;
+
+    const costLbl = document.createElement('div');
+    costLbl.className = 'text-caption text-mono';
+    costLbl.style.color = 'var(--color-dim)';
+    const secs = (def.ticks / TICK_RATE).toFixed(1);
+    costLbl.textContent = `${formatCost(def.cost as Record<string, number>)}  ${secs}s`;
+
+    const statusLbl = document.createElement('div');
+    statusLbl.className = 'text-caption text-wrap';
+    statusLbl.style.color = 'var(--color-dim)';
+
+    info.appendChild(name);
+    info.appendChild(costLbl);
+    info.appendChild(statusLbl);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary btn-sm';
+    btn.textContent = 'BUILD';
+    btn.addEventListener('click', () => void this.buildCityBuilding(def));
+
+    row.appendChild(info);
+    row.appendChild(btn);
+
+    return { row, record: { def, btn, costLbl, statusLbl } };
+  }
+
+  private switchTab(tab: Tab): void {
+    this.activeTab = tab;
+    this.unitPanel.style.display = tab === 'units' ? 'flex' : 'none';
+    this.buildingPanel.style.display = tab === 'buildings' ? 'flex' : 'none';
+    this.tabBtns.units.className = `btn tab ${tab === 'units' ? 'btn-primary' : 'btn-secondary'}`;
+    this.tabBtns.buildings.className = `btn tab ${tab === 'buildings' ? 'btn-primary' : 'btn-secondary'}`;
+  }
+
+  private refresh(): void {
+    this.refreshBuildButtons();
+    this.switchTab(this.activeTab);
+  }
+
+  private scheduleUpdate(): void {
+    const tick = () => {
+      this.updateProduction();
+      this.updateResources();
+      this.rafId = requestAnimationFrame(tick);
+    };
+    this.rafId = requestAnimationFrame(tick);
+  }
+
+  private updateProduction(): void {
+    const order = this.city.getCurrentOrder();
+    if (!order) {
+      this.orderLabel.textContent = 'Idle';
+      this.orderLabel.style.color = 'var(--color-dim)';
+      this.progressFill.style.width = '0%';
+      return;
+    }
+    this.orderLabel.textContent = `${order.label}  |  ${(order.ticksRemaining / TICK_RATE).toFixed(1)}s remaining`;
+    this.orderLabel.style.color = 'var(--color-gold)';
+    this.progressFill.style.width = `${(this.city.getProgressFraction() * 100).toFixed(1)}%`;
+  }
+
+  private updateResources(): void {
+    const treasury = this.bridge.gameState.getNation(this.city.getOwnerId())?.getTreasury();
+    if (!treasury) return;
+    for (const [type, el] of this.resourceTexts) {
+      el.textContent = String(treasury.getAmount(type));
+    }
+  }
+
+  private refreshBuildButtons(): void {
+    const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
+    const busy = this.city.getCurrentOrder() !== null;
+    const treasury = nation?.getTreasury();
+    const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
+
+    for (const row of this.unitRows) {
+      const canAfford   = treasury?.hasResources(row.entry.cost) ?? false;
+      const techsOk     = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
+      const buildingOk  = !row.entry.requiresBuilding || this.city.hasBuilding(row.entry.requiresBuilding);
+      const depositOk   = !row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit);
+      const enabled     = !busy && canAfford && techsOk && buildingOk && depositOk;
+
+      row.btn.disabled   = !enabled;
+      row.btn.textContent = techsOk && buildingOk && depositOk ? 'BUILD' : 'LOCKED';
+      row.costLbl.style.color = canAfford ? 'var(--color-dim)' : '#d19393';
+      row.statusLbl.textContent = this.getLockReasonForUnit(row.entry);
+      row.statusLbl.style.color = enabled ? 'var(--color-dim)' : '#d5a0a0';
+    }
+
+    for (const row of this.buildingRows) {
+      const alreadyBuilt = this.city.hasBuilding(row.def.type);
+      const currentLevel = this.city.getBuildingLevel(row.def.type);
+      const canUpgrade   = row.def.type === CityBuildingType.WALLS && alreadyBuilt && currentLevel < row.def.maxLevel;
+      const techOk       = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
+      const cost         = canUpgrade ? row.def.upgradeCost : row.def.cost;
+      const canAfford    = treasury?.hasResources(cost) ?? false;
+      const enabled      = !busy && techOk && canAfford && (!alreadyBuilt || canUpgrade);
+
+      row.btn.disabled = !enabled;
+      const levelSuffix = row.def.maxLevel > 1 && alreadyBuilt ? ` ${currentLevel}/${row.def.maxLevel}` : '';
+      row.btn.textContent = canUpgrade ? 'UPGRADE' : alreadyBuilt ? `BUILT${levelSuffix}` : techOk ? 'BUILD' : 'LOCKED';
+      row.costLbl.textContent = formatCost(cost as Record<string, number>);
+      row.costLbl.style.color = canAfford ? 'var(--color-dim)' : '#d19393';
+      row.statusLbl.textContent = this.getLockReasonForBuilding(row.def);
+      row.statusLbl.style.color = enabled ? 'var(--color-dim)' : '#d5a0a0';
+    }
+  }
+
+  private getLockReasonForUnit(entry: CatalogEntry): string {
+    const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
+    if (this.city.getCurrentOrder()) return 'City is already producing something.';
+    const missing = entry.requiresTechs.filter(t => !nation?.hasResearched(t));
+    if (missing.length) return `Requires research: ${missing.map(t => t.replace(/_/g, ' ')).join(', ')}.`;
+    if (entry.requiresBuilding !== null && !this.city.hasBuilding(entry.requiresBuilding))
+      return `Requires ${entry.requiresBuilding.replace(/_/g, ' ').toLowerCase()} in this city.`;
+    if (entry.requiresDeposit) {
+      const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
+      if (!deposits.has(entry.requiresDeposit))
+        return `Requires active ${entry.requiresDeposit.replace(/_/g, ' ').toLowerCase()} deposit.`;
+    }
+    if (!nation?.getTreasury().hasResources(entry.cost)) return 'Insufficient resources.';
+    return 'Ready to queue.';
+  }
+
+  private getLockReasonForBuilding(def: CityBuildingDef): string {
+    if (this.city.hasBuilding(def.type)) {
+      const level = this.city.getBuildingLevel(def.type);
+      if (def.type !== CityBuildingType.WALLS || level >= def.maxLevel) return 'Already built.';
+      if (this.city.getCurrentOrder()) return 'City is already producing something.';
+      const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
+      if (!nation?.getTreasury().hasResources(def.upgradeCost)) return 'Insufficient resources.';
+      return `Ready to upgrade to level ${level + 1}.`;
+    }
+    const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
+    if (this.city.getCurrentOrder()) return 'City is already producing something.';
+    if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech))
+      return `Requires research: ${def.requiresTech.replace(/_/g, ' ').toLowerCase()}.`;
+    if (!nation?.getTreasury().hasResources(def.cost)) return 'Insufficient resources.';
+    return 'Ready to build.';
+  }
+
+  private async startProduction(entry: CatalogEntry): Promise<void> {
+    const lp = this.bridge.gameState.getLocalPlayer();
+    if (!lp) return;
+    const result = await this.bridge.networkAdapter.sendCommand({
+      type: 'START_CITY_PRODUCTION',
+      playerId: lp.getId(),
+      cityId: this.city.id,
+      unitType: (entry.makeOrder() as UnitOrder).unitType,
+      issuedAtTick: 0,
+    });
+    if (result.success) this.refresh();
+  }
+
+  private async buildCityBuilding(def: CityBuildingDef): Promise<void> {
+    const lp = this.bridge.gameState.getLocalPlayer();
+    if (!lp) return;
+    const result = await this.bridge.networkAdapter.sendCommand({
+      type: 'BUILD_CITY_BUILDING',
+      playerId: lp.getId(),
+      cityId: this.city.id,
+      building: def.type,
+      issuedAtTick: 0,
+    });
+    if (result.success) this.refresh();
+  }
+
+  private subscribeEvents(): void {
+    const onRefresh = () => this.refresh();
+    this.bridge.eventBus.on('city:unit-spawned',       onRefresh);
+    this.bridge.eventBus.on('city:building-built',     onRefresh);
+    this.bridge.eventBus.on('city:production-complete',onRefresh);
+    this.bridge.eventBus.on('nation:research-complete', onRefresh);
+    (this as any)._unsub = () => {
+      this.bridge.eventBus.off('city:unit-spawned',       onRefresh);
+      this.bridge.eventBus.off('city:building-built',     onRefresh);
+      this.bridge.eventBus.off('city:production-complete',onRefresh);
+      this.bridge.eventBus.off('nation:research-complete', onRefresh);
+    };
+  }
+
+  private close(): void {
+    this.destroy();
+    this.bridge.closeCityMenu();
+  }
+
+  destroy(): void {
+    document.removeEventListener('keydown', this.escHandler);
+    cancelAnimationFrame(this.rafId);
+    (this as any)._unsub?.();
+  }
+}

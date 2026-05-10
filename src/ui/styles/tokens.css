@@ -1,0 +1,41 @@
+/* Design tokens mirroring src/config/uiTheme.ts */
+:root {
+  --color-bg:         #050914;
+  --color-panel:      #101827;
+  --color-panel-alt:  #162235;
+  --color-header:     #1a2942;
+  --color-surface:    #1b2b44;
+  --color-surface-hi: #243a5a;
+  --color-accent:     #64a8ff;
+  --color-accent-soft:#8dd7ff;
+  --color-btn:        #1b2b44;
+  --color-btn-hov:    #274066;
+  --color-btn-active: #315b8f;
+  --color-red-btn:    #5a2424;
+  --color-red-h:      #7e3232;
+  --color-green-btn:  #1f4633;
+  --color-green-h:    #2a6245;
+  --color-warn-btn:   #5c4520;
+  --color-warn-h:     #7b5c2c;
+  --color-shadow:     #02050b;
+
+  --color-dim:     #8fa2c6;
+  --color-muted:   #6d80a4;
+  --color-lt:      #eef4ff;
+  --color-white:   #ffffff;
+  --color-gold:    #ffd166;
+  --color-success: #7fe7a6;
+  --color-danger:  #ff9d92;
+  --color-warning: #ffd991;
+
+  --font-display: "Trebuchet MS", Verdana, sans-serif;
+  --font-body:    "Trebuchet MS", Verdana, sans-serif;
+  --font-data:    Consolas, "Courier New", monospace;
+
+  /* Computed by UIManager on init/resize */
+  --ui-scale:     1;
+  --ui-pad:       20px;
+  --ui-gap:       14px;
+  --ui-small-gap: 8px;
+  --ui-btn-h:     40px;
+}

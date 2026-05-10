@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import type { Unit, BattleOrder } from '@/entities/units/Unit';
 import { MORALE_LOW } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
@@ -29,6 +30,7 @@ interface UISceneData {
   eventBus: GameEventBus;
   diplomacySystem: DiplomacySystem;
   tickEngine: TickEngine;
+  bridge: PhaserUIBridge;
 }
 
 interface AlertEntry {
@@ -107,7 +109,6 @@ export class UIScene extends Phaser.Scene {
   private gameState!: GameState;
   private networkAdapter!: NetworkAdapter;
   private eventBus!: GameEventBus;
-  private diplomacySystem!: DiplomacySystem;
   private tickEngine!: TickEngine;
   private playerId = '';
 
@@ -140,6 +141,7 @@ export class UIScene extends Phaser.Scene {
   private nextAlertId = 1;
   private sandboxAiDifficulty: import('@/types/gameSetup').Difficulty = 'sandbox';
   private tileEditActive = false;
+  private bridge!: PhaserUIBridge;
   constructor() {
     super({ key: 'UIScene' });
   }
@@ -149,8 +151,8 @@ export class UIScene extends Phaser.Scene {
     this.gameState = data.gameState;
     this.networkAdapter = data.networkAdapter;
     this.eventBus = data.eventBus;
-    this.diplomacySystem = data.diplomacySystem;
     this.tickEngine = data.tickEngine;
+    this.bridge = data.bridge;
     this.playerId = this.gameState.getLocalPlayer()?.getId() ?? '';
   }
 
@@ -420,14 +422,10 @@ export class UIScene extends Phaser.Scene {
       : (skinny ? 'TECH' : 'RESEARCH');
     const researchBtnFill = currentResearch ? 0x1e2810 : 0x1a1e3c;
     this.makeButton(researchX, midY, btnW, btnH, researchBtnLabel, scale, () => {
-      if (this.scene.isActive('ResearchScene')) {
-        this.scene.stop('ResearchScene');
+      if (this.bridge.isResearchOpen()) {
+        this.bridge.closeResearch();
       } else {
-        this.scene.launch('ResearchScene', {
-          gameState: this.gameState,
-          networkAdapter: this.networkAdapter,
-          eventBus: this.eventBus,
-        });
+        this.bridge.openResearch();
       }
     }, researchBtnFill);
     this.researchBtnText = this.hudObjects[this.hudObjects.length - 1] as Phaser.GameObjects.Text;
@@ -1130,15 +1128,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   private openDiplomacy(targetNationId?: string): void {
-    this.scene.stop('DiplomacyScene');
-    this.scene.launch('DiplomacyScene', {
-      targetNationId,
-      gameState: this.gameState,
-      networkAdapter: this.networkAdapter,
-      diplomacySystem: this.diplomacySystem,
-      eventBus: this.eventBus,
-      currentTick: this.tickEngine.getCurrentTick(),
-    });
+    this.bridge.openDiplomacy(targetNationId);
   }
 
   private getLocalNation() {
