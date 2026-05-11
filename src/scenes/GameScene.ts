@@ -23,7 +23,6 @@ import { RegionSystem } from '@/systems/regions/RegionSystem';
 import { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 
 const WATER_BORDER = 0;
-const GRID_SIZE    = 60;
 const TERRAIN_CYCLE: TerrainType[] = [
   TerrainType.PLAINS, TerrainType.SNOW_FOREST, TerrainType.FOREST,
   TerrainType.MOUNTAIN, TerrainType.DESERT, TerrainType.WATER,
@@ -64,13 +63,13 @@ export class GameScene extends Phaser.Scene {
   private unitColors: Map<string, number> = new Map();   // nation color per unit (ring stroke)
   private citySprites: Map<string, Phaser.GameObjects.Image> = new Map();
   private cityLabels: Map<string, Phaser.GameObjects.Text> = new Map();
-  private cityDots: Map<string, Phaser.GameObjects.Arc> = new Map();
   private selectionGraphic!: Phaser.GameObjects.Graphics;
   private pathGraphic!: Phaser.GameObjects.Graphics;
   private territoryGraphic!: Phaser.GameObjects.Graphics;
   private rangeGraphic!: Phaser.GameObjects.Graphics;
   private healthBarGraphic!: Phaser.GameObjects.Graphics;
   private conquestGraphic!: Phaser.GameObjects.Graphics;
+  private constructionGraphic!: Phaser.GameObjects.Graphics;
 
   // posKey → { progress, needed, nationId } for active territory conquests
   private activeConquests = new Map<string, { progress: number; needed: number; nationId: string }>();
@@ -87,6 +86,7 @@ export class GameScene extends Phaser.Scene {
   private contactMarkers: Map<string, Phaser.GameObjects.Text> = new Map();
   /** Tiles visible this frame — used to cull borders/conquest overlays */
   private currentVisible: Set<string> = new Set();
+  private currentDiscovered: Set<string> = new Set();
   private visionSystem!: VisionSystem;
   /** Terrain tile images tracked for sandbox tile editing */
   private terrainImages: Map<string, Phaser.GameObjects.Image> = new Map();
@@ -136,7 +136,6 @@ export class GameScene extends Phaser.Scene {
     this.unitColors.clear();
     this.citySprites.clear();
     this.cityLabels.clear();
-    this.cityDots.clear();
     this.contactMarkers.clear();
     this.terrainImages.clear();
     this.tileEditActive = false;
@@ -198,7 +197,8 @@ export class GameScene extends Phaser.Scene {
 
     this.territoryGraphic = this.add.graphics().setDepth(80);
     this.conquestGraphic  = this.add.graphics().setDepth(81);
-    this.rangeGraphic     = this.add.graphics().setDepth(82);
+    this.constructionGraphic = this.add.graphics().setDepth(82);
+    this.rangeGraphic     = this.add.graphics().setDepth(83);
     this.fogGraphic       = this.add.graphics().setDepth(95); // above cities (50-74), below units (300+)
     this.healthBarGraphic = this.add.graphics().setDepth(90); // below fog
     this.pathGraphic      = this.add.graphics().setDepth(92); // below fog
@@ -270,14 +270,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    this.eventBus.on('city:conquered', ({ cityId, byNationId, position }) => {
-      // Update the nation-color dot on the city sprite
-      const dot = this.cityDots.get(cityId);
-      if (dot) {
-        const nation = this.gameState.getNation(byNationId);
-        const newColor = parseInt((nation?.getColor() ?? '#ffffff').replace('#', ''), 16);
-        dot.setFillStyle(newColor);
-      }
+    this.eventBus.on('city:conquered', ({ position }) => {
       // Flash "CAPTURED!" text above the city
       const flashX = position.col * TILE_SIZE + TILE_SIZE / 2;
       const flashY = position.row * TILE_SIZE - 14;
@@ -312,23 +305,25 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Camera bounds extend a bit past the water border so scrolling feels free at the edges
+    const { rows: mapRows, cols: mapCols } = this.gameState.getGrid().getSize();
     const SCROLL_PAD = 20 * TILE_SIZE;
-    const totalSize  = (GRID_SIZE + WATER_BORDER * 2) * TILE_SIZE;
+    const totalWidth  = (mapCols + WATER_BORDER * 2) * TILE_SIZE;
+    const totalHeight = (mapRows + WATER_BORDER * 2) * TILE_SIZE;
     this.cameras.main.setBounds(
       -WATER_BORDER * TILE_SIZE - SCROLL_PAD,
       -WATER_BORDER * TILE_SIZE - SCROLL_PAD,
-      totalSize + SCROLL_PAD * 2,
-      totalSize + SCROLL_PAD * 2,
+      totalWidth + SCROLL_PAD * 2,
+      totalHeight + SCROLL_PAD * 2,
     );
     // Set minimum zoom so user can't zoom out past the water ring
     this.minZoom = Math.max(0.15, Math.min(
-      this.scale.width  / totalSize,
-      this.scale.height / totalSize,
+      this.scale.width  / totalWidth,
+      this.scale.height / totalHeight,
     ) * 0.85);
     // Default zoom: fit the playable grid comfortably
     const defaultZoom = Math.min(
-      this.scale.width  / (GRID_SIZE * TILE_SIZE),
-      this.scale.height / (GRID_SIZE * TILE_SIZE),
+      this.scale.width  / (mapCols * TILE_SIZE),
+      this.scale.height / (mapRows * TILE_SIZE),
       1.5,
     );
     // Try to start zoomed in on the local player's starting city/unit
@@ -348,8 +343,8 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.cameras.main.setZoom(defaultZoom);
       this.cameras.main.centerOn(
-        (GRID_SIZE * TILE_SIZE) / 2,
-        (GRID_SIZE * TILE_SIZE) / 2,
+        (mapCols * TILE_SIZE) / 2,
+        (mapRows * TILE_SIZE) / 2,
       );
     }
     this.scale.on('resize', this.onResize, this);
@@ -395,6 +390,7 @@ export class GameScene extends Phaser.Scene {
     this.drawUnitHealthBars();
     this.drawCityHealthBars();
     this.drawConquestOverlay();
+    this.drawConstructionOverlay();
     this.updateRangeOverlay();
     this.updateStanceBadges();
   }
@@ -531,9 +527,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createSpriteForCity(city: City): void {
-    const nation = this.gameState.getNation(city.getOwnerId());
-    const colorHex = nation?.getColor() ?? '#ffffff';
-    const color = parseInt(colorHex.replace('#', ''), 16);
     const pos = city.position;
 
     const imgH = TILE_SIZE * (384 / 256);
@@ -544,14 +537,6 @@ export class GameScene extends Phaser.Scene {
       .setDisplaySize(TILE_SIZE, imgH)
       .setOrigin(0.5, 1)
       .setDepth(50 + pos.row);
-
-    const dot = this.add.circle(
-      pos.col * TILE_SIZE + TILE_SIZE - 5,
-      pos.row * TILE_SIZE + 5,
-      5,
-      color,
-    ).setDepth(51 + pos.row);
-    this.cityDots.set(city.id, dot);
 
     const label = this.add.text(cx, pos.row * TILE_SIZE + 2, city.getName(), {
       fontSize: '8px',
@@ -712,6 +697,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
     this.currentVisible = visible;
+    this.currentDiscovered = visible;
     const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
     if (localNationId) this.gameState.markDiscovered(localNationId, visible);
     this.drawTerritoryBorders();
@@ -719,7 +705,6 @@ export class GameScene extends Phaser.Scene {
     for (const city of this.gameState.getAllCities()) {
       this.citySprites.get(city.id)?.setVisible(true);
       this.cityLabels.get(city.id)?.setVisible(true);
-      this.cityDots.get(city.id)?.setVisible(true);
     }
     for (const unit of this.gameState.getAllUnits()) {
       if (!unit.isAlive()) continue;
@@ -737,6 +722,7 @@ export class GameScene extends Phaser.Scene {
 
     const { visible, nearVisible, discovered } = this.visionSystem.compute(this.gameState, localNationId);
     this.currentVisible = visible;
+    this.currentDiscovered = discovered;
     this.drawTerritoryBorders();
 
     // Draw fog: solid black for undiscovered, dark tint for discovered-but-not-visible
@@ -762,7 +748,6 @@ export class GameScene extends Phaser.Scene {
       const show = city.getOwnerId() === localNationId || discovered.has(`${pos.row},${pos.col}`);
       this.citySprites.get(city.id)?.setVisible(show);
       this.cityLabels.get(city.id)?.setVisible(show);
-      this.cityDots.get(city.id)?.setVisible(show);
     }
 
     // Clean up contact markers, rebuild below
@@ -788,7 +773,8 @@ export class GameScene extends Phaser.Scene {
         if (!this.contactMarkers.has(key)) {
           const cx = unit.position.col * TILE_SIZE + TILE_SIZE / 2;
           const cy = unit.position.row * TILE_SIZE + TILE_SIZE / 2;
-          const marker = this.add.text(cx, cy, '?', {
+          const armorLabel = unit.getStats().armorType === 'heavy' ? 'H' : 'L';
+          const marker = this.add.text(cx, cy, armorLabel, {
             fontSize: '14px', color: '#ff8844', fontFamily: 'monospace', fontStyle: 'bold',
             stroke: '#000000', strokeThickness: 2,
           }).setOrigin(0.5).setDepth(290);
@@ -1263,7 +1249,8 @@ export class GameScene extends Phaser.Scene {
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (!this.currentVisible.has(`${r},${c}`)) continue;
+        const key = `${r},${c}`;
+        if (!this.currentDiscovered.has(key)) continue;
 
         const territory = grid.getTerritory({ row: r, col: c });
         if (!territory) continue;
@@ -1276,10 +1263,11 @@ export class GameScene extends Phaser.Scene {
 
         const color = parseInt(nation.getColor().replace('#', ''), 16);
 
-        this.territoryGraphic.fillStyle(color, 0.12);
+        const isVisible = this.currentVisible.has(key);
+        this.territoryGraphic.fillStyle(color, isVisible ? 0.12 : 0.06);
         this.territoryGraphic.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
 
-        this.territoryGraphic.lineStyle(2, color, 0.9);
+        this.territoryGraphic.lineStyle(2, color, isVisible ? 0.9 : 0.55);
         const neighbors: Array<{ dr: number; dc: number; x1: number; y1: number; x2: number; y2: number }> = [
           { dr: -1, dc: 0, x1: c * TILE_SIZE, y1: r * TILE_SIZE, x2: (c + 1) * TILE_SIZE, y2: r * TILE_SIZE },
           { dr: 1, dc: 0, x1: c * TILE_SIZE, y1: (r + 1) * TILE_SIZE, x2: (c + 1) * TILE_SIZE, y2: (r + 1) * TILE_SIZE },
@@ -1334,6 +1322,51 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Draw progress bars for city queues and territory construction directly on the map. */
+  private drawConstructionOverlay(): void {
+    this.constructionGraphic.clear();
+
+    for (const city of this.gameState.getAllCities()) {
+      const order = city.getCurrentOrder();
+      const pos = city.position;
+      if (!order || !this.currentVisible.has(`${pos.row},${pos.col}`)) continue;
+      const nation = this.gameState.getNation(city.getOwnerId());
+      const color = nation ? parseInt(nation.getColor().replace('#', ''), 16) : 0x44cc88;
+      this.drawTileProgressBar(pos, city.getProgressFraction(), color, 0);
+    }
+
+    const grid = this.gameState.getGrid();
+    const { rows, cols } = grid.getSize();
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const territory = grid.getTerritory({ row, col });
+        const order = territory?.getCurrentConstruction();
+        const key = `${row},${col}`;
+        if (!territory || !order || !this.currentVisible.has(key)) continue;
+
+        const nation = this.gameState.getNation(order.nationId);
+        const color = nation ? parseInt(nation.getColor().replace('#', ''), 16) : 0xffd166;
+        const pulse = 0.10 + 0.05 * Math.sin(this.time.now / 260);
+        this.constructionGraphic.fillStyle(color, pulse);
+        this.constructionGraphic.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        this.drawTileProgressBar({ row, col }, territory.getConstructionProgressFraction(), color, 6);
+      }
+    }
+  }
+
+  private drawTileProgressBar(position: GridCoordinates, ratio: number, color: number, yOffset: number): void {
+    const barW = TILE_SIZE - 8;
+    const barH = 5;
+    const x = position.col * TILE_SIZE + 4;
+    const y = position.row * TILE_SIZE + 4 + yOffset;
+    this.constructionGraphic.fillStyle(0x000000, 0.72);
+    this.constructionGraphic.fillRect(x, y, barW, barH);
+    this.constructionGraphic.fillStyle(color, 0.96);
+    this.constructionGraphic.fillRect(x, y, Math.max(1, Math.round(barW * ratio)), barH);
+    this.constructionGraphic.lineStyle(1, 0x000000, 0.75);
+    this.constructionGraphic.strokeRect(x, y, barW, barH);
+  }
+
   private getUnitAt(coords: GridCoordinates): Unit | null {
     for (const unit of this.gameState.getAllUnits()) {
       const pos = unit.position;
@@ -1353,10 +1386,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawWaterBorder(): void {
+    const { rows, cols } = this.gameState.getGrid().getSize();
     const imgH = TILE_SIZE * (384 / 256);
-    for (let r = -WATER_BORDER; r < GRID_SIZE + WATER_BORDER; r++) {
-      for (let c = -WATER_BORDER; c < GRID_SIZE + WATER_BORDER; c++) {
-        if (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE) continue;
+    for (let r = -WATER_BORDER; r < rows + WATER_BORDER; r++) {
+      for (let c = -WATER_BORDER; c < cols + WATER_BORDER; c++) {
+        if (r >= 0 && r < rows && c >= 0 && c < cols) continue;
         const cx      = c * TILE_SIZE + TILE_SIZE / 2;
         const bottomY = (r + 1) * TILE_SIZE;
         this.add.image(cx, bottomY, 'terrain_water')
@@ -1368,10 +1402,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onResize(): void {
-    const totalSize = (GRID_SIZE + WATER_BORDER * 2) * TILE_SIZE;
+    const { rows, cols } = this.gameState.getGrid().getSize();
+    const totalWidth = (cols + WATER_BORDER * 2) * TILE_SIZE;
+    const totalHeight = (rows + WATER_BORDER * 2) * TILE_SIZE;
     this.minZoom = Math.max(0.15, Math.min(
-      this.scale.width  / totalSize,
-      this.scale.height / totalSize,
+      this.scale.width  / totalWidth,
+      this.scale.height / totalHeight,
     ) * 0.85);
     // Clamp current zoom in case it's now below the new minimum
     const clamped = Phaser.Math.Clamp(this.cameras.main.zoom, this.minZoom, 2.5);

@@ -12,12 +12,12 @@ import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType
 import { lightningManaSpeedBonus } from '@/systems/resources/ResourceBonuses';
 
 export const TERRAIN_BASE_COST: Record<TerrainType, number> = {
-  [TerrainType.PLAINS]:   20,
-  [TerrainType.SNOW_FOREST]:    30,
-  [TerrainType.FOREST]:   40,
+  [TerrainType.PLAINS]:   50,
+  [TerrainType.SNOW_FOREST]:    75,
+  [TerrainType.FOREST]:   100,
   [TerrainType.MOUNTAIN]: Infinity,
   [TerrainType.WATER]:    Infinity,
-  [TerrainType.DESERT]:   30,
+  [TerrainType.DESERT]:   75,
 };
 
 /** Units that move at effective speed=1 through FOREST. */

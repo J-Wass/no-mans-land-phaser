@@ -29,22 +29,22 @@ describe('MovementSystem', () => {
     const unit = new Infantry('unit-1', 'nation-1', { row: 0, col: 0 });
     gameState.addUnit(unit);
 
-    // 2-step path on PLAINS: stepCost = ceil(10/2) = 5 ticks each => 10 total
+    // 2-step path on PLAINS: stepCost = ceil(50/2) = 25 ticks each => 50 total
     movementSystem.issueOrder(unit, [{ row: 0, col: 1 }, { row: 0, col: 2 }]);
 
-    tickN(10);
+    tickN(50);
 
     expect(unit.position).toEqual({ row: 0, col: 2 });
     expect(movementSystem.isMoving('unit-1')).toBe(false);
   });
 
-  it('unit reaches first tile after exactly 5 ticks on PLAINS (speed=2)', () => {
+  it('unit reaches first tile after exactly 25 ticks on PLAINS (speed=2)', () => {
     const unit = new Infantry('unit-1', 'nation-1', { row: 0, col: 0 });
     gameState.addUnit(unit);
 
     movementSystem.issueOrder(unit, [{ row: 0, col: 1 }, { row: 0, col: 2 }]);
 
-    tickN(4); // not there yet
+    tickN(24); // not there yet
     expect(unit.position).toEqual({ row: 0, col: 0 });
 
     tickN(1); // step completes
@@ -71,7 +71,7 @@ describe('MovementSystem', () => {
     eventBus.on('unit:step-complete', handler);
 
     movementSystem.issueOrder(unit, [{ row: 0, col: 1 }]);
-    tickN(5);
+    tickN(25);
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith(
@@ -91,7 +91,7 @@ describe('MovementSystem', () => {
     eventBus.on('unit:move-complete', handler);
 
     movementSystem.issueOrder(unit, [{ row: 0, col: 1 }]);
-    tickN(5);
+    tickN(25);
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith(
@@ -109,8 +109,8 @@ describe('MovementSystem', () => {
 
     movementSystem.issueOrder(cavalry, [{ row: 0, col: 1 }]);
 
-    // In FOREST, cavalry effective speed=1: cost = ceil(20/1) = 20 ticks
-    tickN(19);
+    // In FOREST, cavalry effective speed=1: cost = ceil(100/1) = 100 ticks
+    tickN(99);
     expect(cavalry.position).toEqual({ row: 0, col: 0 });
 
     tickN(1);

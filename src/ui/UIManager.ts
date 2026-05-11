@@ -1,6 +1,7 @@
 import './styles/tokens.css';
 import './styles/modals.css';
 import type { GameSetup } from '@/types/gameSetup';
+import { applyAccessibilitySettings, getFontSizeScale } from '@/config/accessibility';
 
 export type StartGameCallback = (opts: { setup: GameSetup; saveData?: import('@/types/gameSetup').GameSaveData }) => void;
 
@@ -35,14 +36,16 @@ class UIManagerClass {
       container.appendChild(el);
     }
     this.overlay = el;
+    applyAccessibilitySettings();
     this.applyMetrics();
     window.addEventListener('resize', () => this.applyMetrics());
+    window.addEventListener('accessibility:changed', () => this.applyMetrics());
   }
 
   private applyMetrics(): void {
     const m = computeMetrics();
     const r = document.documentElement;
-    r.style.setProperty('--ui-scale',     String(m.scale));
+    r.style.setProperty('--ui-scale',     String(m.scale * getFontSizeScale()));
     r.style.setProperty('--ui-pad',       `${m.pad}px`);
     r.style.setProperty('--ui-gap',       `${m.gap}px`);
     r.style.setProperty('--ui-small-gap', `${m.smallGap}px`);

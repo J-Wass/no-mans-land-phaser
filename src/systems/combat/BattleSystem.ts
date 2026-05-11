@@ -446,11 +446,36 @@ export class BattleSystem {
       });
     }
 
-    for (const candidate of [...candidates, ...ringTwo]) {
-      if (isValid(candidate)) return { ...candidate };
-    }
+    const ordered = [...candidates, ...ringTwo, ...this.findFallbackRetreatRing(battle.position, origin)];
+    const safe = ordered.find(candidate => {
+      if (!isValid(candidate)) return false;
+      const owner = gameState.getGrid().getTerritory(candidate)?.getControllingNation();
+      return !owner || owner === loser.getOwnerId();
+    });
+    if (safe) return { ...safe };
+
+    const fallback = ordered.find(isValid);
+    if (fallback) return { ...fallback };
 
     return null;
+  }
+
+  private findFallbackRetreatRing(position: GridCoordinates, origin: GridCoordinates): GridCoordinates[] {
+    const candidates: GridCoordinates[] = [];
+    for (let radius = 3; radius <= 6; radius++) {
+      for (let row = position.row - radius; row <= position.row + radius; row++) {
+        for (let col = position.col - radius; col <= position.col + radius; col++) {
+          if (Math.max(Math.abs(row - position.row), Math.abs(col - position.col)) !== radius) continue;
+          candidates.push({ row, col });
+        }
+      }
+    }
+    candidates.sort((a, b) => {
+      const da = Math.abs(a.row - origin.row) + Math.abs(a.col - origin.col);
+      const db = Math.abs(b.row - origin.row) + Math.abs(b.col - origin.col);
+      return da - db;
+    });
+    return candidates;
   }
 }
 

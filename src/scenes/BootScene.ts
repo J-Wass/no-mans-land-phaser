@@ -43,8 +43,8 @@ function computeGridSize(totalNations: number): number {
   // Playable area = (gridSize - 20)² (10 water tiles each side).
   // Solve: (gridSize - 20)² = 63 × totalNations  →  gridSize = 20 + ceil(sqrt(63 × n))
   // Add 50% headroom so the map feels open, not claustrophobic.
-  const landNeeded = Math.ceil(63 * totalNations * 1.0);
-  return Math.max(32, Math.min(60, 20 + Math.ceil(Math.sqrt(landNeeded))));
+  const nationPressure = Math.ceil(Math.sqrt(12 * totalNations));
+  return Math.max(22, Math.min(30, 18 + nationPressure));
 }
 
 interface BootSceneData {
@@ -62,11 +62,12 @@ export class BootScene extends Phaser.Scene {
     const GRID_SIZE = computeGridSize(totalNations);
     const gameState = new GameState({ rows: GRID_SIZE, cols: GRID_SIZE });
     const grid = gameState.getGrid();
+    const waterBorder = Math.max(3, Math.round(GRID_SIZE * 0.12));
 
     // Water border
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
-        if (r < 10 || r >= GRID_SIZE - 10 || c < 10 || c >= GRID_SIZE - 10) {
+        if (r < waterBorder || r >= GRID_SIZE - waterBorder || c < waterBorder || c >= GRID_SIZE - waterBorder) {
           grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
         }
       }

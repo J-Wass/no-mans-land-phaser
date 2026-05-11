@@ -64,6 +64,8 @@ export type GameEventMap = {
   'territory:claimed':              { position: GridCoordinates; nationId: EntityId; tick: number; fromNationId?: EntityId };
   /** A building was constructed on a territory tile. */
   'territory:building-built':       { position: GridCoordinates; building: TerritoryBuildingType; tick: number };
+  /** A building started construction on a territory tile. */
+  'territory:building-started':     { position: GridCoordinates; building: TerritoryBuildingType; nationId: EntityId; tick: number };
   /** A territory building was upgraded to the next level. */
   'territory:building-upgraded':    { position: GridCoordinates; building: TerritoryBuildingType; newLevel: number; tick: number };
   /** A unit started conquering an enemy territory tile. */
@@ -76,6 +78,10 @@ export type GameEventMap = {
   'nation:research-complete':  { nationId: EntityId; techId: TechId };
   /** A nation started researching a tech. */
   'nation:research-started':   { nationId: EntityId; techId: TechId };
+  /** A nation's research queue changed. */
+  'nation:research-queue-updated': { nationId: EntityId; queue: TechId[] };
+  /** A nation was eliminated from active play. */
+  'nation:defeated':           { nationId: EntityId; name: string; tick: number };
   /** TickEngine completed one game tick. */
   'game:tick':                 { tick: number };
   /** A nation dominates a geographic region (controls ≥66% of its tiles). */

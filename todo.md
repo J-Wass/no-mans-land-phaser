@@ -1,9 +1,31 @@
 Todo:
-- borders should show up in previously discovered lands, even if not within vision
-- create an accessibility setting that lets you change font size, font type for a few font options,
-- map is too big. there should be less space between nations and less overall travel time
-- fallback is broken if a unit is in the middle of enemy territory
-- add indicator on city or territory when something is being build, like research's progress bar. get rid of the dot at the top right for cities.
--outpost should take time to make and cost more
-- units should take longer to spawn
-- add timestamps to alerts (day, hour) in-game time
+- [x] Borders should show up in previously discovered lands, even if not within vision.
+- [x] Create an accessibility setting that lets you change font size and font type for a few font options.
+- [x] Map is too big. There should be less space between nations and less overall travel time.
+- [x] Fallback is broken if a unit is in the middle of enemy territory.
+- [x] Add indicator on city or territory when something is being built, like research's progress bar. Get rid of the dot at the top right for cities.
+- [x] Outpost should take time to make and cost more.
+- [x] Units should take longer to spawn.
+- [x] Add timestamps to alerts (day, hour) in-game time.
+- [x] Show whether near-fog enemy contacts are light or heavy armored.
+- [x] Slow map movement down by 5x.
+- [x] Allow research technologies to be queued, reordered, and removed from the research pane.
+- [x] Make territory and city fights retaliate harder.
+- [x] Defeat nations when they have no cities or units; replace them with tombstones and neutralize their land.
+- [x] Make procedural maps smaller with closer player cities and nearby rival nations.
+
+Implemented notes:
+- Discovered territory now keeps muted ownership fill/borders visible under fog.
+- Pause menu accessibility choices now apply across HTML UI and trigger HUD rebuilds.
+- Procedural maps are smaller, camera bounds use the actual grid size, and movement pacing has been retuned.
+- Fall back searches a wider retreat area and prefers neutral/friendly tiles before accepting hostile tiles.
+- City production and territory construction draw map progress bars; city owner dots were removed.
+- Territory buildings now queue construction through the tick engine; outposts cost more and claim land only after completion.
+- City unit production times are longer across the catalog.
+- Alerts show in-game Day/Hour timestamps in toasts and history.
+- Near-fog unit contacts now reveal light/heavy armor class with L/H markers.
+- Terrain movement costs are 5x higher, so armies take longer to cross the map.
+- Research queue state is saved on nations, can be changed through commands, and is displayed at the top of the research pane.
+- Territories and cities now hit back harder; cities also return fire against ranged attackers inside longbow range.
+- Eliminated nations are tombstoned in diplomacy, removed from active relations, and their remaining controlled tiles revert to neutral.
+- Procedural spawn selection now targets closer rival spacing, and starting city placement prefers pairs 5-7 tiles apart.

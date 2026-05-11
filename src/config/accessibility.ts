@@ -20,6 +20,7 @@ export function getFont(): string {
 
 export function setFont(value: string): void {
   localStorage.setItem(KEY_FONT, value);
+  applyAccessibilitySettings();
 }
 
 export function getFontSizeScale(): number {
@@ -29,4 +30,15 @@ export function getFontSizeScale(): number {
 
 export function setFontSizeScale(value: number): void {
   localStorage.setItem(KEY_SIZE, String(value));
+  applyAccessibilitySettings();
+}
+
+export function applyAccessibilitySettings(): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const font = getFont();
+  root.style.setProperty('--font-display', font);
+  root.style.setProperty('--font-body', font);
+  root.style.setProperty('--font-data', font);
+  window.dispatchEvent(new CustomEvent('accessibility:changed'));
 }

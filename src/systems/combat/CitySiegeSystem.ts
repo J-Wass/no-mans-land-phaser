@@ -135,9 +135,8 @@ export class CitySiegeSystem {
 
       // Compute city → unit counterattack
       const cityHealthFactor = 0.55 + 0.45 * (city.getHealth() / city.getMaxHealth());
-      const counterFactor    = useRanged ? 0.4 : 1.0; // ranged attackers aren't in melee range
       const damageToUnit = Math.max(0, Math.round(
-        city.getMeleeDamage() * cityHealthFactor * counterFactor * (0.9 + this.random() * 0.2),
+        city.getMeleeDamage() * cityHealthFactor * (0.9 + this.random() * 0.2),
       ));
 
       city.takeDamage(damageToCity);
@@ -282,28 +281,51 @@ export class CitySiegeSystem {
     unit: Unit,
     siege: SiegeState,
   ): GridCoordinates | null {
-    const candidates: GridCoordinates[] = [
-      siege.attackerOrigin,
-      { row: siege.position.row - 1, col: siege.position.col },
-      { row: siege.position.row + 1, col: siege.position.col },
-      { row: siege.position.row,     col: siege.position.col - 1 },
-      { row: siege.position.row,     col: siege.position.col + 1 },
-    ];
-
     const occupied = new Set(
       gameState.getAllUnits()
         .filter(u => u.id !== unit.id)
         .map(u => `${u.position.row},${u.position.col}`),
     );
 
-    for (const c of candidates) {
+    const isValid = (c: GridCoordinates): boolean => {
       const territory = gameState.getGrid().getTerritory(c);
-      if (!territory) continue;
+      if (!territory) return false;
       const terrain = territory.getTerrainType();
-      if (terrain === TerrainType.WATER || terrain === TerrainType.MOUNTAIN) continue;
-      if (occupied.has(`${c.row},${c.col}`)) continue;
-      return { ...c };
+      if (terrain === TerrainType.WATER || terrain === TerrainType.MOUNTAIN) return false;
+      if (occupied.has(`${c.row},${c.col}`)) return false;
+      return true;
+    };
+
+    const candidates = this.findRetreatCandidates(siege.position, siege.attackerOrigin);
+    const safe = candidates.find(c => {
+      if (!isValid(c)) return false;
+      const owner = gameState.getGrid().getTerritory(c)?.getControllingNation();
+      return !owner || owner === unit.getOwnerId();
+    });
+    if (safe) return { ...safe };
+
+    const fallback = candidates.find(isValid);
+    return fallback ? { ...fallback } : null;
+  }
+
+  private findRetreatCandidates(position: GridCoordinates, origin: GridCoordinates): GridCoordinates[] {
+    const candidates: GridCoordinates[] = [origin];
+
+    for (let radius = 1; radius <= 5; radius++) {
+      for (let row = position.row - radius; row <= position.row + radius; row++) {
+        for (let col = position.col - radius; col <= position.col + radius; col++) {
+          if (Math.max(Math.abs(row - position.row), Math.abs(col - position.col)) !== radius) continue;
+          candidates.push({ row, col });
+        }
+      }
     }
-    return null;
+
+    candidates.sort((a, b) => {
+      const da = Math.abs(a.row - origin.row) + Math.abs(a.col - origin.col);
+      const db = Math.abs(b.row - origin.row) + Math.abs(b.col - origin.col);
+      return da - db;
+    });
+
+    return candidates;
   }
 }

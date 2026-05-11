@@ -9,11 +9,13 @@ import type { GameState } from '@/managers/GameState';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
+import type { Nation } from '@/entities/nations/Nation';
 import type {
   GameCommand, CommandResult,
   MoveUnitCommand, BuildTerritoryCommand, BuildCityBuildingCommand,
   UpgradeTerritoryBuildingCommand,
-  StartResearchCommand, CancelResearchCommand, StartCityProductionCommand,
+  StartResearchCommand, CancelResearchCommand, QueueResearchCommand, RemoveQueuedResearchCommand,
+  MoveQueuedResearchCommand, StartCityProductionCommand,
   SetUnitBattleOrderCommand,
   DeclareWarCommand, ProposePeaceCommand, OfferTradeCommand,
 } from './GameCommand';
@@ -22,9 +24,9 @@ import { TERRITORY_BUILDING_MAP, TerritoryBuildingType } from '@/systems/territo
 import { MAX_WALLS_LEVEL } from '@/systems/grid/Territory';
 import { CITY_BUILDING_MAP, CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TECH_MAP } from '@/systems/research/TechTree';
+import type { TechId } from '@/systems/research/TechTree';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
-import { TerrainType } from '@/systems/grid/Territory';
 import type { GridCoordinates } from '@/types/common';
 
 const MANA_DEPOSITS = new Set<TerritoryResourceType>([
@@ -53,6 +55,9 @@ export class CommandProcessor {
       case 'UPGRADE_TERRITORY':      return this.handleUpgradeTerritory(command);
       case 'START_RESEARCH':         return this.handleStartResearch(command);
       case 'CANCEL_RESEARCH':        return this.handleCancelResearch(command);
+      case 'QUEUE_RESEARCH':         return this.handleQueueResearch(command);
+      case 'REMOVE_QUEUED_RESEARCH': return this.handleRemoveQueuedResearch(command);
+      case 'MOVE_QUEUED_RESEARCH':   return this.handleMoveQueuedResearch(command);
       case 'START_CITY_PRODUCTION':  return this.handleStartCityProduction(command);
       case 'SET_UNIT_BATTLE_ORDER':  return this.handleSetUnitBattleOrder(command);
       case 'DECLARE_WAR':            return this.handleDeclareWar(command);
@@ -101,6 +106,8 @@ export class CommandProcessor {
 
     const def = TERRITORY_BUILDING_MAP.get(command.building);
     if (!def) return { success: false, reason: 'Unknown building type' };
+    if (territory.getCurrentConstruction())
+      return { success: false, reason: 'Territory construction is already in progress' };
 
     // ── Tech requirement ────────────────────────────────────────────────────
     if (!this.sandboxMode && def.requiresTech && !nation.hasResearched(def.requiresTech))
@@ -111,14 +118,6 @@ export class CommandProcessor {
       if (territory.getControllingNation())
         return { success: false, reason: 'Territory already claimed' };
 
-      const unitOnTile = this.gameState.getAllUnits().find(u =>
-        u.getOwnerId() === nation.getId() &&
-        u.position.row === command.position.row &&
-        u.position.col === command.position.col,
-      );
-      if (!unitOnTile)
-        return { success: false, reason: 'No friendly unit on territory' };
-
       if (!this.sandboxMode && !this.isAdjacentToOwnedTerritory(command.position, nation.getId()))
         return { success: false, reason: 'Must be adjacent to your existing territory' };
 
@@ -126,14 +125,19 @@ export class CommandProcessor {
         return { success: false, reason: 'Insufficient resources' };
 
       if (!this.sandboxMode) nation.getTreasury().consumeResources(def.cost);
-      territory.setControllingNation(nation.getId());
-      territory.addBuilding(TerritoryBuildingType.OUTPOST);
-      this.claimAdjacentImpassable(command.position, nation.getId());
-      this.eventBus.emit('territory:claimed', {
-        position: command.position, nationId: nation.getId(), tick: command.issuedAtTick,
+      const ticks = this.sandboxMode ? Math.min(10, def.ticks) : def.ticks;
+      territory.startConstruction({
+        building:       command.building,
+        nationId:       nation.getId(),
+        label:          def.label,
+        ticksTotal:     ticks,
+        ticksRemaining: ticks,
       });
-      this.eventBus.emit('territory:building-built', {
-        position: command.position, building: command.building, tick: command.issuedAtTick,
+      this.eventBus.emit('territory:building-started', {
+        position: command.position,
+        building: command.building,
+        nationId: nation.getId(),
+        tick:     command.issuedAtTick,
       });
       return { success: true };
     }
@@ -162,9 +166,19 @@ export class CommandProcessor {
       return { success: false, reason: 'Insufficient resources' };
 
     if (!this.sandboxMode) nation.getTreasury().consumeResources(def.cost);
-    territory.addBuilding(command.building);
-    this.eventBus.emit('territory:building-built', {
-      position: command.position, building: command.building, tick: command.issuedAtTick,
+    const ticks = this.sandboxMode ? Math.min(10, def.ticks) : def.ticks;
+    territory.startConstruction({
+      building:       command.building,
+      nationId:       nation.getId(),
+      label:          def.label,
+      ticksTotal:     ticks,
+      ticksRemaining: ticks,
+    });
+    this.eventBus.emit('territory:building-started', {
+      position: command.position,
+      building: command.building,
+      nationId: nation.getId(),
+      tick:     command.issuedAtTick,
     });
     return { success: true };
   }
@@ -337,6 +351,88 @@ export class CommandProcessor {
     return { success: true };
   }
 
+  private handleQueueResearch(command: QueueResearchCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    if (!TECH_MAP.has(command.techId)) return { success: false, reason: 'Unknown tech' };
+
+    const queuePath = this.buildResearchQueuePath(nation, command.techId);
+    if (queuePath.length === 0) return { success: false, reason: 'Tech is already researched, active, or queued' };
+    for (const techId of queuePath) {
+      nation.queueResearch(techId);
+    }
+
+    this.eventBus.emit('nation:research-queue-updated', {
+      nationId: nation.getId(),
+      queue: [...nation.getResearchQueue()],
+    });
+    return { success: true };
+  }
+
+  private buildResearchQueuePath(
+    nation: Nation,
+    techId: TechId,
+  ): TechId[] {
+    const current = nation.getCurrentResearch()?.techId;
+    const alreadyQueued = new Set(nation.getResearchQueue());
+    const planned = new Set(alreadyQueued);
+    if (current) planned.add(current);
+    const path: TechId[] = [];
+    const visiting = new Set<TechId>();
+
+    const visit = (id: import('@/systems/research/TechTree').TechId): void => {
+      if (nation.hasResearched(id)) return;
+      if (planned.has(id)) return;
+      if (visiting.has(id)) return;
+      const node = TECH_MAP.get(id);
+      if (!node) return;
+      visiting.add(id);
+      for (const req of node.requires) visit(req);
+      visiting.delete(id);
+      if (!planned.has(id) && !nation.hasResearched(id)) {
+        path.push(id);
+        planned.add(id);
+      }
+    };
+
+    visit(techId);
+    return path;
+  }
+
+  private handleRemoveQueuedResearch(command: RemoveQueuedResearchCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    if (!nation.removeQueuedResearch(command.techId)) return { success: false, reason: 'Tech is not queued' };
+    this.eventBus.emit('nation:research-queue-updated', {
+      nationId: nation.getId(),
+      queue: [...nation.getResearchQueue()],
+    });
+    return { success: true };
+  }
+
+  private handleMoveQueuedResearch(command: MoveQueuedResearchCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    if (!nation.moveQueuedResearch(command.techId, command.direction)) return { success: false, reason: 'Queued tech cannot be moved' };
+    this.eventBus.emit('nation:research-queue-updated', {
+      nationId: nation.getId(),
+      queue: [...nation.getResearchQueue()],
+    });
+    return { success: true };
+  }
+
   private handleSetUnitBattleOrder(command: SetUnitBattleOrderCommand): CommandResult {
     const player = this.gameState.getPlayer(command.playerId);
     if (!player) return { success: false, reason: 'Player not found' };
@@ -403,23 +499,6 @@ export class CommandProcessor {
       if (nbr?.getControllingNation() === nationId) return true;
     }
     return false;
-  }
-
-  /** Claim unclaimed adjacent mountain/water tiles when an outpost is built. */
-  private claimAdjacentImpassable(position: GridCoordinates, nationId: string): void {
-    const offsets = [
-      { row: -1, col: 0 }, { row: 1, col: 0 },
-      { row: 0, col: -1 }, { row: 0, col: 1 },
-    ];
-    const grid = this.gameState.getGrid();
-    for (const off of offsets) {
-      const nbr = grid.getTerritory({ row: position.row + off.row, col: position.col + off.col });
-      if (!nbr) continue;
-      const t = nbr.getTerrainType();
-      if (t !== TerrainType.WATER && t !== TerrainType.MOUNTAIN) continue;
-      if (nbr.getControllingNation()) continue;
-      nbr.setControllingNation(nationId);
-    }
   }
 
   // ── OFFER_TRADE ───────────────────────────────────────────────────────────

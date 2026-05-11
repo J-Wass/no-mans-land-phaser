@@ -49,19 +49,22 @@ export function pickCoastalSpawnPairs(grid: Grid, gridSize: number, count: numbe
     candidates[j] = tmp;
   }
 
-  // 3. Greedy farthest-point sampling
+  // 3. Greedy sampling toward nearby rivals instead of opposite-map rivals.
   const anchors: GridCoordinates[] = [candidates[0]!];
 
   while (anchors.length < count) {
-    let bestDist = -1;
+    let bestScore = -Infinity;
     let bestPos: GridCoordinates | null = null;
 
     for (const cand of candidates) {
       if (anchors.some(a => a.row === cand.row && a.col === cand.col)) continue;
 
       const minDist = Math.min(...anchors.map(a => chebyshev(a, cand)));
-      if (minDist > bestDist) {
-        bestDist = minDist;
+      const targetDist = 10;
+      const tooClosePenalty = minDist < 8 ? 100 : 0;
+      const score = -Math.abs(minDist - targetDist) - tooClosePenalty;
+      if (score > bestScore) {
+        bestScore = score;
         bestPos  = cand;
       }
     }
@@ -90,11 +93,11 @@ export function findCityPositions(
   gridSize: number,
 ): GridCoordinates[] {
   const candidates: GridCoordinates[] = [];
-  for (let r = anchor.row - 5; r <= anchor.row + 5; r++) {
-    for (let c = anchor.col - 5; c <= anchor.col + 5; c++) {
+  for (let r = anchor.row - 7; r <= anchor.row + 7; r++) {
+    for (let c = anchor.col - 7; c <= anchor.col + 7; c++) {
       if (r < 1 || r >= gridSize - 1 || c < 1 || c >= gridSize - 1) continue;
       const dist = chebyshev(anchor, { row: r, col: c });
-      if (dist < 2 || dist > 5) continue;
+      if (dist < 2 || dist > 7) continue;
       if (!isPassable(grid, { row: r, col: c })) continue;
       if (taken.some(t => t.row === r && t.col === c)) continue;
       candidates.push({ row: r, col: c });
@@ -109,19 +112,27 @@ export function findCityPositions(
     candidates[j] = tmp;
   }
 
-  const result: GridCoordinates[] = [];
-  for (const cand of candidates) {
-    if (result.length === 0) {
-      result.push(cand);
-      continue;
-    }
-    if (result.every(r => chebyshev(r, cand) >= 3)) {
-      result.push(cand);
-      if (result.length === 2) break;
+  let bestPair: GridCoordinates[] = [];
+  let bestScore = Infinity;
+  for (let i = 0; i < candidates.length; i++) {
+    for (let j = i + 1; j < candidates.length; j++) {
+      const a = candidates[i]!;
+      const b = candidates[j]!;
+      const dist = chebyshev(a, b);
+      if (dist < 5 || dist > 7) continue;
+      const anchorA = chebyshev(anchor, a);
+      const anchorB = chebyshev(anchor, b);
+      const score = Math.abs(dist - 6) + Math.abs(anchorA - 4) * 0.25 + Math.abs(anchorB - 4) * 0.25;
+      if (score < bestScore) {
+        bestScore = score;
+        bestPair = [a, b];
+      }
     }
   }
+  if (bestPair.length === 2) return bestPair;
 
   // Fallback: if we couldn't find 2 spread-apart tiles, just take the first 2 candidates
+  const result: GridCoordinates[] = [];
   if (result.length < 2 && candidates.length >= 2) {
     if (result.length === 0) result.push(candidates[0]!);
     const fallback = candidates.find(c => !(c.row === result[0]!.row && c.col === result[0]!.col));

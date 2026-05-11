@@ -20,20 +20,20 @@ const scoutStats: UnitStats = {
 };
 
 describe('stepCost', () => {
-  it('infantry (speed=2) on PLAINS costs 5 ticks', () => {
-    expect(stepCost(TerrainType.PLAINS, UnitType.INFANTRY, infantryStats)).toBe(5);
+  it('infantry (speed=2) on PLAINS costs 25 ticks', () => {
+    expect(stepCost(TerrainType.PLAINS, UnitType.INFANTRY, infantryStats)).toBe(25);
   });
 
-  it('infantry on SNOW_FOREST costs 8 ticks', () => {
-    expect(stepCost(TerrainType.SNOW_FOREST, UnitType.INFANTRY, infantryStats)).toBe(8);
+  it('infantry on SNOW_FOREST costs 38 ticks', () => {
+    expect(stepCost(TerrainType.SNOW_FOREST, UnitType.INFANTRY, infantryStats)).toBe(38);
   });
 
-  it('infantry on FOREST costs 10 ticks', () => {
-    expect(stepCost(TerrainType.FOREST, UnitType.INFANTRY, infantryStats)).toBe(10);
+  it('infantry on FOREST costs 50 ticks', () => {
+    expect(stepCost(TerrainType.FOREST, UnitType.INFANTRY, infantryStats)).toBe(50);
   });
 
-  it('infantry on DESERT costs 8 ticks', () => {
-    expect(stepCost(TerrainType.DESERT, UnitType.INFANTRY, infantryStats)).toBe(8);
+  it('infantry on DESERT costs 38 ticks', () => {
+    expect(stepCost(TerrainType.DESERT, UnitType.INFANTRY, infantryStats)).toBe(38);
   });
 
   it('MOUNTAIN is impassable (Infinity)', () => {
@@ -44,21 +44,21 @@ describe('stepCost', () => {
     expect(stepCost(TerrainType.WATER, UnitType.INFANTRY, infantryStats)).toBe(Infinity);
   });
 
-  it('scout (speed=3) on PLAINS costs 4 ticks', () => {
-    expect(stepCost(TerrainType.PLAINS, UnitType.SCOUT, scoutStats)).toBe(4);
+  it('scout (speed=3) on PLAINS costs 17 ticks', () => {
+    expect(stepCost(TerrainType.PLAINS, UnitType.SCOUT, scoutStats)).toBe(17);
   });
 
-  it('cavalry (speed=3) on PLAINS costs 4 ticks', () => {
-    expect(stepCost(TerrainType.PLAINS, UnitType.CAVALRY, cavalryStats)).toBe(4);
+  it('cavalry (speed=3) on PLAINS costs 17 ticks', () => {
+    expect(stepCost(TerrainType.PLAINS, UnitType.CAVALRY, cavalryStats)).toBe(17);
   });
 
   it('cavalry has forest penalty — effective speed=1 in FOREST, costs 20 ticks', () => {
-    expect(stepCost(TerrainType.FOREST, UnitType.CAVALRY, cavalryStats)).toBe(20);
+    expect(stepCost(TerrainType.FOREST, UnitType.CAVALRY, cavalryStats)).toBe(100);
   });
 
   it('infantry has no forest penalty', () => {
-    // infantry (speed=2) in forest: ceil(20/2) = 10, NOT 20
-    expect(stepCost(TerrainType.FOREST, UnitType.INFANTRY, infantryStats)).toBe(10);
+    // infantry (speed=2) in forest: ceil(100/2) = 50, NOT 100
+    expect(stepCost(TerrainType.FOREST, UnitType.INFANTRY, infantryStats)).toBe(50);
   });
 
   it('all terrains have a base cost defined', () => {

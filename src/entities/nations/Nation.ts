@@ -32,6 +32,7 @@ export type NationJSON = NationData & {
   relations:        Record<string, DiplomaticStatus>;
   researchedTechs:  TechId[];
   currentResearch:  ResearchState | null;
+  researchQueue:    TechId[];
 };
 
 export class Nation implements Serializable<NationJSON> {
@@ -40,6 +41,7 @@ export class Nation implements Serializable<NationJSON> {
   private relations:       Map<EntityId, DiplomaticStatus>;
   private researchedTechs: Set<TechId>          = new Set();
   private currentResearch: ResearchState | null = null;
+  private researchQueue:   TechId[]             = [];
 
   constructor(id: EntityId, name: string, color: string, isAI: boolean = false) {
     this.data = { id, name, color, isAI, controlledBy: null };
@@ -66,6 +68,7 @@ export class Nation implements Serializable<NationJSON> {
   public isAtWar(nationId: EntityId): boolean  { return this.getRelation(nationId) === DiplomaticStatus.WAR; }
   public isAlly(nationId: EntityId): boolean   { return this.getRelation(nationId) === DiplomaticStatus.ALLY; }
   public getAllRelations(): Map<EntityId, DiplomaticStatus> { return new Map(this.relations); }
+  public removeRelation(nationId: EntityId): void { this.relations.delete(nationId); }
   public declareWar(nationId: EntityId): void  { this.setRelation(nationId, DiplomaticStatus.WAR); }
   public makePeace(nationId: EntityId): void   { this.setRelation(nationId, DiplomaticStatus.NEUTRAL); }
   public formAlliance(nationId: EntityId): void { this.setRelation(nationId, DiplomaticStatus.ALLY); }
@@ -86,6 +89,7 @@ export class Nation implements Serializable<NationJSON> {
 
   public startResearch(techId: TechId, ticks: number): void {
     this.currentResearch = { techId, ticksTotal: ticks, ticksRemaining: ticks };
+    this.removeQueuedResearch(techId);
   }
 
   public cancelResearch(): void {
@@ -112,6 +116,46 @@ export class Nation implements Serializable<NationJSON> {
     return this.currentResearch ? { ...this.currentResearch } : null;
   }
 
+  public getResearchQueue(): readonly TechId[] {
+    return [...this.researchQueue];
+  }
+
+  public queueResearch(techId: TechId): boolean {
+    if (!TECH_MAP.has(techId)) return false;
+    if (this.researchedTechs.has(techId)) return false;
+    if (this.currentResearch?.techId === techId) return false;
+    if (this.researchQueue.includes(techId)) return false;
+    this.researchQueue.push(techId);
+    return true;
+  }
+
+  public removeQueuedResearch(techId: TechId): boolean {
+    const before = this.researchQueue.length;
+    this.researchQueue = this.researchQueue.filter(id => id !== techId);
+    return this.researchQueue.length !== before;
+  }
+
+  public moveQueuedResearch(techId: TechId, direction: 'up' | 'down'): boolean {
+    const index = this.researchQueue.indexOf(techId);
+    if (index < 0) return false;
+    const nextIndex = direction === 'up' ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= this.researchQueue.length) return false;
+    [this.researchQueue[index], this.researchQueue[nextIndex]] = [this.researchQueue[nextIndex]!, this.researchQueue[index]!];
+    return true;
+  }
+
+  public setResearchQueue(queue: TechId[]): void {
+    const seen = new Set<TechId>();
+    this.researchQueue = queue.filter(techId => {
+      if (!TECH_MAP.has(techId)) return false;
+      if (seen.has(techId)) return false;
+      if (this.researchedTechs.has(techId)) return false;
+      if (this.currentResearch?.techId === techId) return false;
+      seen.add(techId);
+      return true;
+    });
+  }
+
   public getResearchedTechs(): ReadonlySet<TechId> {
     return this.researchedTechs;
   }
@@ -135,6 +179,7 @@ export class Nation implements Serializable<NationJSON> {
       relations,
       researchedTechs: Array.from(this.researchedTechs),
       currentResearch: this.currentResearch ? { ...this.currentResearch } : null,
+      researchQueue:   [...this.researchQueue],
     };
   }
 }

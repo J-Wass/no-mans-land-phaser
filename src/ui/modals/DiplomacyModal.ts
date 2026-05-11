@@ -41,6 +41,7 @@ export class DiplomacyModal {
           .map(id => this.bridge.gameState.getNation(id))
           .filter((n): n is NonNullable<typeof n> => Boolean(n))
       : [];
+    const defeatedNations = this.bridge.gameState.getDefeatedNations();
 
     if (!this.targetNationId || !knownNations.some(n => n.getId() === this.targetNationId)) {
       this.targetNationId = knownNations[0]?.getId() ?? null;
@@ -79,7 +80,7 @@ export class DiplomacyModal {
     hdrRow.appendChild(closeBtn);
     panel.appendChild(hdrRow);
 
-    if (!localNation || knownNations.length === 0) {
+    if (!localNation || (knownNations.length === 0 && defeatedNations.length === 0)) {
       const empty = document.createElement('div');
       empty.className = 'text-body text-dim text-center';
       empty.style.padding = '40px 0';
@@ -142,6 +143,32 @@ export class DiplomacyModal {
         (this.bridge as any).activeModals?.set('diplomacy', newModal);
         import('@/ui/UIManager').then(({ UIManager }) => UIManager.open('diplomacy', el));
       });
+      listCol.appendChild(row);
+    }
+
+    for (const nation of defeatedNations) {
+      const row = document.createElement('div');
+      row.className = 'nation-row';
+      row.style.opacity = '0.72';
+
+      const dot = document.createElement('div');
+      dot.className = 'color-dot';
+      dot.style.backgroundColor = '#6f7380';
+
+      const info = document.createElement('div');
+      info.className = 'col tight';
+      const nameLbl = document.createElement('div');
+      nameLbl.className = 'text-label text-mono';
+      nameLbl.textContent = `RIP ${nation.name}`;
+      const statusLbl = document.createElement('div');
+      statusLbl.className = 'text-caption text-mono';
+      statusLbl.textContent = 'DEFEATED';
+      statusLbl.style.color = '#9aa0a8';
+
+      info.appendChild(nameLbl);
+      info.appendChild(statusLbl);
+      row.appendChild(dot);
+      row.appendChild(info);
       listCol.appendChild(row);
     }
 
@@ -381,6 +408,21 @@ export class DiplomacyModal {
       tradeSection.appendChild(tradeBtn);
       tradeSection.appendChild(tradeStatus);
       detailCol.appendChild(tradeSection);
+    } else if (defeatedNations.length > 0) {
+      const defeatedPanel = document.createElement('div');
+      defeatedPanel.className = 'panel-alt col tight';
+      const defeatedTitle = document.createElement('div');
+      defeatedTitle.className = 'section-label';
+      defeatedTitle.textContent = 'DEFEATED NATIONS';
+      defeatedPanel.appendChild(defeatedTitle);
+      for (const nation of defeatedNations) {
+        const item = document.createElement('div');
+        item.className = 'text-body text-mono';
+        item.textContent = `RIP ${nation.name}`;
+        item.style.color = '#b8bec8';
+        defeatedPanel.appendChild(item);
+      }
+      detailCol.appendChild(defeatedPanel);
     }
 
     cols.appendChild(listCol);

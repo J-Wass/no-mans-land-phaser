@@ -161,4 +161,15 @@ describe('ProductionSystem', () => {
     expect(nation.hasResearched('writing')).toBe(true);
     expect(nation.getCurrentResearch()).toBeNull();
   });
+
+  it('starts the next queued research when prerequisites and points are available', () => {
+    nation.getTreasury().addResource(ResourceType.RESEARCH, 5);
+    nation.queueResearch('writing');
+
+    system.tick(state, eventBus, 1);
+
+    expect(nation.getCurrentResearch()?.techId).toBe('writing');
+    expect(nation.getResearchQueue()).toEqual([]);
+    expect(nation.getTreasury().getAmount(ResourceType.RESEARCH)).toBe(0);
+  });
 });

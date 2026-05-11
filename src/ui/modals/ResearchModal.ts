@@ -1,6 +1,6 @@
 import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
-import { TECH_CATALOG } from '@/systems/research/TechTree';
-import type { TechBranch, TechNode } from '@/systems/research/TechTree';
+import { TECH_CATALOG, TECH_MAP } from '@/systems/research/TechTree';
+import type { TechBranch, TechId, TechNode } from '@/systems/research/TechTree';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TICK_RATE } from '@/config/constants';
 
@@ -20,6 +20,7 @@ export class ResearchModal {
   private techRows     = new Map<string, HTMLElement>();
   private currentBarFill!: HTMLElement;
   private currentLabel!: HTMLElement;
+  private queueWrap!: HTMLElement;
   private cancelBtn!: HTMLButtonElement;
   private rafId = 0;
 
@@ -110,6 +111,17 @@ export class ResearchModal {
     track.appendChild(this.currentBarFill);
     wrap.appendChild(row);
     wrap.appendChild(track);
+
+    const queueTitle = document.createElement('div');
+    queueTitle.className = 'section-label';
+    queueTitle.textContent = 'QUEUE';
+    wrap.appendChild(queueTitle);
+
+    this.queueWrap = document.createElement('div');
+    this.queueWrap.className = 'col tight';
+    this.queueWrap.style.gap = '4px';
+    wrap.appendChild(this.queueWrap);
+
     return wrap;
   }
 
@@ -211,6 +223,7 @@ export class ResearchModal {
     const nation = this.getNation();
     const busy = !!nation?.getCurrentResearch();
     const currentPoints = nation?.getTreasury().getAmount(ResourceType.RESEARCH) ?? 0;
+    const queued = new Set(nation?.getResearchQueue() ?? []);
 
     for (const node of TECH_CATALOG) {
       const row = this.techRows.get(node.id);
@@ -222,13 +235,16 @@ export class ResearchModal {
 
       const researched = nation?.hasResearched(node.id) ?? false;
       const isActive   = nation?.getCurrentResearch()?.techId === node.id;
-      const prereqsMet = !busy && !researched && (nation?.canResearch(node.id) ?? false);
+      const isQueued   = queued.has(node.id);
+      const prereqsMet = !researched && (nation?.canResearch(node.id) ?? false);
       const hasPoints  = currentPoints >= node.researchCost;
-      const canStart   = prereqsMet && hasPoints;
+      const canStart   = !busy && prereqsMet && hasPoints;
+      const canQueue   = !researched && !isActive && !isQueued;
 
       row.className = 'tech-row ' + (
         researched ? 'researched' :
         isActive   ? 'active' :
+        isQueued   ? 'active' :
         canStart   ? 'available' :
         (prereqsMet && !hasPoints) ? 'needs-rp' : 'locked'
       );
@@ -247,19 +263,35 @@ export class ResearchModal {
         btn.textContent  = '...';
         btn.className    = 'btn btn-warning btn-sm';
         btn.disabled     = true;
+      } else if (isQueued) {
+        name.style.color = 'var(--color-gold)';
+        sub.textContent  = 'Queued for research';
+        sub.style.color  = 'var(--color-gold)';
+        btn.textContent  = 'QUEUED';
+        btn.className    = 'btn btn-warning btn-sm';
+        btn.disabled     = true;
       } else if (prereqsMet && !hasPoints) {
         name.style.color = 'var(--color-lt)';
         const pointsNote = `  (have ${currentPoints}/${node.researchCost} RP)`;
         sub.textContent  = `${node.description}\nCost: ${node.researchCost} RP${pointsNote}  |  ${(node.ticks/TICK_RATE).toFixed(0)}s`;
         sub.style.color  = '#e8917a';
-        btn.textContent  = 'NEED RP';
-        btn.className    = 'btn btn-secondary btn-sm';
-        btn.disabled     = true;
+        btn.textContent  = 'QUEUE';
+        btn.className    = 'btn btn-primary btn-sm';
+        btn.disabled     = !canQueue;
       } else if (canStart) {
         name.style.color = 'var(--color-lt)';
         sub.textContent  = `${node.description}\nCost: ${node.researchCost} RP  |  ${(node.ticks/TICK_RATE).toFixed(0)}s`;
         sub.style.color  = 'var(--color-dim)';
         btn.textContent  = 'START';
+        btn.className    = 'btn btn-primary btn-sm';
+        btn.disabled     = false;
+      } else if (canQueue) {
+        name.style.color = 'var(--color-dim)';
+        const prereqNames = node.requires.length
+          ? `Requires: ${node.requires.map(r => r.replace(/_/g, ' ')).join(', ')}\n` : '';
+        sub.textContent  = `${node.description}\n${prereqNames}Cost: ${node.researchCost} RP  |  ${(node.ticks/TICK_RATE).toFixed(0)}s`;
+        sub.style.color  = '#b98e8e';
+        btn.textContent  = !prereqsMet && node.requires.length > 0 ? 'QUEUE PATH' : 'QUEUE';
         btn.className    = 'btn btn-primary btn-sm';
         btn.disabled     = false;
       } else {
@@ -273,6 +305,62 @@ export class ResearchModal {
         btn.disabled     = true;
       }
     }
+    this.renderQueue();
+  }
+
+  private renderQueue(): void {
+    const nation = this.getNation();
+    const queue = nation?.getResearchQueue() ?? [];
+    this.queueWrap.replaceChildren();
+
+    if (queue.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'text-caption text-dim';
+      empty.textContent = 'No queued technologies';
+      this.queueWrap.appendChild(empty);
+      return;
+    }
+
+    queue.forEach((techId, index) => {
+      const node = TECH_MAP.get(techId);
+      const row = document.createElement('div');
+      row.className = 'row spread';
+      row.style.background = 'rgba(10,16,28,0.65)';
+      row.style.border = '1px solid #2b426d';
+      row.style.borderRadius = '4px';
+      row.style.padding = '4px 6px';
+
+      const label = document.createElement('div');
+      label.className = 'text-caption text-mono text-wrap grow';
+      label.textContent = `${index + 1}. ${node?.name ?? techId}`;
+      row.appendChild(label);
+
+      const actions = document.createElement('div');
+      actions.className = 'row tight';
+
+      const up = document.createElement('button');
+      up.className = 'btn btn-secondary btn-sm';
+      up.textContent = 'UP';
+      up.disabled = index === 0;
+      up.addEventListener('click', () => void this.moveQueuedResearch(techId, 'up'));
+
+      const down = document.createElement('button');
+      down.className = 'btn btn-secondary btn-sm';
+      down.textContent = 'DOWN';
+      down.disabled = index === queue.length - 1;
+      down.addEventListener('click', () => void this.moveQueuedResearch(techId, 'down'));
+
+      const remove = document.createElement('button');
+      remove.className = 'btn btn-danger btn-sm';
+      remove.textContent = 'X';
+      remove.addEventListener('click', () => void this.removeQueuedResearch(techId));
+
+      actions.appendChild(up);
+      actions.appendChild(down);
+      actions.appendChild(remove);
+      row.appendChild(actions);
+      this.queueWrap.appendChild(row);
+    });
   }
 
   private scheduleBarUpdate(): void {
@@ -304,19 +392,51 @@ export class ResearchModal {
     const onRefresh = () => { this.refreshNodes(); };
     this.bridge.eventBus.on('nation:research-complete', onRefresh);
     this.bridge.eventBus.on('nation:research-started', onRefresh);
+    this.bridge.eventBus.on('nation:research-queue-updated', onRefresh);
     (this as any)._unsub = () => {
       this.bridge.eventBus.off('nation:research-complete', onRefresh);
       this.bridge.eventBus.off('nation:research-started', onRefresh);
+      this.bridge.eventBus.off('nation:research-queue-updated', onRefresh);
     };
   }
 
   private async startResearch(node: TechNode): Promise<void> {
     const lp = this.bridge.gameState.getLocalPlayer();
     if (!lp) return;
+    const nation = this.getNation();
+    const currentPoints = nation?.getTreasury().getAmount(ResourceType.RESEARCH) ?? 0;
+    const canStart = !!nation?.canResearch(node.id)
+      && !nation.getCurrentResearch()
+      && currentPoints >= node.researchCost;
     await this.bridge.networkAdapter.sendCommand({
-      type: 'START_RESEARCH',
+      type: canStart ? 'START_RESEARCH' : 'QUEUE_RESEARCH',
       playerId: lp.getId(),
       techId: node.id,
+      issuedAtTick: 0,
+    });
+    this.refreshNodes();
+  }
+
+  private async removeQueuedResearch(techId: TechId): Promise<void> {
+    const lp = this.bridge.gameState.getLocalPlayer();
+    if (!lp) return;
+    await this.bridge.networkAdapter.sendCommand({
+      type: 'REMOVE_QUEUED_RESEARCH',
+      playerId: lp.getId(),
+      techId,
+      issuedAtTick: 0,
+    });
+    this.refreshNodes();
+  }
+
+  private async moveQueuedResearch(techId: TechId, direction: 'up' | 'down'): Promise<void> {
+    const lp = this.bridge.gameState.getLocalPlayer();
+    if (!lp) return;
+    await this.bridge.networkAdapter.sendCommand({
+      type: 'MOVE_QUEUED_RESEARCH',
+      playerId: lp.getId(),
+      techId,
+      direction,
       issuedAtTick: 0,
     });
     this.refreshNodes();

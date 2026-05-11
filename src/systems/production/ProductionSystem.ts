@@ -6,6 +6,7 @@
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { GridCoordinates } from '@/types/common';
+import type { Nation } from '@/entities/nations/Nation';
 import { spawnUnit } from '@/systems/production/unitSpawnFactory';
 import { TerrainType } from '@/systems/grid/Territory';
 import { coordsToKey } from '@/systems/grid/Grid';
@@ -14,6 +15,7 @@ import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { mineralGoldBonus } from '@/systems/resources/ResourceBonuses';
 import { REGION_BONUS_INTERVAL, regionBonusResource, regionBonusAmount } from '@/systems/regions/RegionSystem';
+import { TECH_MAP } from '@/systems/research/TechTree';
 
 // ── Passive yield intervals (in ticks) ────────────────────────────────────────
 // TICK_RATE = 10 → 5 ticks = 0.5s, 10 ticks = 1s
@@ -157,13 +159,49 @@ export class ProductionSystem {
 
     // ── Research ──────────────────────────────────────────────────────────────
     for (const nation of gameState.getAllNations()) {
+      this.startQueuedResearch(nation, eventBus);
       const completed = nation.tickResearch();
       if (completed) {
         eventBus.emit('nation:research-complete', {
           nationId: nation.getId(), techId: completed,
         });
+        this.startQueuedResearch(nation, eventBus);
       }
     }
+  }
+
+  private startQueuedResearch(
+    nation: Nation,
+    eventBus: GameEventBus,
+  ): void {
+    if (nation.getCurrentResearch()) return;
+    const nextTechId = nation.getResearchQueue()[0];
+    if (!nextTechId) return;
+    if (!nation.canResearch(nextTechId)) return;
+
+    const node = TECH_MAP.get(nextTechId);
+    if (!node) {
+      nation.removeQueuedResearch(nextTechId);
+      eventBus.emit('nation:research-queue-updated', {
+        nationId: nation.getId(),
+        queue: [...nation.getResearchQueue()],
+      });
+      return;
+    }
+
+    const treasury = nation.getTreasury();
+    if (treasury.getAmount(ResourceType.RESEARCH) < node.researchCost) return;
+
+    treasury.consumeResources({ [ResourceType.RESEARCH]: node.researchCost });
+    nation.startResearch(nextTechId, node.ticks);
+    eventBus.emit('nation:research-started', {
+      nationId: nation.getId(),
+      techId: nextTechId,
+    });
+    eventBus.emit('nation:research-queue-updated', {
+      nationId: nation.getId(),
+      queue: [...nation.getResearchQueue()],
+    });
   }
 }
 
@@ -194,4 +232,3 @@ function findSpawnNear(gameState: GameState, origin: GridCoordinates): GridCoord
   }
   return null;
 }
-

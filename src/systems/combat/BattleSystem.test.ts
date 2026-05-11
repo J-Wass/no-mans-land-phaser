@@ -40,7 +40,7 @@ describe('BattleSystem', () => {
     eventBus.on('battle:started', handler);
 
     movementSystem.issueOrder(attacker, [{ row: 0, col: 1 }]);
-    for (let tick = 1; tick <= 5; tick++) {
+    for (let tick = 1; tick <= 25; tick++) {
       movementSystem.tickWithBattles(gameState, eventBus, tick, battleSystem, new CitySiegeSystem(), { startBattle: () => null, tick: () => {}, getBattleAt: () => null, getAllBattles: () => [] } as never);
     }
 

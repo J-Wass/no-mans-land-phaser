@@ -65,18 +65,18 @@ describe('TerritoryBattleSystem', () => {
     ]);
 
     let tick = 0;
-    tick = advanceTicks(tick, 5);
+    tick = advanceTicks(tick, 25);
 
     expect(attacker.position).toEqual({ row: 0, col: 1 });
     expect(territoryBattleSystem.getBattleAt({ row: 0, col: 1 })).not.toBeNull();
     expect(movementSystem.isMoving(attacker.id)).toBe(false);
 
-    tick = advanceTicks(tick, BATTLE_ROUND_TICKS * 3);
+    tick = advanceTicks(tick, BATTLE_ROUND_TICKS * 4);
 
     expect(gameState.getGrid().getTerritory({ row: 0, col: 1 })?.getControllingNation()).toBe(attackerNation.getId());
     expect(movementSystem.isMoving(attacker.id)).toBe(true);
 
-    advanceTicks(tick, 5);
+    advanceTicks(tick, 25);
 
     expect(attacker.position).toEqual({ row: 0, col: 2 });
     expect(territoryBattleSystem.getBattleAt({ row: 0, col: 2 })).not.toBeNull();

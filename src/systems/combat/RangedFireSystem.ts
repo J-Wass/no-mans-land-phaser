@@ -67,6 +67,11 @@ export class RangedFireSystem {
         // Ranged fire chips HP but cannot conquer; minimum 1 HP remains
         const newHp = Math.max(1, target.city.getHealth() - damage);
         target.city.setHealth(newHp);
+        const cityDist = manhattan(unit.position, target.city.position);
+        if (cityDist <= 3) {
+          const cityHealthFactor = 0.55 + 0.45 * (target.city.getHealth() / target.city.getMaxHealth());
+          unit.takeDamage(Math.max(1, Math.round(target.city.getMeleeDamage() * cityHealthFactor)));
+        }
         eventBus.emit('ranged:fired', {
           unitId:     unit.id,
           targetId:   target.city.id,
@@ -76,6 +81,12 @@ export class RangedFireSystem {
           to:   { ...target.city.position },
           tick: currentTick,
         });
+        if (!unit.isAlive()) {
+          gameState.removeUnit(unit.id);
+          eventBus.emit('unit:destroyed', {
+            unitId: unit.id, byUnitId: null, tick: currentTick,
+          });
+        }
       }
 
       this.nextFireTick.set(unit.id, currentTick + RANGED_FIRE_INTERVAL_TICKS);

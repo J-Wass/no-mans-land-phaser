@@ -49,6 +49,28 @@ export interface CancelResearchCommand {
   issuedAtTick: number;
 }
 
+export interface QueueResearchCommand {
+  type:         'QUEUE_RESEARCH';
+  playerId:     PlayerId;
+  techId:       TechId;
+  issuedAtTick: number;
+}
+
+export interface RemoveQueuedResearchCommand {
+  type:         'REMOVE_QUEUED_RESEARCH';
+  playerId:     PlayerId;
+  techId:       TechId;
+  issuedAtTick: number;
+}
+
+export interface MoveQueuedResearchCommand {
+  type:         'MOVE_QUEUED_RESEARCH';
+  playerId:     PlayerId;
+  techId:       TechId;
+  direction:    'up' | 'down';
+  issuedAtTick: number;
+}
+
 export interface StartCityProductionCommand {
   type:         'START_CITY_PRODUCTION';
   playerId:     PlayerId;
@@ -105,6 +127,9 @@ export type GameCommand =
   | UpgradeTerritoryBuildingCommand
   | StartResearchCommand
   | CancelResearchCommand
+  | QueueResearchCommand
+  | RemoveQueuedResearchCommand
+  | MoveQueuedResearchCommand
   | StartCityProductionCommand
   | SetUnitBattleOrderCommand
   | DeclareWarCommand

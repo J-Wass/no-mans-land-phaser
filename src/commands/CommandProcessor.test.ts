@@ -171,16 +171,17 @@ describe('CommandProcessor', () => {
 
   describe('BUILD_TERRITORY (OUTPOST)', () => {
     beforeEach(() => {
-      // OUTPOST costs GOLD:5, RAW_MATERIAL:10, FOOD:5
-      nation.getTreasury().addResource(ResourceType.GOLD, 10);
-      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 20);
-      nation.getTreasury().addResource(ResourceType.FOOD, 10);
-      // unit-1 is already at (0,0) from the outer beforeEach.
+      // OUTPOST costs GOLD:15, RAW_MATERIAL:30, FOOD:10 and now builds over time.
+      nation.getTreasury().addResource(ResourceType.GOLD, 30);
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 60);
+      nation.getTreasury().addResource(ResourceType.FOOD, 20);
       // Pre-own an adjacent tile so the adjacency check passes.
       gameState.getGrid().getTerritory({ row: 0, col: 1 })?.setControllingNation('nation-1');
     });
 
-    it('claims unclaimed territory when a friendly unit is present', () => {
+    it('starts outpost construction without requiring a friendly unit on the tile', () => {
+      unit.moveTo({ row: 1, col: 0 });
+
       const result = processor.dispatch({
         type: 'BUILD_TERRITORY',
         playerId: 'player-1',
@@ -191,8 +192,9 @@ describe('CommandProcessor', () => {
 
       expect(result.success).toBe(true);
       const territory = gameState.getGrid().getTerritory({ row: 0, col: 0 });
-      expect(territory?.getControllingNation()).toBe('nation-1');
-      expect(territory?.hasBuilding(TerritoryBuildingType.OUTPOST)).toBe(true);
+      expect(territory?.getControllingNation()).toBeNull();
+      expect(territory?.hasBuilding(TerritoryBuildingType.OUTPOST)).toBe(false);
+      expect(territory?.getCurrentConstruction()?.building).toBe(TerritoryBuildingType.OUTPOST);
     });
 
     it('consumes resources on success', () => {
@@ -204,35 +206,26 @@ describe('CommandProcessor', () => {
         issuedAtTick: 1,
       });
 
-      expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(10);
-      expect(nation.getTreasury().getAmount(ResourceType.FOOD)).toBe(5);
+      expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(15);
+      expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(30);
+      expect(nation.getTreasury().getAmount(ResourceType.FOOD)).toBe(10);
     });
 
-    it('rejects when no friendly unit is on the tile', () => {
-      // Move the unit off the tile
-      unit.moveTo({ row: 1, col: 0 });
-
+    it('rejects when the tile is not adjacent to owned territory', () => {
       const result = processor.dispatch({
         type: 'BUILD_TERRITORY',
         playerId: 'player-1',
-        position: { row: 0, col: 0 },
+        position: { row: 4, col: 4 },
         building: TerritoryBuildingType.OUTPOST,
         issuedAtTick: 1,
       });
 
       expect(result.success).toBe(false);
-      expect(result.reason).toMatch(/no friendly unit/i);
+      expect(result.reason).toMatch(/adjacent/i);
     });
 
     it('rejects when territory is already claimed', () => {
-      // Claim the tile first
-      processor.dispatch({
-        type: 'BUILD_TERRITORY',
-        playerId: 'player-1',
-        position: { row: 0, col: 0 },
-        building: TerritoryBuildingType.OUTPOST,
-        issuedAtTick: 1,
-      });
+      gameState.getGrid().getTerritory({ row: 0, col: 0 })?.setControllingNation('nation-1');
 
       const result = processor.dispatch({
         type: 'BUILD_TERRITORY',
@@ -247,7 +240,11 @@ describe('CommandProcessor', () => {
     });
 
     it('rejects when nation cannot afford the cost', () => {
-      nation.getTreasury().consumeResources({ [ResourceType.RAW_MATERIAL]: 20, [ResourceType.FOOD]: 10 });
+      nation.getTreasury().consumeResources({
+        [ResourceType.GOLD]: 30,
+        [ResourceType.RAW_MATERIAL]: 60,
+        [ResourceType.FOOD]: 20,
+      });
 
       const result = processor.dispatch({
         type: 'BUILD_TERRITORY',
@@ -261,9 +258,9 @@ describe('CommandProcessor', () => {
       expect(result.reason).toMatch(/insufficient/i);
     });
 
-    it('emits territory:claimed event on success', () => {
+    it('emits territory:building-started event on success', () => {
       const events: unknown[] = [];
-      eventBus.on('territory:claimed', e => events.push(e));
+      eventBus.on('territory:building-started', e => events.push(e));
 
       processor.dispatch({
         type: 'BUILD_TERRITORY',
@@ -350,6 +347,79 @@ describe('CommandProcessor', () => {
 
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({ nationId: 'nation-1', techId: 'masonry' });
+    });
+  });
+
+  describe('research queue commands', () => {
+    it('queues missing prerequisites before an advanced technology', () => {
+      const result = processor.dispatch({
+        type: 'QUEUE_RESEARCH',
+        playerId: 'player-1',
+        techId: 'iron_working',
+        issuedAtTick: 1,
+      });
+
+      expect(result.success).toBe(true);
+      expect(nation.getResearchQueue()).toEqual([
+        'scientific_method',
+        'chemistry',
+        'mathematics',
+        'physics',
+        'iron_working',
+      ]);
+    });
+
+    it('does not duplicate researched, active, or already queued prerequisites', () => {
+      nation.setResearchedTechs(['scientific_method']);
+      nation.startResearch('mathematics', 10);
+      nation.queueResearch('chemistry');
+
+      const result = processor.dispatch({
+        type: 'QUEUE_RESEARCH',
+        playerId: 'player-1',
+        techId: 'iron_working',
+        issuedAtTick: 1,
+      });
+
+      expect(result.success).toBe(true);
+      expect(nation.getResearchQueue()).toEqual(['chemistry', 'physics', 'iron_working']);
+    });
+
+    it('queues, reorders, and removes technologies', () => {
+      const updates: unknown[] = [];
+      eventBus.on('nation:research-queue-updated', e => updates.push(e));
+
+      expect(processor.dispatch({
+        type: 'QUEUE_RESEARCH',
+        playerId: 'player-1',
+        techId: 'writing',
+        issuedAtTick: 1,
+      }).success).toBe(true);
+      expect(processor.dispatch({
+        type: 'QUEUE_RESEARCH',
+        playerId: 'player-1',
+        techId: 'masonry',
+        issuedAtTick: 2,
+      }).success).toBe(true);
+      expect(nation.getResearchQueue()).toEqual(['writing', 'masonry']);
+
+      expect(processor.dispatch({
+        type: 'MOVE_QUEUED_RESEARCH',
+        playerId: 'player-1',
+        techId: 'masonry',
+        direction: 'up',
+        issuedAtTick: 3,
+      }).success).toBe(true);
+      expect(nation.getResearchQueue()).toEqual(['masonry', 'writing']);
+
+      expect(processor.dispatch({
+        type: 'REMOVE_QUEUED_RESEARCH',
+        playerId: 'player-1',
+        techId: 'masonry',
+        issuedAtTick: 4,
+      }).success).toBe(true);
+      expect(nation.getResearchQueue()).toEqual(['writing']);
+      expect(updates).toHaveLength(4);
     });
   });
 

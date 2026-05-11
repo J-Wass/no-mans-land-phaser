@@ -16,6 +16,8 @@ import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { MAX_MORALE } from '@/entities/units/Unit';
 import { waterManaRegenBonus } from '@/systems/resources/ResourceBonuses';
 import { TICK_RATE } from '@/config/constants';
+import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { TerrainType } from '@/systems/grid/Territory';
 
 /** Ticks between water-mana heal pulses (same cadence as city heal). */
 const WATER_MANA_HEAL_INTERVAL_TICKS = TICK_RATE;
@@ -56,7 +58,9 @@ export class TickEngine {
     this.territoryBattleSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.rangedFireSystem.tick(this.gameState, this.eventBus, this.currentTick);
     this.productionSystem.tick(this.gameState, this.eventBus, this.currentTick);
+    this.tickTerritoryConstruction();
     this.sweepDeadUnits();
+    this.checkDefeatedNations();
     if (this.currentTick % CITY_HEAL_INTERVAL_TICKS === 0) {
       this.healUnitsInCities();
       this.recoverMorale();
@@ -83,6 +87,72 @@ export class TickEngine {
           tick: this.currentTick,
         });
       }
+    }
+  }
+
+  private checkDefeatedNations(): void {
+    for (const nation of this.gameState.getAllNations()) {
+      const nationId = nation.getId();
+      const hasCities = this.gameState.getCitiesByNation(nationId).length > 0;
+      const hasUnits = this.gameState.getUnitsByNation(nationId).some(unit => unit.isAlive());
+      if (hasCities || hasUnits) continue;
+
+      const tombstone = this.gameState.defeatNation(nationId, this.currentTick);
+      if (!tombstone) continue;
+      this.eventBus.emit('nation:defeated', {
+        nationId,
+        name: tombstone.name,
+        tick: this.currentTick,
+      });
+    }
+  }
+
+  private tickTerritoryConstruction(): void {
+    const grid = this.gameState.getGrid();
+    const { rows, cols } = grid.getSize();
+
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const position = { row, col };
+        const territory = grid.getTerritory(position);
+        const completed = territory?.tickConstruction();
+        if (!territory || !completed) continue;
+
+        if (completed.building === TerritoryBuildingType.OUTPOST) {
+          territory.setControllingNation(completed.nationId);
+          territory.addBuilding(TerritoryBuildingType.OUTPOST);
+          this.claimAdjacentImpassable(position, completed.nationId);
+          this.eventBus.emit('territory:claimed', {
+            position,
+            nationId: completed.nationId,
+            tick: this.currentTick,
+          });
+        } else {
+          territory.addBuilding(completed.building);
+        }
+
+        this.eventBus.emit('territory:building-built', {
+          position,
+          building: completed.building,
+          tick: this.currentTick,
+        });
+      }
+    }
+  }
+
+  private claimAdjacentImpassable(position: { row: number; col: number }, nationId: EntityId): void {
+    const offsets = [
+      { row: -1, col: 0 }, { row: 1, col: 0 },
+      { row: 0, col: -1 }, { row: 0, col: 1 },
+    ];
+    const grid = this.gameState.getGrid();
+    for (const off of offsets) {
+      const nbr = grid.getTerritory({ row: position.row + off.row, col: position.col + off.col });
+      if (!nbr) continue;
+      const terrain = nbr.getTerrainType();
+      if (terrain !== TerrainType.WATER && terrain !== TerrainType.MOUNTAIN) continue;
+      if (nbr.getControllingNation()) continue;
+      nbr.setControllingNation(nationId);
     }
   }
 

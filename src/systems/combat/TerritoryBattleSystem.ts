@@ -142,7 +142,7 @@ export class TerritoryBattleSystem {
       ));
 
       // Territory → unit damage
-      const counterFactor = useRanged ? 0.4 : 1.0;
+      const counterFactor = useRanged ? 0.85 : 1.0;
       const damageToUnit = Math.max(0, Math.round(
         territory.getAttackDamage() * counterFactor * (0.9 + this.random() * 0.2),
       ));
@@ -247,29 +247,51 @@ export class TerritoryBattleSystem {
     unit:      Unit,
     battle:    TerritoryBattleState,
   ): GridCoordinates | null {
-    const candidates: GridCoordinates[] = [
-      battle.attackerOrigin,
-      { row: battle.position.row - 1, col: battle.position.col },
-      { row: battle.position.row + 1, col: battle.position.col },
-      { row: battle.position.row,     col: battle.position.col - 1 },
-      { row: battle.position.row,     col: battle.position.col + 1 },
-    ];
-
     const occupied = new Set(
       gameState.getAllUnits()
         .filter(u => u.id !== unit.id)
         .map(u => `${u.position.row},${u.position.col}`),
     );
 
-    for (const c of candidates) {
+    const isValid = (c: GridCoordinates): boolean => {
       const t = gameState.getGrid().getTerritory(c);
-      if (!t) continue;
+      if (!t) return false;
       const terrain = t.getTerrainType();
-      if (terrain === TerrainType.WATER || terrain === TerrainType.MOUNTAIN) continue;
-      if (occupied.has(`${c.row},${c.col}`)) continue;
-      return { ...c };
+      if (terrain === TerrainType.WATER || terrain === TerrainType.MOUNTAIN) return false;
+      if (occupied.has(`${c.row},${c.col}`)) return false;
+      return true;
+    };
+
+    const candidates = this.findRetreatCandidates(battle.position, battle.attackerOrigin);
+    const safe = candidates.find(c => {
+      if (!isValid(c)) return false;
+      const owner = gameState.getGrid().getTerritory(c)?.getControllingNation();
+      return !owner || owner === unit.getOwnerId();
+    });
+    if (safe) return { ...safe };
+
+    const fallback = candidates.find(isValid);
+    return fallback ? { ...fallback } : null;
+  }
+
+  private findRetreatCandidates(position: GridCoordinates, origin: GridCoordinates): GridCoordinates[] {
+    const candidates: GridCoordinates[] = [origin];
+    for (let radius = 1; radius <= 5; radius++) {
+      for (let row = position.row - radius; row <= position.row + radius; row++) {
+        for (let col = position.col - radius; col <= position.col + radius; col++) {
+          if (Math.max(Math.abs(row - position.row), Math.abs(col - position.col)) !== radius) continue;
+          candidates.push({ row, col });
+        }
+      }
     }
-    return null;
+
+    candidates.sort((a, b) => {
+      const da = Math.abs(a.row - origin.row) + Math.abs(a.col - origin.col);
+      const db = Math.abs(b.row - origin.row) + Math.abs(b.col - origin.col);
+      return da - db;
+    });
+
+    return candidates;
   }
 
   private claimAdjacentImpassable(

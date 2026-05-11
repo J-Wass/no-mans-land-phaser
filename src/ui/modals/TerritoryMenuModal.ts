@@ -114,6 +114,7 @@ export class TerritoryMenuModal {
 
     // Current buildings
     const buildings = territory?.getBuildings() ?? [];
+    const construction = territory?.getCurrentConstruction() ?? null;
     const builtWrap = document.createElement('div');
     builtWrap.className = 'panel-alt col tight';
 
@@ -131,6 +132,12 @@ export class TerritoryMenuModal {
           const lvlTag = b === TerritoryBuildingType.WALLS ? ` L${lvl}` : '';
           return `${BUILDING_MAP_ICON[b]} ${b.replace(/_/g, ' ')}${lvlTag}`;
         }).join('  ');
+    if (construction) {
+      const pct = construction.ticksTotal > 0
+        ? Math.round((1 - construction.ticksRemaining / construction.ticksTotal) * 100)
+        : 0;
+      builtVal.textContent += `  |  Building ${construction.label} ${pct}%`;
+    }
 
     builtWrap.appendChild(builtLabel);
     builtWrap.appendChild(builtVal);
@@ -240,6 +247,7 @@ export class TerritoryMenuModal {
     const ownerId = territory.getControllingNation();
     const nation  = ownerId ? this.bridge.gameState.getNation(ownerId) : null;
     const treasury = nation?.getTreasury();
+    const construction = territory.getCurrentConstruction();
 
     for (const row of this.buildingRows) {
       const alreadyBuilt = territory.hasBuilding(row.def.type);
@@ -253,13 +261,14 @@ export class TerritoryMenuModal {
 
       const canUpgrade = alreadyBuilt && !atMax && (treasury?.hasResources(row.def.upgradeCost) ?? false);
       const canBuild   = owned && !alreadyBuilt && prereqMet && techMet && canAfford;
-      const enabled    = canBuild || canUpgrade;
+      const enabled    = !construction && (canBuild || canUpgrade);
 
       row.action = canUpgrade ? 'upgrade' : 'build';
       row.btn.disabled = !enabled;
       row.btn.className = `btn btn-sm btn-full ${enabled ? (canUpgrade ? 'btn-success' : 'btn-secondary') : 'btn-ghost'}`;
 
-      if (alreadyBuilt && atMax)    row.btnText.textContent = 'MAX';
+      if (construction)             row.btnText.textContent = 'BUSY';
+      else if (alreadyBuilt && atMax)    row.btnText.textContent = 'MAX';
       else if (alreadyBuilt && canUpgrade) row.btnText.textContent = '▲ UP';
       else if (alreadyBuilt)        row.btnText.textContent = 'BUILT';
       else                          row.btnText.textContent = 'BUILD';

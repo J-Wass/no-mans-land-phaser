@@ -122,6 +122,37 @@ describe('GameState', () => {
     expect(unitA.canAttack()).toBe(true);
   });
 
+  it('defeats a nation, tombstones it, removes diplomacy, and neutralizes its land', () => {
+    const state = new GameState({ rows: 4, cols: 4 });
+    const victor = createNation('nation-a');
+    const defeated = createNation('nation-b');
+    victor.declareWar(defeated.getId());
+    defeated.declareWar(victor.getId());
+    state.addNation(victor);
+    state.addNation(defeated);
+
+    const tile = state.getGrid().getTerritory({ row: 1, col: 1 });
+    tile?.setControllingNation(defeated.getId());
+    tile?.setBuildings([TerritoryBuildingType.OUTPOST]);
+    tile?.startConstruction({
+      building: TerritoryBuildingType.WALLS,
+      nationId: defeated.getId(),
+      label: 'Walls',
+      ticksTotal: 10,
+      ticksRemaining: 5,
+    });
+
+    const tombstone = state.defeatNation(defeated.getId(), 42);
+
+    expect(tombstone).toEqual(expect.objectContaining({ id: defeated.getId(), name: defeated.getName(), defeatedAtTick: 42 }));
+    expect(state.getNation(defeated.getId())).toBeNull();
+    expect(state.getDefeatedNation(defeated.getId())?.name).toBe(defeated.getName());
+    expect(victor.getRelation(defeated.getId())).toBe(DiplomaticStatus.NEUTRAL);
+    expect(tile?.getControllingNation()).toBeNull();
+    expect(tile?.getBuildings()).toEqual([]);
+    expect(tile?.getCurrentConstruction()).toBeNull();
+  });
+
   it('round-trips state through serialization with saves-related metadata intact', () => {
     const state = new GameState({ rows: 4, cols: 4 });
     const nationA = createNation('nation-a');
@@ -132,6 +163,7 @@ describe('GameState', () => {
     nationA.setRelation(nationB.getId(), DiplomaticStatus.ALLY);
     nationA.setResearchedTechs(['writing']);
     nationA.restoreCurrentResearch({ techId: 'trade', ticksTotal: 15, ticksRemaining: 6 });
+    nationA.queueResearch('mathematics');
     state.addNation(nationA);
     state.addNation(nationB);
 
@@ -189,6 +221,7 @@ describe('GameState', () => {
       ticksTotal: 15,
       ticksRemaining: 6,
     });
+    expect(restored.getNation(nationA.getId())?.getResearchQueue()).toEqual(['mathematics']);
     expect(restored.getCity(city.id)?.getCurrentOrder()).toEqual(city.getCurrentOrder());
     expect(restored.getCity(city.id)?.getBuildings()).toContain(CityBuildingType.FARMS);
     expect(restored.getCity(city.id)?.getBuildingLevel(CityBuildingType.WALLS)).toBe(3);

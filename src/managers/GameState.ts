@@ -22,12 +22,20 @@ import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import type { RegionSystem } from '@/systems/regions/RegionSystem';
 
+export interface DefeatedNationData {
+  id:             EntityId;
+  name:           string;
+  color:          string;
+  defeatedAtTick: number;
+}
+
 export class GameState implements Serializable<ReturnType<GameState['toJSON']>> {
   private grid:             Grid;
   private nations:          Map<EntityId, Nation>;
   private cities:           Map<EntityId, City>;
   private units:            Map<EntityId, Unit>;
   private players:          Map<PlayerId, Player>;
+  private defeatedNations:  Map<EntityId, DefeatedNationData>;
   private currentTurn:      number;
   private activeNationId:   EntityId | null;
   /** Next serial number to assign per unit type (starts at 100 → first serial = 101). */
@@ -42,6 +50,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     this.cities           = new Map();
     this.units            = new Map();
     this.players          = new Map();
+    this.defeatedNations  = new Map();
     this.currentTurn      = 1;
     this.activeNationId   = null;
     this.unitTypeCounters = new Map();
@@ -122,6 +131,54 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   public getNation(id: EntityId): Nation | null { return this.nations.get(id) ?? null; }
   public getAllNations(): Nation[] { return Array.from(this.nations.values()); }
   public removeNation(id: EntityId): boolean { return this.nations.delete(id); }
+  public getDefeatedNation(id: EntityId): DefeatedNationData | null {
+    return this.defeatedNations.get(id) ?? null;
+  }
+  public getDefeatedNations(): DefeatedNationData[] {
+    return Array.from(this.defeatedNations.values());
+  }
+  public defeatNation(id: EntityId, defeatedAtTick: number): DefeatedNationData | null {
+    const nation = this.nations.get(id);
+    if (!nation) return this.defeatedNations.get(id) ?? null;
+
+    const tombstone: DefeatedNationData = {
+      id,
+      name: nation.getName(),
+      color: nation.getColor(),
+      defeatedAtTick,
+    };
+    this.defeatedNations.set(id, tombstone);
+
+    for (const other of this.nations.values()) {
+      other.removeRelation(id);
+    }
+
+    for (const unit of this.getUnitsByNation(id)) {
+      this.removeUnit(unit.id);
+    }
+
+    for (const city of this.getCitiesByNation(id)) {
+      this.removeCity(city.id);
+    }
+
+    const { rows, cols } = this.grid.getSize();
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const territory = this.grid.getTerritory({ row, col });
+        if (!territory) continue;
+        const construction = territory.getCurrentConstruction();
+        if (construction?.nationId === id) territory.cancelConstruction();
+        if (territory.getControllingNation() !== id) continue;
+        territory.setControllingNation(null);
+        territory.setBuildings([]);
+        territory.setHealth(territory.getMaxHealth());
+      }
+    }
+
+    this.nations.delete(id);
+    if (this.activeNationId === id) this.activeNationId = null;
+    return tombstone;
+  }
 
   // ── City management ───────────────────────────────────────────────────────
   public addCity(city: City): void {
@@ -239,6 +296,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
       activeNationId:   this.activeNationId,
       grid:             this.grid.toJSON(),
       nations:          Array.from(this.nations.values()).map(n => n.toJSON()),
+      defeatedNations:  Array.from(this.defeatedNations.values()).map(n => ({ ...n })),
       cities:           Array.from(this.cities.values()).map(c => c.toJSON()),
       units:            Array.from(this.units.values()).map(u => u.toJSON()),
       players:          Array.from(this.players.values()).map(p => p.toJSON()),
@@ -274,6 +332,10 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
       // Restore health (may be missing in old saves — setBuildings already set it to max)
       const savedHp = (td as { currentHealth?: number }).currentHealth;
       if (savedHp !== undefined) territory.setHealth(savedHp);
+      const currentConstruction = (td as {
+        currentConstruction?: ReturnType<typeof territory.getCurrentConstruction>;
+      }).currentConstruction;
+      if (currentConstruction) territory.startConstruction(currentConstruction);
     }
 
     // Restore nations
@@ -287,9 +349,14 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
         nation.setRelation(otherId, status as DiplomaticStatus);
       });
       // Restore research (may be absent in older saves)
-      const nAny = nd as { researchedTechs?: string[]; currentResearch?: { techId: string; ticksTotal: number; ticksRemaining: number } | null };
+      const nAny = nd as {
+        researchedTechs?: string[];
+        currentResearch?: { techId: string; ticksTotal: number; ticksRemaining: number } | null;
+        researchQueue?: string[];
+      };
       if (nAny.researchedTechs) nation.setResearchedTechs(nAny.researchedTechs as Parameters<Nation['setResearchedTechs']>[0]);
       if (nAny.currentResearch) nation.restoreCurrentResearch(nAny.currentResearch as Parameters<Nation['restoreCurrentResearch']>[0]);
+      if (nAny.researchQueue) nation.setResearchQueue(nAny.researchQueue as Parameters<Nation['setResearchQueue']>[0]);
       state.addNation(nation);
     }
 
@@ -348,6 +415,13 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     if (dataAny.discoveredTiles) {
       for (const { nationId, tiles } of dataAny.discoveredTiles) {
         state.discoveredTiles.set(nationId, new Set(tiles));
+      }
+    }
+
+    const defeatedNations = (data as { defeatedNations?: DefeatedNationData[] }).defeatedNations;
+    if (defeatedNations) {
+      for (const tombstone of defeatedNations) {
+        state.defeatedNations.set(tombstone.id, { ...tombstone });
       }
     }
 

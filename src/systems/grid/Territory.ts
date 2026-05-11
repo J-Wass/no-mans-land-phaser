@@ -10,10 +10,10 @@ import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 export const BASE_TERRITORY_HP  = 30;
 /** HP bonus per wall level (e.g. lvl 3 = +150 HP). */
 export const WALLS_HP_PER_LEVEL  = 50;
-/** Attack damage per wall level. lvl 1 = 8, each level +4. */
-export const WALLS_DMG_BASE      = 8;
-export const WALLS_DMG_PER_LEVEL = 4;
-export const BASE_ATTACK_DAMAGE  = 3;
+/** Attack damage per wall level. lvl 1 = 14, each level +5. */
+export const WALLS_DMG_BASE      = 14;
+export const WALLS_DMG_PER_LEVEL = 5;
+export const BASE_ATTACK_DAMAGE  = 10;
 export const MAX_WALLS_LEVEL     = 5;
 
 /** Legacy alias kept so existing imports don't break. */
@@ -37,7 +37,16 @@ export interface TerritoryData {
   resourceDeposit: TerritoryResourceType | null;
   buildings:       TerritoryBuildingType[];
   buildingLevels:  Partial<Record<TerritoryBuildingType, number>>;
+  currentConstruction: TerritoryConstructionOrder | null;
   currentHealth:   number;
+}
+
+export interface TerritoryConstructionOrder {
+  building:        TerritoryBuildingType;
+  nationId:        EntityId;
+  label:           string;
+  ticksTotal:      number;
+  ticksRemaining:  number;
 }
 
 export class Territory implements Serializable<TerritoryData> {
@@ -52,6 +61,7 @@ export class Territory implements Serializable<TerritoryData> {
       resourceDeposit: null,
       buildings: [],
       buildingLevels: {},
+      currentConstruction: null,
       currentHealth: BASE_TERRITORY_HP,
     };
   }
@@ -131,6 +141,34 @@ export class Territory implements Serializable<TerritoryData> {
 
   // ── Building levels ──────────────────────────────────────────────────────────
 
+  public getCurrentConstruction(): TerritoryConstructionOrder | null {
+    return this.data.currentConstruction ? { ...this.data.currentConstruction } : null;
+  }
+
+  public startConstruction(order: TerritoryConstructionOrder): void {
+    this.data.currentConstruction = { ...order };
+  }
+
+  public cancelConstruction(): void {
+    this.data.currentConstruction = null;
+  }
+
+  public tickConstruction(): TerritoryConstructionOrder | null {
+    const order = this.data.currentConstruction;
+    if (!order) return null;
+    order.ticksRemaining = Math.max(0, order.ticksRemaining - 1);
+    if (order.ticksRemaining > 0) return null;
+    this.data.currentConstruction = null;
+    return { ...order };
+  }
+
+  public getConstructionProgressFraction(): number {
+    const order = this.data.currentConstruction;
+    if (!order || order.ticksTotal <= 0) return 0;
+    const pct = (order.ticksTotal - order.ticksRemaining) / order.ticksTotal;
+    return Math.max(0, Math.min(1, pct));
+  }
+
   public getBuildingLevel(b: TerritoryBuildingType): number {
     if (!this.hasBuilding(b)) return 0;
     return this.data.buildingLevels[b] ?? 1;
@@ -195,6 +233,7 @@ export class Territory implements Serializable<TerritoryData> {
       coordinates:    { ...this.data.coordinates },
       buildings:      [...this.data.buildings],
       buildingLevels: { ...this.data.buildingLevels },
+      currentConstruction: this.data.currentConstruction ? { ...this.data.currentConstruction } : null,
     };
   }
 }

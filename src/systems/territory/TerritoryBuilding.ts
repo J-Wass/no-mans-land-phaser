@@ -29,6 +29,8 @@ export interface TerritoryBuildingDef {
   label:            string;
   perks:            string;
   cost:             ResourceCost;
+  /** Construction time in ticks. */
+  ticks:            number;
   /** Another building that must already exist on this tile. */
   requires:         TerritoryBuildingType | null;
   /** Tech that must be researched first. */
@@ -46,7 +48,8 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     type: TerritoryBuildingType.OUTPOST,
     label: 'Outpost',
     perks: 'Claims this tile for your nation. Prerequisite for all other territory buildings.',
-    cost: { [ResourceType.GOLD]: 5, [ResourceType.RAW_MATERIAL]: 10, [ResourceType.FOOD]: 5 },
+    cost: { [ResourceType.GOLD]: 15, [ResourceType.RAW_MATERIAL]: 30, [ResourceType.FOOD]: 10 },
+    ticks: 80,
     requires: null,
     requiresTech: null,
     requiresDeposit: null,
@@ -58,6 +61,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     label: 'Walls',
     perks: 'Fortifies this territory. Each level adds HP and attack damage; higher levels also extend attack range. Up to 5 levels.',
     cost: { [ResourceType.GOLD]: 5, [ResourceType.RAW_MATERIAL]: 20 },
+    ticks: 90,
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
     requiresDeposit: null,
@@ -69,6 +73,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     label: 'Farms',
     perks: 'Generates +2 Food per second from this territory. Food is used for unit upkeep and city growth.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
+    ticks: 60,
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
     requiresDeposit: null,
@@ -80,6 +85,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     label: 'Workshop',
     perks: 'Generates +1 Raw Material per second from this territory. Raw materials are used to build units and structures.',
     cost: { [ResourceType.RAW_MATERIAL]: 20 },
+    ticks: 70,
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
     requiresDeposit: null,
@@ -91,6 +97,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     label: 'Watchtower',
     perks: 'Removes fog of war in a 2-tile radius around this territory, even when no units are nearby.',
     cost: { [ResourceType.RAW_MATERIAL]: 15 },
+    ticks: 70,
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
     requiresDeposit: null,
@@ -102,6 +109,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     label: 'Copper Mine',
     perks: 'Mines the copper deposit here. Gives all your units Bronze weapons, adding +2 melee and ranged damage.',
     cost: { [ResourceType.RAW_MATERIAL]: 25 },
+    ticks: 80,
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'masonry',
     requiresDeposit: TerritoryResourceType.COPPER,
@@ -113,6 +121,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     label: 'Iron Mine',
     perks: 'Mines the iron deposit here. Gives all your units Iron weapons, adding +4 melee and ranged damage.',
     cost: { [ResourceType.RAW_MATERIAL]: 30 },
+    ticks: 90,
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'iron_working',
     requiresDeposit: TerritoryResourceType.IRON,
@@ -124,6 +133,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     label: 'Fire Glass Mine',
     perks: 'Mines the fire glass deposit here. Gives all your units Fire Glass weapons, adding +6 melee and ranged damage.',
     cost: { [ResourceType.RAW_MATERIAL]: 40 },
+    ticks: 100,
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'steel_working',
     requiresDeposit: TerritoryResourceType.FIRE_GLASS,
@@ -135,6 +145,7 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     label: 'Mana Mine',
     perks: 'Activates the mana deposit on this tile, granting a nation-wide magical bonus (varies by mana type).',
     cost: { [ResourceType.RAW_MATERIAL]: 35, [ResourceType.FOOD]: 10 },
+    ticks: 100,
     requires: TerritoryBuildingType.OUTPOST,
     requiresTech: 'mana_studies',
     requiresDeposit: null,

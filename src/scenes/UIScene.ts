@@ -37,6 +37,7 @@ interface AlertEntry {
   id: number;
   text: string;
   createdAt: number;
+  createdTick: number;
 }
 
 let MONO: Phaser.Types.GameObjects.Text.TextStyle = { fontFamily: 'monospace' };
@@ -142,6 +143,7 @@ export class UIScene extends Phaser.Scene {
   private sandboxAiDifficulty: import('@/types/gameSetup').Difficulty = 'sandbox';
   private tileEditActive = false;
   private bridge!: PhaserUIBridge;
+  private accessibilityHandler = () => this.rebuildHUD();
   constructor() {
     super({ key: 'UIScene' });
   }
@@ -160,6 +162,10 @@ export class UIScene extends Phaser.Scene {
     this.setupEventListeners();
     this.rebuildHUD();
     this.scale.on('resize', this.rebuildHUD, this);
+    window.addEventListener('accessibility:changed', this.accessibilityHandler);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      window.removeEventListener('accessibility:changed', this.accessibilityHandler);
+    });
   }
 
   override update(): void {
@@ -204,8 +210,7 @@ export class UIScene extends Phaser.Scene {
 
   private setupEventListeners(): void {
     this.eventBus.on('game:tick', ({ tick }) => {
-      const day = Math.floor(tick / TICKS_PER_DAY) + 1;
-      this.tickText?.setText(`Day ${day}`);
+      this.tickText?.setText(formatGameTime(tick));
       this.refreshResources();
     });
 
@@ -259,6 +264,21 @@ export class UIScene extends Phaser.Scene {
         : nationId === localNation.getId()
           ? `${nationName} claimed tile (${position.row}, ${position.col}).`
           : `${sourceName ?? 'An enemy'} captured tile (${position.row}, ${position.col}) from you.`);
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('territory:building-started', ({ position, nationId, building }) => {
+      if (!this.isLocalNation(nationId)) return;
+      const label = TERRITORY_BUILDING_MAP.get(building)?.label ?? building.replace(/_/g, ' ');
+      this.pushNotification(`${label} started at (${position.row}, ${position.col}).`);
+      this.rebuildHUD();
+    });
+
+    this.eventBus.on('territory:building-built', ({ position, building }) => {
+      const ownerId = this.gameState.getGrid().getTerritory(position)?.getControllingNation();
+      if (!ownerId || !this.isLocalNation(ownerId)) return;
+      const label = TERRITORY_BUILDING_MAP.get(building)?.label ?? building.replace(/_/g, ' ');
+      this.pushNotification(`${label} finished at (${position.row}, ${position.col}).`);
       this.rebuildHUD();
     });
 
@@ -510,7 +530,7 @@ export class UIScene extends Phaser.Scene {
       this.track(this.add.rectangle(startX, y, width, height, 0x111a2a, 0.94)
         .setOrigin(0, 0)
         .setStrokeStyle(1, 0x3355aa));
-      this.track(this.add.text(startX + Math.round(10 * scale), y + height / 2, entry.text, {
+      this.track(this.add.text(startX + Math.round(10 * scale), y + height / 2, `${formatGameTime(entry.createdTick)}  ${entry.text}`, {
         ...MONO, fontSize: fs(11, scale), color: '#f2f6ff',
         wordWrap: { width: width - Math.round(20 * scale) },
       }).setOrigin(0, 0.5));
@@ -542,7 +562,7 @@ export class UIScene extends Phaser.Scene {
 
     const recent = [...this.notifications].slice(-maxRows).reverse();
     recent.forEach((entry, index) => {
-      this.track(this.add.text(x + pad, y + pad * 2 + Math.round(26 * scale) + index * rowH, entry.text, {
+      this.track(this.add.text(x + pad, y + pad * 2 + Math.round(26 * scale) + index * rowH, `${formatGameTime(entry.createdTick)}  ${entry.text}`, {
         ...MONO, fontSize: fs(11, scale), color: '#dbe6ff',
         wordWrap: { width: panelW - pad * 2 },
       }).setOrigin(0, 0));
@@ -598,11 +618,12 @@ export class UIScene extends Phaser.Scene {
       .map(id => this.gameState.getNation(id))
       .filter((nation): nation is NonNullable<ReturnType<GameState['getNation']>> => Boolean(nation))
       .filter(nation => nation.getId() !== localNation.getId());
-    if (others.length === 0) return;
+    const defeated = this.gameState.getDefeatedNations();
+    if (others.length === 0 && defeated.length === 0) return;
 
     const pad = Math.round(10 * scale);
     const rowH = Math.round(42 * scale);
-    const visibleRows = others.length;
+    const visibleRows = others.length + defeated.length;
     const panelW = Math.round(298 * scale);
     const panelH = Math.round(58 * scale) + visibleRows * rowH + pad;
     const x = W - panelW - pad;
@@ -670,6 +691,24 @@ export class UIScene extends Phaser.Scene {
 
       rowY += rowH;
     }
+
+    for (const nation of defeated) {
+      const row = this.track(this.add.rectangle(x + panelW / 2, rowY + rowH / 2, panelW - pad * 2, rowH - Math.round(4 * scale), 0x141414, 0.95)
+        .setOrigin(0.5)
+        .setStrokeStyle(1, 0x555555)) as Phaser.GameObjects.Rectangle;
+
+      this.track(this.add.text(x + pad + Math.round(4 * scale), rowY + Math.round(9 * scale), 'RIP', {
+        ...MONO, fontSize: fs(11, scale), color: '#9aa0a8', fontStyle: 'bold',
+      }).setOrigin(0, 0));
+      this.track(this.add.text(x + pad + Math.round(42 * scale), rowY + Math.round(11 * scale), nation.name, {
+        ...MONO, fontSize: fs(12, scale), color: '#b8bec8', fontStyle: 'bold',
+      }).setOrigin(0, 0));
+      this.track(this.add.text(x + pad + Math.round(42 * scale), rowY + Math.round(25 * scale), 'DEFEATED', {
+        ...MONO, fontSize: fs(10, scale), color: '#9aa0a8',
+      }).setOrigin(0, 0));
+      row.setFillStyle(0x141414, 0.95);
+      rowY += rowH;
+    }
   }
 
   private buildInfoPanel(H: number, scale: number): void {
@@ -713,7 +752,8 @@ export class UIScene extends Phaser.Scene {
     const manaLine = manaParts.join('  ');
     const territory = this.gameState.getGrid().getTerritory(unit.position);
     const unclaimed = territory?.getControllingNation() === null;
-    const canOutpost = unclaimed && territory?.getTerrainType() !== TerrainType.WATER && territory?.getTerrainType() !== TerrainType.MOUNTAIN;
+    const territoryConstruction = territory?.getCurrentConstruction() ?? null;
+    const canOutpost = !territoryConstruction && unclaimed && territory?.getTerrainType() !== TerrainType.WATER && territory?.getTerrainType() !== TerrainType.MOUNTAIN;
     const pad = Math.round(12 * scale);
     const barW = Math.round(170 * scale);
     const barH = Math.round(8 * scale);
@@ -771,6 +811,7 @@ export class UIScene extends Phaser.Scene {
         cost[ResourceType.RAW_MATERIAL] ? `${cost[ResourceType.RAW_MATERIAL]}${RESOURCE_EMOJI[ResourceType.RAW_MATERIAL]}` : '',
         cost[ResourceType.FOOD] ? `${cost[ResourceType.FOOD]}${RESOURCE_EMOJI[ResourceType.FOOD]}` : '',
       ].filter(Boolean).join(' ');
+      const secs = outpost ? (outpost.ticks / TICK_RATE).toFixed(0) : '0';
       this.makeButton(x + pad + Math.round(50 * scale), rowY, Math.round(100 * scale), btnH, 'OUTPOST', scale, () => {
         this.networkAdapter.sendCommand({
           type: 'BUILD_TERRITORY',
@@ -789,7 +830,7 @@ export class UIScene extends Phaser.Scene {
           }
         }).catch(() => { /* ignore */ });
       }, 0x203320);
-      this.track(this.add.text(x + pad + Math.round(110 * scale), rowY - Math.round(16 * scale), label, {
+      this.track(this.add.text(x + pad + Math.round(110 * scale), rowY - Math.round(16 * scale), `${label}  ${secs}s`, {
         ...MONO, fontSize: fs(9, scale), color: '#8acc9a',
       }).setOrigin(0.5, 0));
       if (this.outpostErrorMsg) {
@@ -863,7 +904,7 @@ export class UIScene extends Phaser.Scene {
       const barH = Math.max(6, Math.round(7 * scale));
       const barY = y + Math.round(86 * scale);
 
-      this.track(this.add.text(x + pad, barY - Math.round(14 * scale), `Building: ${currentOrder.label}  (${secsLeft}s left)`, {
+      this.track(this.add.text(x + pad, barY - Math.round(14 * scale), `Production: ${currentOrder.label}  (${secsLeft}s left)`, {
         ...MONO, fontSize: fs(11, scale), color: '#a8d4a8',
       }).setOrigin(0, 0));
       this.track(this.add.rectangle(x + pad, barY, barW, barH, 0x0d1e14).setOrigin(0, 0));
@@ -917,6 +958,7 @@ export class UIScene extends Phaser.Scene {
 
     const deposit = territory?.getResourceDeposit() ?? null;
     const buildings = territory?.getBuildings() ?? [];
+    const construction = territory?.getCurrentConstruction() ?? null;
     const buildingText = buildings.length > 0
       ? buildings.map(building => `${BUILDING_MAP_ICON[building]} ${building.replace(/_/g, ' ')}`).join('  ')
       : 'No buildings';
@@ -929,7 +971,16 @@ export class UIScene extends Phaser.Scene {
       wordWrap: { width: panelW - pad * 2 },
     }).setOrigin(0, 0));
 
-    if (hasRegion && region) {
+    if (construction) {
+      const pct = construction.ticksTotal > 0
+        ? Math.round((1 - construction.ticksRemaining / construction.ticksTotal) * 100)
+        : 0;
+      this.track(this.add.text(x + pad, y + Math.round(88 * scale), `Building: ${construction.label} ${pct}%`, {
+        ...MONO, fontSize: fs(11, scale), color: '#a8d4a8',
+      }).setOrigin(0, 0));
+    }
+
+    if (hasRegion && region && !construction) {
       const pctStr = `${Math.round(regionFrac * 100)}%`;
       const regionColor = regionController === localNation?.getId() ? '#f0c060' : regionController ? '#d08080' : '#a0b8d8';
       this.track(this.add.text(x + pad, y + Math.round(92 * scale), `⬡ ${region.name} (${pctStr} controlled)`, {
@@ -1114,6 +1165,7 @@ export class UIScene extends Phaser.Scene {
       id: this.nextAlertId++,
       text,
       createdAt: Date.now(),
+      createdTick: this.tickEngine.getCurrentTick(),
     };
     this.notifications.push(entry);
     this.toastIds.push(entry.id);
@@ -1226,6 +1278,13 @@ export class UIScene extends Phaser.Scene {
 function speedLabel(speed: typeof SPEED_CYCLE[number]): string {
   if (speed === 0) return 'PAUSE';
   return `${speed}x`;
+}
+
+function formatGameTime(tick: number): string {
+  const day = Math.floor(tick / TICKS_PER_DAY) + 1;
+  const dayTick = ((tick % TICKS_PER_DAY) + TICKS_PER_DAY) % TICKS_PER_DAY;
+  const hour = Math.floor((dayTick / TICKS_PER_DAY) * 24);
+  return `Day ${day} ${String(hour).padStart(2, '0')}:00`;
 }
 
 function difficultyColor(difficulty: GameSetup['difficulty']): string {
