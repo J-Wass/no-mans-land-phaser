@@ -54,6 +54,7 @@ export class TickEngine {
     this.currentTick++;
     this.movementSystem.tickWithBattles(this.gameState, this.eventBus, this.currentTick, this.battleSystem, this.citySiegeSystem, this.territoryBattleSystem);
     this.battleSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
+    this.startSiegesForStrandedEnemiesOnCities();
     this.citySiegeSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.territoryBattleSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.rangedFireSystem.tick(this.gameState, this.eventBus, this.currentTick);
@@ -87,6 +88,34 @@ export class TickEngine {
           tick: this.currentTick,
         });
       }
+    }
+  }
+
+  /**
+   * After a battle ends, the attacker can be left standing on an enemy city tile
+   * with no active engagement (e.g. defender withdrew, defender routed and fled).
+   * Promote those units to a siege so the city continues to be attacked.
+   */
+  private startSiegesForStrandedEnemiesOnCities(): void {
+    const grid = this.gameState.getGrid();
+    for (const unit of this.gameState.getAllUnits()) {
+      if (!unit.isAlive()) continue;
+      if (unit.isEngagedInBattle()) continue;
+      const territory = grid.getTerritory(unit.position);
+      const cityId = territory?.getCityId();
+      if (!cityId) continue;
+      const city = this.gameState.getCity(cityId);
+      if (!city || !city.isAlive()) continue;
+      if (city.getOwnerId() === unit.getOwnerId()) continue;
+      this.citySiegeSystem.startSiege(
+        unit,
+        city,
+        unit.position,
+        unit.position,
+        this.currentTick,
+        this.movementSystem,
+        this.eventBus,
+      );
     }
   }
 

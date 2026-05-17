@@ -10,14 +10,23 @@ const BRANCH_COLORS: Record<TechBranch, string> = {
   arcane:  '#d59cff',
 };
 
-const BRANCHES: TechBranch[] = ['science', 'society', 'arcane'];
+const BRANCH_ORDER: TechBranch[] = ['science', 'society', 'arcane'];
+
+// Graph layout constants
+const NODE_W = 156;
+const NODE_H = 88;
+const COL_W  = 196;     // x-stride between depth columns
+const ROW_GAP = 12;     // gap between stacked nodes in a band
+const BAND_GAP = 28;    // gap between branch bands
+const LEFT_PAD = 84;    // space reserved for sticky band labels
+const TOP_PAD = 16;
+const BOTTOM_PAD = 16;
+
+interface NodePos { x: number; y: number; }
 
 export class ResearchModal {
   private escHandler: (e: KeyboardEvent) => void;
-  private activeBranch: TechBranch = 'science';
-  private branchPanels = new Map<TechBranch, HTMLElement>();
-  private branchBtns   = new Map<TechBranch, HTMLButtonElement>();
-  private techRows     = new Map<string, HTMLElement>();
+  private techNodes    = new Map<TechId, HTMLElement>();
   private currentBarFill!: HTMLElement;
   private currentLabel!: HTMLElement;
   private queueWrap!: HTMLElement;
@@ -38,20 +47,8 @@ export class ResearchModal {
 
     panel.appendChild(this.buildHeader());
     panel.appendChild(this.buildCurrentSection());
-    panel.appendChild(this.buildBranchTabs());
+    panel.appendChild(this.buildGraph());
 
-    const listWrap = document.createElement('div');
-    listWrap.className = 'scrollable';
-    listWrap.style.position = 'relative';
-
-    for (const branch of BRANCHES) {
-      const bp = this.buildBranchPanel(branch);
-      bp.style.display = branch === this.activeBranch ? 'flex' : 'none';
-      this.branchPanels.set(branch, bp);
-      listWrap.appendChild(bp);
-    }
-
-    panel.appendChild(listWrap);
     backdrop.appendChild(panel);
 
     document.addEventListener('keydown', this.escHandler);
@@ -125,93 +122,191 @@ export class ResearchModal {
     return wrap;
   }
 
-  private buildBranchTabs(): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'tabs';
+  // ── Graph ──────────────────────────────────────────────────────────────────
 
-    for (const branch of BRANCHES) {
-      const btn = document.createElement('button');
-      btn.className = `btn btn-secondary tab`;
-      btn.textContent = branch.toUpperCase();
-      btn.addEventListener('click', () => this.switchBranch(branch));
-      this.branchBtns.set(branch, btn);
-      row.appendChild(btn);
-    }
-    this.updateBranchBtnStyles();
-    return row;
+  /** Depth = longest prerequisite chain from a root. */
+  private computeDepths(): Map<TechId, number> {
+    const depth = new Map<TechId, number>();
+    const visit = (id: TechId): number => {
+      const cached = depth.get(id);
+      if (cached !== undefined) return cached;
+      const node = TECH_MAP.get(id)!;
+      const d = node.requires.length === 0
+        ? 0
+        : 1 + Math.max(...node.requires.map(visit));
+      depth.set(id, d);
+      return d;
+    };
+    for (const t of TECH_CATALOG) visit(t.id);
+    return depth;
   }
 
-  private buildBranchPanel(branch: TechBranch): HTMLElement {
-    const nodes = TECH_CATALOG.filter(n => n.branch === branch);
-    const wrap = document.createElement('div');
-    wrap.className = 'branch-panel';
-    wrap.style.flexDirection = 'column';
-    wrap.style.gap = 'var(--ui-small-gap)';
+  /**
+   * Layout: each branch gets a horizontal band; within a band, techs are
+   * positioned by depth (x) and stacked vertically within the (branch,depth)
+   * cell to avoid overlap. Display order within a cell follows TECH_CATALOG.
+   */
+  private layoutNodes(): {
+    positions: Map<TechId, NodePos>;
+    bandStart: Record<TechBranch, number>;
+    bandHeight: Record<TechBranch, number>;
+    totalW: number;
+    totalH: number;
+    maxDepth: number;
+  } {
+    const depth = this.computeDepths();
+    let maxDepth = 0;
+    for (const d of depth.values()) if (d > maxDepth) maxDepth = d;
 
-    const hdr = document.createElement('div');
-    hdr.className = 'row spread';
-    const lbl = document.createElement('span');
-    lbl.className = 'text-body text-bold text-mono';
-    lbl.style.color = BRANCH_COLORS[branch];
-    lbl.textContent = branch.toUpperCase();
-    const cnt = document.createElement('span');
-    cnt.className = 'text-caption';
-    cnt.textContent = `${nodes.length} techs`;
-    hdr.appendChild(lbl);
-    hdr.appendChild(cnt);
-    wrap.appendChild(hdr);
-
-    for (const node of nodes) {
-      const row = this.buildTechRow(node);
-      this.techRows.set(node.id, row);
-      wrap.appendChild(row);
+    // Group techs by (branch, depth) preserving catalog order.
+    type Cell = TechNode[];
+    const cells = new Map<string, Cell>();
+    const cellKey = (b: TechBranch, d: number) => `${b}|${d}`;
+    for (const t of TECH_CATALOG) {
+      const k = cellKey(t.branch, depth.get(t.id)!);
+      let cell = cells.get(k);
+      if (!cell) { cell = []; cells.set(k, cell); }
+      cell.push(t);
     }
-    return wrap;
+
+    // Max stack per branch determines band height.
+    const bandMax: Record<TechBranch, number> = { science: 1, society: 1, arcane: 1 };
+    for (const [k, cell] of cells) {
+      const branch = k.split('|')[0] as TechBranch;
+      if (cell.length > bandMax[branch]) bandMax[branch] = cell.length;
+    }
+
+    const bandHeight: Record<TechBranch, number> = {
+      science: bandMax.science * NODE_H + (bandMax.science - 1) * ROW_GAP,
+      society: bandMax.society * NODE_H + (bandMax.society - 1) * ROW_GAP,
+      arcane:  bandMax.arcane  * NODE_H + (bandMax.arcane  - 1) * ROW_GAP,
+    };
+
+    const bandStart: Record<TechBranch, number> = {
+      science: TOP_PAD,
+      society: TOP_PAD + bandHeight.science + BAND_GAP,
+      arcane:  TOP_PAD + bandHeight.science + BAND_GAP + bandHeight.society + BAND_GAP,
+    };
+
+    const positions = new Map<TechId, NodePos>();
+    for (const [k, cell] of cells) {
+      const parts = k.split('|');
+      const b = parts[0] as TechBranch;
+      const d = parseInt(parts[1]!, 10);
+      // Center stack vertically within band.
+      const cellH = cell.length * NODE_H + (cell.length - 1) * ROW_GAP;
+      const startY = bandStart[b] + (bandHeight[b] - cellH) / 2;
+      const x = LEFT_PAD + d * COL_W;
+      cell.forEach((t, i) => {
+        positions.set(t.id, { x, y: startY + i * (NODE_H + ROW_GAP) });
+      });
+    }
+
+    const totalW = LEFT_PAD + (maxDepth + 1) * COL_W;
+    const totalH = TOP_PAD + bandHeight.science + BAND_GAP
+                 + bandHeight.society + BAND_GAP
+                 + bandHeight.arcane + BOTTOM_PAD;
+
+    return { positions, bandStart, bandHeight, totalW, totalH, maxDepth };
   }
 
-  private buildTechRow(node: TechNode): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'tech-row';
+  private buildGraph(): HTMLElement {
+    const scroll = document.createElement('div');
+    scroll.className = 'tech-graph-scroll';
 
-    const info = document.createElement('div');
-    info.className = 'col tight grow';
+    const inner = document.createElement('div');
+    inner.className = 'tech-graph-inner';
+
+    const { positions, bandStart, bandHeight, totalW, totalH } = this.layoutNodes();
+    inner.style.width = totalW + 'px';
+    inner.style.height = totalH + 'px';
+
+    // SVG edge layer (behind nodes)
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('class', 'tech-edges');
+    svg.setAttribute('width', String(totalW));
+    svg.setAttribute('height', String(totalH));
+    svg.style.position = 'absolute';
+    svg.style.left = '0';
+    svg.style.top = '0';
+    svg.style.pointerEvents = 'none';
+
+    for (const tech of TECH_CATALOG) {
+      for (const reqId of tech.requires) {
+        const a = positions.get(reqId)!;
+        const b = positions.get(tech.id)!;
+        const x1 = a.x + NODE_W;
+        const y1 = a.y + NODE_H / 2;
+        const x2 = b.x;
+        const y2 = b.y + NODE_H / 2;
+        const mx = (x1 + x2) / 2;
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`);
+        path.setAttribute('stroke', BRANCH_COLORS[TECH_MAP.get(reqId)!.branch]);
+        path.setAttribute('stroke-width', '1.5');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('opacity', '0.55');
+        path.dataset['fromId'] = reqId;
+        path.dataset['toId'] = tech.id;
+        svg.appendChild(path);
+      }
+    }
+    inner.appendChild(svg);
+
+    // Band labels (sticky to viewport left so they stay visible when scrolling)
+    for (const branch of BRANCH_ORDER) {
+      const label = document.createElement('div');
+      label.className = `band-label band-${branch}`;
+      label.textContent = branch.toUpperCase();
+      label.style.top = bandStart[branch] + 'px';
+      label.style.height = bandHeight[branch] + 'px';
+      label.style.color = BRANCH_COLORS[branch];
+      inner.appendChild(label);
+    }
+
+    // Tech nodes
+    for (const tech of TECH_CATALOG) {
+      const pos = positions.get(tech.id)!;
+      const node = this.buildTechNode(tech);
+      node.style.left = pos.x + 'px';
+      node.style.top  = pos.y + 'px';
+      node.style.width  = NODE_W + 'px';
+      node.style.height = NODE_H + 'px';
+      this.techNodes.set(tech.id, node);
+      inner.appendChild(node);
+    }
+
+    scroll.appendChild(inner);
+    return scroll;
+  }
+
+  private buildTechNode(node: TechNode): HTMLElement {
+    const el = document.createElement('div');
+    el.className = 'tech-node';
+    el.dataset['techId'] = node.id;
+    el.style.borderLeftColor = BRANCH_COLORS[node.branch];
 
     const name = document.createElement('div');
-    name.className = 'text-label text-bold text-wrap';
+    name.className = 'tech-node-name';
     name.dataset['role'] = 'name';
     name.textContent = node.name;
 
     const sub = document.createElement('div');
-    sub.className = 'text-caption text-wrap';
+    sub.className = 'tech-node-sub';
     sub.dataset['role'] = 'sub';
 
-    info.appendChild(name);
-    info.appendChild(sub);
-
     const btn = document.createElement('button');
-    btn.className = 'btn btn-primary btn-sm';
+    btn.className = 'btn btn-primary btn-sm tech-node-btn';
     btn.dataset['role'] = 'btn';
     btn.textContent = 'START';
     btn.addEventListener('click', () => void this.startResearch(node));
 
-    row.appendChild(info);
-    row.appendChild(btn);
-    row.dataset['techId'] = node.id;
-    return row;
-  }
-
-  private switchBranch(branch: TechBranch): void {
-    this.activeBranch = branch;
-    for (const [b, el] of this.branchPanels) {
-      el.style.display = b === branch ? 'flex' : 'none';
-    }
-    this.updateBranchBtnStyles();
-  }
-
-  private updateBranchBtnStyles(): void {
-    for (const [b, btn] of this.branchBtns) {
-      btn.className = `btn tab ${b === this.activeBranch ? 'btn-primary' : 'btn-secondary'}`;
-    }
+    el.appendChild(name);
+    el.appendChild(sub);
+    el.appendChild(btn);
+    el.title = node.description;
+    return el;
   }
 
   private getNation() {
@@ -226,12 +321,12 @@ export class ResearchModal {
     const queued = new Set(nation?.getResearchQueue() ?? []);
 
     for (const node of TECH_CATALOG) {
-      const row = this.techRows.get(node.id);
-      if (!row) continue;
+      const el = this.techNodes.get(node.id);
+      if (!el) continue;
 
-      const name = row.querySelector<HTMLElement>('[data-role="name"]')!;
-      const sub  = row.querySelector<HTMLElement>('[data-role="sub"]')!;
-      const btn  = row.querySelector<HTMLButtonElement>('[data-role="btn"]')!;
+      const name = el.querySelector<HTMLElement>('[data-role="name"]')!;
+      const sub  = el.querySelector<HTMLElement>('[data-role="sub"]')!;
+      const btn  = el.querySelector<HTMLButtonElement>('[data-role="btn"]')!;
 
       const researched = nation?.hasResearched(node.id) ?? false;
       const isActive   = nation?.getCurrentResearch()?.techId === node.id;
@@ -241,67 +336,66 @@ export class ResearchModal {
       const canStart   = !busy && prereqsMet && hasPoints;
       const canQueue   = !researched && !isActive && !isQueued;
 
-      row.className = 'tech-row ' + (
+      const state =
         researched ? 'researched' :
         isActive   ? 'active' :
-        isQueued   ? 'active' :
+        isQueued   ? 'queued' :
         canStart   ? 'available' :
-        (prereqsMet && !hasPoints) ? 'needs-rp' : 'locked'
-      );
+        (prereqsMet && !hasPoints) ? 'needs-rp' : 'locked';
+
+      el.className = 'tech-node ' + state;
+      el.style.borderLeftColor = BRANCH_COLORS[node.branch];
+
+      const costLine = `${node.researchCost} RP · ${(node.ticks / TICK_RATE).toFixed(0)}s`;
 
       if (researched) {
         name.style.color = 'var(--color-success)';
         sub.textContent  = 'Researched';
         sub.style.color  = 'var(--color-success)';
         btn.textContent  = 'DONE';
-        btn.className    = 'btn btn-success btn-sm';
+        btn.className    = 'btn btn-success btn-sm tech-node-btn';
         btn.disabled     = true;
       } else if (isActive) {
         name.style.color = 'var(--color-gold)';
-        sub.textContent  = 'Research in progress';
+        sub.textContent  = 'In progress';
         sub.style.color  = 'var(--color-gold)';
         btn.textContent  = '...';
-        btn.className    = 'btn btn-warning btn-sm';
+        btn.className    = 'btn btn-warning btn-sm tech-node-btn';
         btn.disabled     = true;
       } else if (isQueued) {
         name.style.color = 'var(--color-gold)';
-        sub.textContent  = 'Queued for research';
+        sub.textContent  = 'Queued';
         sub.style.color  = 'var(--color-gold)';
         btn.textContent  = 'QUEUED';
-        btn.className    = 'btn btn-warning btn-sm';
+        btn.className    = 'btn btn-warning btn-sm tech-node-btn';
         btn.disabled     = true;
       } else if (prereqsMet && !hasPoints) {
         name.style.color = 'var(--color-lt)';
-        const pointsNote = `  (have ${currentPoints}/${node.researchCost} RP)`;
-        sub.textContent  = `${node.description}\nCost: ${node.researchCost} RP${pointsNote}  |  ${(node.ticks/TICK_RATE).toFixed(0)}s`;
+        sub.textContent  = `${costLine}  (${currentPoints}/${node.researchCost} RP)`;
         sub.style.color  = '#e8917a';
         btn.textContent  = 'QUEUE';
-        btn.className    = 'btn btn-primary btn-sm';
+        btn.className    = 'btn btn-primary btn-sm tech-node-btn';
         btn.disabled     = !canQueue;
       } else if (canStart) {
         name.style.color = 'var(--color-lt)';
-        sub.textContent  = `${node.description}\nCost: ${node.researchCost} RP  |  ${(node.ticks/TICK_RATE).toFixed(0)}s`;
+        sub.textContent  = costLine;
         sub.style.color  = 'var(--color-dim)';
         btn.textContent  = 'START';
-        btn.className    = 'btn btn-primary btn-sm';
+        btn.className    = 'btn btn-primary btn-sm tech-node-btn';
         btn.disabled     = false;
       } else if (canQueue) {
         name.style.color = 'var(--color-dim)';
-        const prereqNames = node.requires.length
-          ? `Requires: ${node.requires.map(r => r.replace(/_/g, ' ')).join(', ')}\n` : '';
-        sub.textContent  = `${node.description}\n${prereqNames}Cost: ${node.researchCost} RP  |  ${(node.ticks/TICK_RATE).toFixed(0)}s`;
+        sub.textContent  = costLine;
         sub.style.color  = '#b98e8e';
-        btn.textContent  = !prereqsMet && node.requires.length > 0 ? 'QUEUE PATH' : 'QUEUE';
-        btn.className    = 'btn btn-primary btn-sm';
+        btn.textContent  = node.requires.length > 0 && !prereqsMet ? 'QUEUE PATH' : 'QUEUE';
+        btn.className    = 'btn btn-primary btn-sm tech-node-btn';
         btn.disabled     = false;
       } else {
         name.style.color = 'var(--color-dim)';
-        const prereqNames = node.requires.length
-          ? `Requires: ${node.requires.map(r => r.replace(/_/g, ' ')).join(', ')}\n` : '';
-        sub.textContent  = `${node.description}\n${prereqNames}Cost: ${node.researchCost} RP  |  ${(node.ticks/TICK_RATE).toFixed(0)}s`;
+        sub.textContent  = costLine;
         sub.style.color  = '#b98e8e';
         btn.textContent  = 'LOCKED';
-        btn.className    = 'btn btn-secondary btn-sm';
+        btn.className    = 'btn btn-secondary btn-sm tech-node-btn';
         btn.disabled     = true;
       }
     }

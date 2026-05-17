@@ -233,9 +233,9 @@ function placeResourceDeposits(grid: Grid, gridSize: number): void {
   const s = (base: number) => Math.max(1, Math.round(base * scale));
 
   const oreSlots: Array<{ deposit: TerritoryResourceType; count: number; terrain: TerrainType[] }> = [
-    { deposit: TerritoryResourceType.COPPER,       count: s(8),  terrain: [TerrainType.SNOW_FOREST, TerrainType.MOUNTAIN, TerrainType.FOREST] },
-    { deposit: TerritoryResourceType.IRON,         count: s(6),  terrain: [TerrainType.SNOW_FOREST, TerrainType.MOUNTAIN] },
-    { deposit: TerritoryResourceType.FIRE_GLASS,   count: s(3),  terrain: [TerrainType.DESERT, TerrainType.SNOW_FOREST] },
+    { deposit: TerritoryResourceType.COPPER,       count: s(14), terrain: [TerrainType.SNOW_FOREST, TerrainType.MOUNTAIN, TerrainType.FOREST] },
+    { deposit: TerritoryResourceType.IRON,         count: s(11), terrain: [TerrainType.SNOW_FOREST, TerrainType.MOUNTAIN] },
+    { deposit: TerritoryResourceType.FIRE_GLASS,   count: s(1),  terrain: [TerrainType.DESERT, TerrainType.SNOW_FOREST] },
     { deposit: TerritoryResourceType.SILVER,       count: s(4),  terrain: [TerrainType.SNOW_FOREST, TerrainType.MOUNTAIN] },
     { deposit: TerritoryResourceType.GOLD_DEPOSIT, count: s(2),  terrain: [TerrainType.DESERT, TerrainType.SNOW_FOREST] },
   ];
