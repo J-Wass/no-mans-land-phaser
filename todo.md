@@ -140,6 +140,6 @@ The type annotation `'INFANTRY' | 'SCOUT'` prevents scenarios from placing caval
 
 Once `AdvancedProfile` switches to `MilitaryStrategy` or `DefenseStrategy`, it never returns to `ExpansionStrategy`, even if the threat is gone and the AI has little territory.
 
-- [ ] Add a re-evaluation step at the end of each strategy's `generateGoals()`:
-  - [ ] If `DefenseStrategy` and no nearby enemies and army is not outnumbered → switch back to `MilitaryStrategy`
-  - [ ] If `MilitaryStrategy` and territory is low and no active wars → switch back to `ExpansionStrategy`
+- [x] Add a re-evaluation step at the end of each strategy's `generateGoals()`:
+  - [x] If `DefenseStrategy` and no nearby enemies and army is not outnumbered → switch back to `MilitaryStrategy`
+  - [x] If `MilitaryStrategy` and territory is low and no active wars → switch back to `ExpansionStrategy`

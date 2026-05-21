@@ -14,6 +14,7 @@ import { BuildTerritoryGoal } from '../goals/BuildTerritoryGoal';
 import { ResearchTechGoal } from '../goals/ResearchTechGoal';
 import { UnitType } from '@/entities/units/Unit';
 import { DefenseStrategy } from './DefenseStrategy';
+import { ExpansionStrategy } from './ExpansionStrategy';
 
 const THREAT_RADIUS = 4;
 
@@ -38,14 +39,34 @@ export class MilitaryStrategy implements AIStrategy {
   }
 
   shouldSwitch(ctx: AIContext): boolean {
-    return this.isOutnumbered(ctx) && this.hasEnemyNearby(ctx);
+    return (this.isOutnumbered(ctx) && this.hasEnemyNearby(ctx)) || this.shouldRevertToExpansion(ctx);
   }
 
   nextStrategy(ctx: AIContext): AIStrategy | null {
-    if (this.shouldSwitch(ctx)) {
-      return new DefenseStrategy();
-    }
+    if (this.isOutnumbered(ctx) && this.hasEnemyNearby(ctx)) return new DefenseStrategy();
+    if (this.shouldRevertToExpansion(ctx)) return new ExpansionStrategy();
     return null;
+  }
+
+  private shouldRevertToExpansion(ctx: AIContext): boolean {
+    const nation = ctx.gameState.getNation(ctx.nationId);
+    if (!nation) return false;
+    const hasActiveWar = ctx.gameState.getAllNations()
+      .some(n => n.getId() !== ctx.nationId && nation.isAtWar(n.getId()));
+    if (hasActiveWar) return false;
+    return !this.hasEnoughTerritory(ctx);
+  }
+
+  private hasEnoughTerritory(ctx: AIContext): boolean {
+    const grid = ctx.gameState.getGrid();
+    const { rows, cols } = grid.getSize();
+    let count = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (grid.getTerritory({ row: r, col: c })?.getControllingNation() === ctx.nationId) count++;
+      }
+    }
+    return count >= 12;
   }
 
   private isOutnumbered(ctx: AIContext): boolean {
