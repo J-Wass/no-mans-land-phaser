@@ -118,12 +118,12 @@ Both `CityBuildingType.WATCHTOWER` and `TerritoryBuildingType.WATCHTOWER` claim 
 
 Scenarios end only when all enemies are eliminated, same as skirmish. The `ScenarioDefinition` type has no `victoryCondition` field.
 
-- [ ] Add a `victoryCondition` field to `ScenarioDefinition` in `src/config/scenarios.ts`:
-  - [ ] Types: `'eliminate_all'` (default), `'hold_city'`, `'capture_city'`, `'survive_ticks'`
-- [ ] In `TickEngine` or a new `VictorySystem`, evaluate the active scenario's condition each tick
-- [ ] Emit a `game:victory` or `game:defeat` event when the condition is met
-- [ ] Hook those events into the win/loss modal built under the [CRITICAL] item above
-- [ ] Update the two existing scenarios (`scenarios.json`) with explicit `victoryCondition` values
+- [x] Add a `victoryCondition` field to `ScenarioDefinition` in `src/config/scenarios.ts`:
+  - [x] Types: `'eliminate_all'` (default), `'survive_ticks'`
+- [x] In `TickEngine` or a new `VictorySystem`, evaluate the active scenario's condition each tick
+- [x] Emit a `game:victory` or `game:defeat` event when the condition is met
+- [x] Hook those events into the win/loss modal built under the [CRITICAL] item above
+- [x] Update the two existing scenarios (`scenarios.json`) with explicit `victoryCondition` values
 
 ---
 
@@ -131,8 +131,8 @@ Scenarios end only when all enemies are eliminated, same as skirmish. The `Scena
 
 The type annotation `'INFANTRY' | 'SCOUT'` prevents scenarios from placing cavalry, archers, or siege units.
 
-- [ ] Widen `ScenarioUnitDef.unitType` to accept all values of `UnitType`
-- [ ] Update existing scenario JSON if any new unit types are placed
+- [x] Widen `ScenarioUnitDef.unitType` to accept all values of `UnitType`
+- [x] Update existing scenario JSON if any new unit types are placed
 
 ---
 

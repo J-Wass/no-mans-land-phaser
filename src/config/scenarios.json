@@ -43,7 +43,8 @@
       ],
       "diplomacy": [
         {"nation1": 0, "nation2": 1, "status": "WAR"}
-      ]
+      ],
+      "victoryCondition": { "type": "eliminate_all" }
     },
     {
       "id": "the-invaders",
@@ -123,7 +124,8 @@
         {"nation1": 0, "nation2": 3, "status": "WAR"},
         {"nation1": 1, "nation2": 3, "status": "WAR"},
         {"nation1": 2, "nation2": 3, "status": "WAR"}
-      ]
+      ],
+      "victoryCondition": { "type": "eliminate_all" }
     }
   ]
 }

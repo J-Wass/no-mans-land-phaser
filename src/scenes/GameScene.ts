@@ -18,6 +18,7 @@ import { DiplomaticStatus } from '@/types/diplomacy';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
 import { normalizeGameSetup } from '@/types/gameSetup';
+import { getScenarioById } from '@/config/scenarios';
 import { VisionSystem } from '@/systems/vision/VisionSystem';
 import { RegionSystem } from '@/systems/regions/RegionSystem';
 import { PhaserUIBridge } from '@/ui/PhaserUIBridge';
@@ -368,12 +369,31 @@ export class GameScene extends Phaser.Scene {
           return;
         }
 
-        // Check if only the local player's nation remains
-        const remaining = this.gameState.getAllNations();
-        if (remaining.length === 1 && remaining[0]!.getId() === localNationId) {
-          this.bridge.openGameOver('victory', tick);
+        // Evaluate scenario-specific victory condition (defaults to eliminate_all)
+        const scenario = this.setup.scenarioId ? getScenarioById(this.setup.scenarioId) : null;
+        const condition = scenario?.victoryCondition ?? { type: 'eliminate_all' as const };
+
+        if (condition.type === 'eliminate_all') {
+          const remaining = this.gameState.getAllNations();
+          if (remaining.length === 1 && remaining[0]!.getId() === localNationId) {
+            this.bridge.openGameOver('victory', tick);
+          }
         }
       });
+
+      // survive_ticks: victory when the player survives until the target tick
+      const scenario = this.setup.scenarioId ? getScenarioById(this.setup.scenarioId) : null;
+      const condition = scenario?.victoryCondition;
+      if (condition?.type === 'survive_ticks') {
+        const targetTick = condition.ticks;
+        this.eventBus.on('game:tick', ({ tick }) => {
+          const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
+          if (!localNationId) return;
+          if (tick >= targetTick) {
+            this.bridge.openGameOver('victory', tick);
+          }
+        });
+      }
     }
     this.eventBus.on('sandbox:ai-difficulty-changed', ({ difficulty }) => {
       this.aiSystem.setDifficulty(difficulty);

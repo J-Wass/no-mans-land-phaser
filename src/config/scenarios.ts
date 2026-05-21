@@ -1,5 +1,6 @@
 import type { TechId } from '@/systems/research/TechTree';
 import type { ResourceType } from '@/systems/resources/ResourceType';
+import type { UnitType } from '@/entities/units/Unit';
 import evershadowRaw from '@/config/maps/evershadow.terrain?raw';
 import invadersRaw   from '@/config/maps/invaders.terrain?raw';
 import SCENARIO_DATA from './scenarios.json';
@@ -25,10 +26,14 @@ export interface ScenarioCityDef {
 }
 
 export interface ScenarioUnitDef {
-  type: 'INFANTRY' | 'SCOUT';
+  type: UnitType;
   row:  number;
   col:  number;
 }
+
+export type VictoryCondition =
+  | { type: 'eliminate_all' }
+  | { type: 'survive_ticks'; ticks: number };
 
 export interface ScenarioDepositDef {
   row:  number;
@@ -53,12 +58,13 @@ export interface ScenarioNationConfig {
 }
 
 export interface ScenarioDefinition {
-  id:          string;
-  name:        string;
-  description: string;
-  deposits:    ScenarioDepositDef[];
-  nations:     ScenarioNationConfig[];
-  diplomacy?:  ScenarioDiplomacyDef[];
+  id:                string;
+  name:              string;
+  description:       string;
+  deposits:          ScenarioDepositDef[];
+  nations:           ScenarioNationConfig[];
+  diplomacy?:        ScenarioDiplomacyDef[];
+  victoryCondition?: VictoryCondition;
 }
 
 export const SCENARIOS = SCENARIO_DATA.scenarios as ScenarioDefinition[];
