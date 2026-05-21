@@ -20,7 +20,6 @@ export interface CityData {
   name:          string;
   ownerId:       EntityId;
   position:      GridCoordinates;
-  population:    number;
   currentOrder:  ProductionOrder | null;
   buildings:     CityBuildingType[];
   buildingLevels: Partial<Record<CityBuildingType, number>>;
@@ -39,7 +38,6 @@ export class City implements GameEntity, Serializable<CityData> {
       name,
       ownerId,
       position,
-      population:    1000,
       currentOrder:  null,
       buildings:     [CityBuildingType.CITY_HALL],
       buildingLevels: { [CityBuildingType.CITY_HALL]: 1 },
@@ -55,8 +53,6 @@ export class City implements GameEntity, Serializable<CityData> {
   public getName(): string      { return this.data.name; }
   public getOwnerId(): EntityId { return this.data.ownerId; }
   public setOwnerId(id: EntityId): void { this.data.ownerId = id; }
-  public getPopulation(): number { return this.data.population; }
-
   // ── Combat stats ──────────────────────────────────────────────────────────────
   public getHealth(): number    { return this.data.currentHealth; }
   public getMaxHealth(): number {

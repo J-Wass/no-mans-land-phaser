@@ -5,7 +5,7 @@
 
 export enum ResourceType {
   GOLD         = 'GOLD',         // income from treaties / markets
-  FOOD         = 'FOOD',         // farms + territories; unit upkeep + population growth
+  FOOD         = 'FOOD',         // farms + territories; unit upkeep
   RAW_MATERIAL = 'RAW_MATERIAL', // workshops + territories; building upkeep
   RESEARCH     = 'RESEARCH',     // schools; funds tech tree
 }
