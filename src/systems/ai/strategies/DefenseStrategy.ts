@@ -98,7 +98,16 @@ class DefendPositionGoal implements AIGoal {
           type: 'MOVE_UNIT', playerId: ctx.playerId,
           unitId: unit.id, path, issuedAtTick: ctx.currentTick,
         });
-        if (r.success) return 'ongoing';
+        if (r.success) {
+          ctx.commandProcessor.dispatch({
+            type:         'SET_UNIT_BATTLE_ORDER',
+            playerId:     ctx.playerId,
+            unitId:       unit.id,
+            battleOrder:  'HOLD',
+            issuedAtTick: ctx.currentTick,
+          });
+          return 'ongoing';
+        }
       }
     }
     return 'failed';

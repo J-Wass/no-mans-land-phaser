@@ -79,7 +79,16 @@ export class AttackTargetGoal implements AIGoal {
         path,
         issuedAtTick: ctx.currentTick,
       });
-      if (r.success) return 'ongoing';
+      if (r.success) {
+        ctx.commandProcessor.dispatch({
+          type:         'SET_UNIT_BATTLE_ORDER',
+          playerId:     ctx.playerId,
+          unitId:       unit.id,
+          battleOrder:  'ADVANCE',
+          issuedAtTick: ctx.currentTick,
+        });
+        return 'ongoing';
+      }
     }
     return 'failed';
   }

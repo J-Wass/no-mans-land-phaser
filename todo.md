@@ -26,9 +26,9 @@
 
 When the AI sends a unit to attack or defend, no `SET_UNIT_BATTLE_ORDER` command is dispatched, so the unit defaults to HOLD in every battle.
 
-- [ ] In `AttackTargetGoal.execute()`, dispatch `SET_UNIT_BATTLE_ORDER` with `ADVANCE` immediately after the MOVE_UNIT command
-- [ ] In `DefendPositionGoal.execute()` (DefenseStrategy), dispatch `SET_UNIT_BATTLE_ORDER` with `HOLD` for defenders and `ADVANCE` for counter-attackers
-- [ ] Ensure the battle order command is sent even if the unit is already at the target tile (already in battle)
+- [x] In `AttackTargetGoal.execute()`, dispatch `SET_UNIT_BATTLE_ORDER` with `ADVANCE` immediately after the MOVE_UNIT command
+- [x] In `DefendPositionGoal.execute()` (DefenseStrategy), dispatch `SET_UNIT_BATTLE_ORDER` with `HOLD` for defenders and `ADVANCE` for counter-attackers
+- [x] Ensure the battle order command is sent even if the unit is already at the target tile (already in battle)
 
 ---
 
