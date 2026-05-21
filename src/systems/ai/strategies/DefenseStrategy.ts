@@ -88,6 +88,7 @@ class DefendPositionGoal implements AIGoal {
       .filter(u => u.isAlive() && !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id))
       .sort((a, b) => manhattan(a.position, this.target) - manhattan(b.position, this.target));
 
+    let dispatched = 0;
     for (const unit of units) {
       const path = ctx.pathfinder.findPath(
         unit.position, this.target, unit.getUnitType(), unit.getStats(),
@@ -106,10 +107,10 @@ class DefendPositionGoal implements AIGoal {
             battleOrder:  'HOLD',
             issuedAtTick: ctx.currentTick,
           });
-          return 'ongoing';
+          dispatched++;
         }
       }
     }
-    return 'failed';
+    return dispatched > 0 ? 'ongoing' : 'failed';
   }
 }

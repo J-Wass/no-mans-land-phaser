@@ -60,12 +60,15 @@ export class AttackTargetGoal implements AIGoal {
     const target = this.findTarget(ctx);
     if (!target) return 'failed';
 
-    // Pick idle unit closest to the target
+    // Dispatch all idle units toward the target (cap avoids total commitment in one cycle)
+    const MAX_DISPATCH = 6;
     const units = ctx.gameState.getUnitsByNation(ctx.nationId)
       .filter(u => u.isAlive() && !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id))
       .sort((a, b) => manhattan(a.position, target) - manhattan(b.position, target));
 
+    let dispatched = 0;
     for (const unit of units) {
+      if (dispatched >= MAX_DISPATCH) break;
       const path = ctx.pathfinder.findPath(
         unit.position, target, unit.getUnitType(), unit.getStats(),
         ctx.nationId, ctx.gameState,
@@ -87,10 +90,10 @@ export class AttackTargetGoal implements AIGoal {
           battleOrder:  'ADVANCE',
           issuedAtTick: ctx.currentTick,
         });
-        return 'ongoing';
+        dispatched++;
       }
     }
-    return 'failed';
+    return dispatched > 0 ? 'ongoing' : 'failed';
   }
 
   private findTarget(ctx: AIContext): GridCoordinates | null {

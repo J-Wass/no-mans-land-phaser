@@ -36,10 +36,10 @@ When the AI sends a unit to attack or defend, no `SET_UNIT_BATTLE_ORDER` command
 
 `AttackTargetGoal.execute()` finds a target and then sends **only the first unit** that can pathfind there. All other idle units sit still.
 
-- [ ] Refactor `execute()` to iterate over all idle units belonging to the AI nation
-- [ ] For each idle unit that has a valid path to the target, dispatch a MOVE_UNIT command
-- [ ] Add a rough army-size cap or priority queue so the AI doesn't strip every tile simultaneously
-- [ ] Similarly fix `DefendPositionGoal.execute()` to send all available defenders, not just the first
+- [x] Refactor `execute()` to iterate over all idle units belonging to the AI nation
+- [x] For each idle unit that has a valid path to the target, dispatch a MOVE_UNIT command
+- [x] Add a rough army-size cap or priority queue so the AI doesn't strip every tile simultaneously
+- [x] Similarly fix `DefendPositionGoal.execute()` to send all available defenders, not just the first
 
 ---
 
