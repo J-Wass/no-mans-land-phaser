@@ -71,12 +71,12 @@ When the AI sends a unit to attack or defend, no `SET_UNIT_BATTLE_ORDER` command
 
 No AI goal covers `BUILD_TERRITORY_BUILDING` for deposit tiles. AI nations never exploit copper, iron, fire-glass, or mana deposits.
 
-- [ ] Create a new `BuildTerritoryGoal` class in `src/systems/ai/goals/`
-  - [ ] Find all controlled territory tiles owned by the AI nation that have a deposit but no mine
-  - [ ] Check affordability and tech prerequisites before returning feasible
-  - [ ] Dispatch `BUILD_TERRITORY_BUILDING` for the highest-value unclaimed deposit
-- [ ] Add `BuildTerritoryGoal` to `MilitaryStrategy` and `AdvancedProfile` goal lists
-- [ ] Optionally add a lower-priority version to `BasicProfile` once that profile is un-capped
+- [x] Create a new `BuildTerritoryGoal` class in `src/systems/ai/goals/`
+  - [x] Find all controlled territory tiles owned by the AI nation that have a deposit but no mine
+  - [x] Check affordability and tech prerequisites before returning feasible
+  - [x] Dispatch `BUILD_TERRITORY_BUILDING` for the highest-value unclaimed deposit
+- [x] Add `BuildTerritoryGoal` to `MilitaryStrategy` and `AdvancedProfile` goal lists
+- [x] Optionally add a lower-priority version to `BasicProfile` once that profile is un-capped
 
 ---
 

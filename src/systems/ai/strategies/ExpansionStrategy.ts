@@ -9,6 +9,7 @@ import { manhattan } from './AIStrategy';
 import { ClaimTerritoryGoal } from '../goals/ClaimTerritoryGoal';
 import { ProduceUnitGoal } from '../goals/ProduceUnitGoal';
 import { AttackTargetGoal } from '../goals/AttackTargetGoal';
+import { BuildTerritoryGoal } from '../goals/BuildTerritoryGoal';
 import { UnitType } from '@/entities/units/Unit';
 import { MilitaryStrategy } from './MilitaryStrategy';
 
@@ -21,6 +22,7 @@ export class ExpansionStrategy implements AIStrategy {
   generateGoals(_ctx: AIContext): AIGoal[] {
     return [
       new ClaimTerritoryGoal(),
+      new BuildTerritoryGoal(),
       new ProduceUnitGoal([UnitType.INFANTRY, UnitType.SCOUT]),
       new AttackTargetGoal(30, 500),
     ];

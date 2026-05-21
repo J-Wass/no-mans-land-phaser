@@ -10,6 +10,7 @@ import { ProduceUnitGoal } from '../goals/ProduceUnitGoal';
 import { AttackTargetGoal } from '../goals/AttackTargetGoal';
 import { ClaimTerritoryGoal } from '../goals/ClaimTerritoryGoal';
 import { BuildBuildingGoal } from '../goals/BuildBuildingGoal';
+import { BuildTerritoryGoal } from '../goals/BuildTerritoryGoal';
 import { ResearchTechGoal } from '../goals/ResearchTechGoal';
 import { UnitType } from '@/entities/units/Unit';
 import { DefenseStrategy } from './DefenseStrategy';
@@ -31,6 +32,7 @@ export class MilitaryStrategy implements AIStrategy {
       ]),
       new ClaimTerritoryGoal(),
       new BuildBuildingGoal(),
+      new BuildTerritoryGoal(),
       new ResearchTechGoal(),
     ];
   }
