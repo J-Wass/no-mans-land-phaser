@@ -98,19 +98,19 @@ Both `CityBuildingType.WATCHTOWER` and `TerritoryBuildingType.WATCHTOWER` claim 
 ## [MEDIUM] Ghost tech effects (techs that describe features that don't exist)
 
 ### kinematics — "Improves siege weapon accuracy"
-- [ ] Decide: implement a range or accuracy bonus for siege units, or change the description to something real
-- [ ] If implementing: add an accuracy multiplier in `BattleSystem.calculateDamage()` when the attacker is a siege unit and the owning nation has `kinematics`
+- [x] Decide: implement a range or accuracy bonus for siege units, or change the description to something real
+- [x] If implementing: add an accuracy multiplier in `BattleSystem.calculateDamage()` when the attacker is a siege unit and the owning nation has `kinematics`
 
 ### physics — "Unlocks Castle"
-- [ ] Decide: add `CASTLE = 'CASTLE'` to `CityBuildingType` with stats, or update the description
+- [x] Decide: add `CASTLE = 'CASTLE'` to `CityBuildingType` with stats, or update the description
 - [ ] If adding Castle: define catalog entry, add to production commands, add rendering in GameScene
 
 ### the_elements — "Unlocks Seer Tower"
-- [ ] Decide: add `SEER_TOWER = 'SEER_TOWER'` to `TerritoryBuildingType` with vision effect, or update the description
+- [x] Decide: add `SEER_TOWER = 'SEER_TOWER'` to `TerritoryBuildingType` with vision effect, or update the description
 - [ ] If adding Seer Tower: define catalog entry, wire into VisionSystem alongside Watchtower
 
 ### masonry description — references "Fort"
-- [ ] Remove "Fort" from masonry's description string in `TechTree.ts` (no Fort building exists)
+- [x] Remove "Fort" from masonry's description string in `TechTree.ts` (no Fort building exists)
 
 ---
 

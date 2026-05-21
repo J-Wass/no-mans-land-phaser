@@ -41,7 +41,7 @@ export const TECH_CATALOG: TechNode[] = [
   // ── Society ──────────────────────────────────────────────────────────────────
   T('writing',              'Writing',              'society', [],                                     300,  5, 'Unlocks Trade, Education'),
   T('hunting',              'Hunting',              'society', [],                                     300,  5, 'Unlocks Longbowman; req. for Ancient Rituals'),
-  T('masonry',              'Masonry',              'society', [],                                     300,  5, 'Unlocks Barracks, Walls, Farms, Workshop, Fort, Copper Mine'),
+  T('masonry',              'Masonry',              'society', [],                                     300,  5, 'Unlocks Barracks, Walls, Farms, Workshop, Copper Mine'),
   T('trade',                'Trade',                'society', ['writing'],                            450, 10, 'Unlocks Market (city)'),
   T('education',            'Education',            'society', ['writing'],                            450, 10, 'Unlocks School (city)'),
   T('the_wheel',            'The Wheel',            'society', ['masonry'],                            450, 10, 'Contributes to Catapult & Trebuchet'),
@@ -51,17 +51,17 @@ export const TECH_CATALOG: TechNode[] = [
   T('mathematics',          'Mathematics',          'science', [],                                     300,  5, 'Contributes to Physics'),
   T('chemistry',            'Chemistry',            'science', ['scientific_method'],                  450, 10, 'Contributes to Iron Working & The Elements'),
   T('biology',              'Biology',              'science', ['scientific_method'],                  450, 10, 'Unlocks Animal Domestication'),
-  T('physics',              'Physics',              'science', ['scientific_method', 'mathematics'],   600, 15, 'Unlocks Castle; contributes to Iron Working'),
+  T('physics',              'Physics',              'science', ['scientific_method', 'mathematics'],   600, 15, 'Contributes to Iron Working and Kinematics'),
   T('animal_domestication', 'Animal Domestication', 'science', ['biology'],                           600, 15, 'Unlocks Cavalry'),
   T('iron_working',         'Iron Working',         'science', ['chemistry', 'physics'],               750, 20, 'Unlocks Heavy Infantry, Iron Mine'),
   T('mechanization',        'Mechanization',        'science', ['iron_working'],                       750, 20, 'Unlocks Crossbowman & Trebuchet'),
   T('steel_working',        'Steel Working',        'science', ['iron_working'],                       900, 25, 'Unlocks Fire Glass Mine & Trebuchet'),
-  T('kinematics',           'Kinematics',           'science', ['physics'],                            600, 15, 'Improves siege weapon accuracy'),
+  T('kinematics',           'Kinematics',           'science', ['physics'],                            600, 15, '+3 ranged damage for Catapult and Trebuchet'),
 
   // ── Arcane ───────────────────────────────────────────────────────────────────
   T('ancient_rituals',      'Ancient Rituals',      'arcane',  ['hunting', 'masonry'],                600, 15, 'Foundation of the arcane branch'),
   T('mana_studies',         'Mana Studies',         'arcane',  ['ancient_rituals', 'physics'],         750, 20, 'Unlocks Mana Mine (territory)'),
-  T('the_elements',         'The Elements',         'arcane',  ['mana_studies', 'chemistry'],          900, 25, 'Unlocks Seer Tower; advanced elemental mastery'),
+  T('the_elements',         'The Elements',         'arcane',  ['mana_studies', 'chemistry'],          900, 25, 'Advanced elemental mastery; foundation for future arcane buildings'),
 ];
 
 export const TECH_MAP = new Map<TechId, TechNode>(TECH_CATALOG.map(t => [t.id, t]));

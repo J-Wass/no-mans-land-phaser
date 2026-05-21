@@ -121,6 +121,8 @@ export class BattleSystem {
       const orderA = effectiveBattleOrder(unitA);
       const orderB = effectiveBattleOrder(unitB);
       const battlePaceFactor = orderA === 'ADVANCE' || orderB === 'ADVANCE' ? 1.25 : 1;
+      const kinematicsA = gameState.getNation(unitA.getOwnerId())?.hasResearched('kinematics') ?? false;
+      const kinematicsB = gameState.getNation(unitB.getOwnerId())?.hasResearched('kinematics') ?? false;
 
       const damageToUnitA = this.calculateDamage(
         unitB,
@@ -132,6 +134,7 @@ export class BattleSystem {
         countsB,
         depositsA,
         countsA,
+        kinematicsB,
       );
       const damageToUnitB = this.calculateDamage(
         unitA,
@@ -143,6 +146,7 @@ export class BattleSystem {
         countsA,
         depositsB,
         countsB,
+        kinematicsA,
       );
 
       unitA.takeDamage(damageToUnitA);
@@ -236,6 +240,7 @@ export class BattleSystem {
     attackerCounts: ReadonlyMap<TerritoryResourceType, number>,
     defenderDeposits: ReadonlySet<TerritoryResourceType>,
     defenderCounts: ReadonlyMap<TerritoryResourceType, number>,
+    attackerHasKinematics = false,
   ): number {
     const offense = this.getOffenseScore(
       attacker,
@@ -245,6 +250,7 @@ export class BattleSystem {
       battlePaceFactor,
       attackerDeposits,
       attackerCounts,
+      attackerHasKinematics,
     );
     const mitigation = this.getMitigationScore(defender, attacker, terrain, order, defenderDeposits, defenderCounts);
     return Math.max(1, Math.round(offense * (1 - mitigation)));
@@ -258,11 +264,14 @@ export class BattleSystem {
     battlePaceFactor: number,
     attackerDeposits: ReadonlySet<TerritoryResourceType>,
     attackerCounts: ReadonlyMap<TerritoryResourceType, number>,
+    attackerHasKinematics = false,
   ): number {
     const stats = attacker.getStats();
     const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'ADVANCE';
     const rawBase = useRanged ? Math.max(stats.rangedDamage, stats.meleeDamage * 0.7) : stats.meleeDamage;
-    const baseDamage = rawBase + weaponTierDamageBonus(attackerDeposits);
+    const isSiege = attacker.getUnitType() === 'CATAPULT' || attacker.getUnitType() === 'TREBUCHET';
+    const kinematicsBonus = attackerHasKinematics && useRanged && isSiege ? 3 : 0;
+    const baseDamage = rawBase + weaponTierDamageBonus(attackerDeposits) + kinematicsBonus;
     const healthRatio = attacker.getHealth() / stats.maxHealth;
     const healthFactor = 0.55 + 0.45 * healthRatio;
     const orderFactor = getOrderAttackFactor(order, attacker.getUnitType());
