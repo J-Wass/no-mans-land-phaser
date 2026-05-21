@@ -17,8 +17,8 @@
 
 `AttackTargetGoal.ts` sums enemy HP across all non-allied nations, including neutrals the AI has never fought.
 
-- [ ] In `isOutmatched()`, change the nation filter from `!nation.isAlly()` to `nation.isAtWar(aiNationId)` (or the equivalent diplomacy check)
-- [ ] Verify that the strength ratio is still computed correctly after the filter change
+- [x] In `isOutmatched()`, change the nation filter from `!nation.isAlly()` to `nation.isAtWar(aiNationId)` (or the equivalent diplomacy check)
+- [x] Verify that the strength ratio is still computed correctly after the filter change
 
 ---
 

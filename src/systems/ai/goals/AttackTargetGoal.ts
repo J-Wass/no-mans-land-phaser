@@ -42,11 +42,11 @@ export class AttackTargetGoal implements AIGoal {
     const myStrength = myAliveUnits.reduce((sum, u) => sum + u.getHealth(), 0);
     const nation = ctx.gameState.getNation(ctx.nationId);
 
-    // Sum HP of all non-allied enemy nations
+    // Sum HP of nations we are actively at war with (not neutrals)
     let enemyStrength = 0;
     for (const other of ctx.gameState.getAllNations()) {
       if (other.getId() === ctx.nationId) continue;
-      if (nation?.isAlly(other.getId())) continue;
+      if (!nation?.isAtWar(other.getId())) continue;
       enemyStrength += ctx.gameState.getUnitsByNation(other.getId())
         .filter(u => u.isAlive())
         .reduce((sum, u) => sum + u.getHealth(), 0);
