@@ -16,6 +16,8 @@ import { TerritoryMenuModal } from '@/ui/modals/TerritoryMenuModal';
 import { ResearchModal } from '@/ui/modals/ResearchModal';
 import { DiplomacyModal } from '@/ui/modals/DiplomacyModal';
 import { PauseModal } from '@/ui/modals/PauseModal';
+import { GameOverModal } from '@/ui/modals/GameOverModal';
+import type { GameOutcome } from '@/ui/modals/GameOverModal';
 
 export interface BridgeData {
   phaserScene:     Phaser.Scene;
@@ -149,6 +151,18 @@ export class PhaserUIBridge {
     UIManager.close('pause');
     this.phaserScene.scene.resume('GameScene');
     this.phaserScene.scene.resume('UIScene');
+  }
+
+  // ── Game over ─────────────────────────────────────────────────────────────
+
+  openGameOver(outcome: GameOutcome, endTick: number): void {
+    if (UIManager.isOpen('gameOver')) return;
+    this.phaserScene.scene.pause('GameScene');
+    this.phaserScene.scene.pause('UIScene');
+    const modal = new GameOverModal(this, outcome, endTick);
+    const el = modal.render();
+    this.activeModals.set('gameOver', modal);
+    UIManager.open('gameOver', el);
   }
 
   // ── Scene helpers ─────────────────────────────────────────────────────────

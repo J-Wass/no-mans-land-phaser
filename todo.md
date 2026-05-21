@@ -1,31 +1,145 @@
-Todo:
-- [x] Borders should show up in previously discovered lands, even if not within vision.
-- [x] Create an accessibility setting that lets you change font size and font type for a few font options.
-- [x] Map is too big. There should be less space between nations and less overall travel time.
-- [x] Fallback is broken if a unit is in the middle of enemy territory.
-- [x] Add indicator on city or territory when something is being built, like research's progress bar. Get rid of the dot at the top right for cities.
-- [x] Outpost should take time to make and cost more.
-- [x] Units should take longer to spawn.
-- [x] Add timestamps to alerts (day, hour) in-game time.
-- [x] Show whether near-fog enemy contacts are light or heavy armored.
-- [x] Slow map movement down by 5x.
-- [x] Allow research technologies to be queued, reordered, and removed from the research pane.
-- [x] Make territory and city fights retaliate harder.
-- [x] Defeat nations when they have no cities or units; replace them with tombstones and neutralize their land.
-- [x] Make procedural maps smaller with closer player cities and nearby rival nations.
+# No Man's Land — Todo
 
-Implemented notes:
-- Discovered territory now keeps muted ownership fill/borders visible under fog.
-- Pause menu accessibility choices now apply across HTML UI and trigger HUD rebuilds.
-- Procedural maps are smaller, camera bounds use the actual grid size, and movement pacing has been retuned.
-- Fall back searches a wider retreat area and prefers neutral/friendly tiles before accepting hostile tiles.
-- City production and territory construction draw map progress bars; city owner dots were removed.
-- Territory buildings now queue construction through the tick engine; outposts cost more and claim land only after completion.
-- City unit production times are longer across the catalog.
-- Alerts show in-game Day/Hour timestamps in toasts and history.
-- Near-fog unit contacts now reveal light/heavy armor class with L/H markers.
-- Terrain movement costs are 5x higher, so armies take longer to cross the map.
-- Research queue state is saved on nations, can be changed through commands, and is displayed at the top of the research pane.
-- Territories and cities now hit back harder; cities also return fire against ranged attackers inside longbow range.
-- Eliminated nations are tombstoned in diplomacy, removed from active relations, and their remaining controlled tiles revert to neutral.
-- Procedural spawn selection now targets closer rival spacing, and starting city placement prefers pairs 5-7 tiles apart.
+## [CRITICAL] Win / Loss Condition
+
+- [x] Subscribe to `nation:defeated` event in GameScene or UIScene
+- [x] Detect when the player's own nation is defeated → show defeat screen
+- [x] Detect when only one nation remains (or all enemies defeated) → show victory screen
+- [x] Build a victory/defeat modal (HTML overlay via UIManager)
+  - [x] Display total game time (ticks → minutes:seconds)
+  - [x] Show surviving nations and final territory counts
+  - [x] "Return to Menu" button that tears down GameScene and returns to MenuScene
+- [x] Wire `checkDefeatedNations()` result back to GameScene so the scenario can end mid-session
+
+---
+
+## [HIGH — BUG] `isOutmatched` counts neutral nations
+
+`AttackTargetGoal.ts` sums enemy HP across all non-allied nations, including neutrals the AI has never fought.
+
+- [ ] In `isOutmatched()`, change the nation filter from `!nation.isAlly()` to `nation.isAtWar(aiNationId)` (or the equivalent diplomacy check)
+- [ ] Verify that the strength ratio is still computed correctly after the filter change
+
+---
+
+## [HIGH] AI never sets battle orders on dispatched units
+
+When the AI sends a unit to attack or defend, no `SET_UNIT_BATTLE_ORDER` command is dispatched, so the unit defaults to HOLD in every battle.
+
+- [ ] In `AttackTargetGoal.execute()`, dispatch `SET_UNIT_BATTLE_ORDER` with `ADVANCE` immediately after the MOVE_UNIT command
+- [ ] In `DefendPositionGoal.execute()` (DefenseStrategy), dispatch `SET_UNIT_BATTLE_ORDER` with `HOLD` for defenders and `ADVANCE` for counter-attackers
+- [ ] Ensure the battle order command is sent even if the unit is already at the target tile (already in battle)
+
+---
+
+## [HIGH] AI army coordination — only first unit is dispatched
+
+`AttackTargetGoal.execute()` finds a target and then sends **only the first unit** that can pathfind there. All other idle units sit still.
+
+- [ ] Refactor `execute()` to iterate over all idle units belonging to the AI nation
+- [ ] For each idle unit that has a valid path to the target, dispatch a MOVE_UNIT command
+- [ ] Add a rough army-size cap or priority queue so the AI doesn't strip every tile simultaneously
+- [ ] Similarly fix `DefendPositionGoal.execute()` to send all available defenders, not just the first
+
+---
+
+## [MEDIUM] BasicProfile (medium difficulty) is artificially capped
+
+`BasicProfile.generateGoals()` returns only `ProduceUnitGoal` + `ClaimTerritoryGoal` + `AttackTargetGoal` with a comment "No research, no buildings." Medium AI never researches or builds.
+
+- [ ] Add `ResearchTechGoal` to BasicProfile's goal list
+- [ ] Add `BuildBuildingGoal` to BasicProfile's goal list
+- [ ] Bump `maxGoalsPerCycle` from 2 to 3 so research/building don't crowd out combat
+- [ ] Optionally give BasicProfile a simplified fixed research order (e.g. just masonry → education) instead of the full AdvancedProfile list
+
+---
+
+## [MEDIUM] ClaimTerritoryGoal picks expansion tiles at random
+
+`findExpansionMove()` returns a random candidate from all unclaimed adjacent tiles with no scoring.
+
+- [ ] Score each candidate tile; prefer:
+  - [ ] Tiles with resource deposits (mine sites, food terrain)
+  - [ ] Tiles that would complete or extend a region the AI already partially controls (region bonus threshold)
+  - [ ] Tiles adjacent to enemy or contested territory (deny expansion)
+- [ ] Return the highest-scoring candidate instead of a random one
+- [ ] Fall back to random only when all candidates score equally (no information)
+
+---
+
+## [MEDIUM] AI never builds territory mines
+
+No AI goal covers `BUILD_TERRITORY_BUILDING` for deposit tiles. AI nations never exploit copper, iron, fire-glass, or mana deposits.
+
+- [ ] Create a new `BuildTerritoryGoal` class in `src/systems/ai/goals/`
+  - [ ] Find all controlled territory tiles owned by the AI nation that have a deposit but no mine
+  - [ ] Check affordability and tech prerequisites before returning feasible
+  - [ ] Dispatch `BUILD_TERRITORY_BUILDING` for the highest-value unclaimed deposit
+- [ ] Add `BuildTerritoryGoal` to `MilitaryStrategy` and `AdvancedProfile` goal lists
+- [ ] Optionally add a lower-priority version to `BasicProfile` once that profile is un-capped
+
+---
+
+## [MEDIUM] Watchtower buildings do nothing
+
+Both `CityBuildingType.WATCHTOWER` and `TerritoryBuildingType.WATCHTOWER` claim to extend vision, but `VisionSystem.compute()` only reads unit vision radii and air-mana bonus — it never checks buildings.
+
+- [ ] Define a vision radius constant for city watchtower (e.g. +2 tiles from the city tile)
+- [ ] Define a vision radius constant for territory watchtower (e.g. +2 tiles from that territory)
+- [ ] In `VisionSystem.compute()`, after the unit loop, iterate over all city buildings:
+  - [ ] For each city with `WATCHTOWER`, add a vision circle centred on the city tile
+- [ ] In `VisionSystem.compute()`, iterate over all territory buildings:
+  - [ ] For each territory with `WATCHTOWER`, add a vision circle centred on that territory tile
+- [ ] Scope the vision to the owning nation only (same as unit vision)
+- [ ] Write a test confirming watchtower tiles become visible without a unit present
+
+---
+
+## [MEDIUM] Ghost tech effects (techs that describe features that don't exist)
+
+### kinematics — "Improves siege weapon accuracy"
+- [ ] Decide: implement a range or accuracy bonus for siege units, or change the description to something real
+- [ ] If implementing: add an accuracy multiplier in `BattleSystem.calculateDamage()` when the attacker is a siege unit and the owning nation has `kinematics`
+
+### physics — "Unlocks Castle"
+- [ ] Decide: add `CASTLE = 'CASTLE'` to `CityBuildingType` with stats, or update the description
+- [ ] If adding Castle: define catalog entry, add to production commands, add rendering in GameScene
+
+### the_elements — "Unlocks Seer Tower"
+- [ ] Decide: add `SEER_TOWER = 'SEER_TOWER'` to `TerritoryBuildingType` with vision effect, or update the description
+- [ ] If adding Seer Tower: define catalog entry, wire into VisionSystem alongside Watchtower
+
+### masonry description — references "Fort"
+- [ ] Remove "Fort" from masonry's description string in `TechTree.ts` (no Fort building exists)
+
+---
+
+## [MEDIUM] Scenario system has no win conditions
+
+Scenarios end only when all enemies are eliminated, same as skirmish. The `ScenarioDefinition` type has no `victoryCondition` field.
+
+- [ ] Add a `victoryCondition` field to `ScenarioDefinition` in `src/config/scenarios.ts`:
+  - [ ] Types: `'eliminate_all'` (default), `'hold_city'`, `'capture_city'`, `'survive_ticks'`
+- [ ] In `TickEngine` or a new `VictorySystem`, evaluate the active scenario's condition each tick
+- [ ] Emit a `game:victory` or `game:defeat` event when the condition is met
+- [ ] Hook those events into the win/loss modal built under the [CRITICAL] item above
+- [ ] Update the two existing scenarios (`scenarios.json`) with explicit `victoryCondition` values
+
+---
+
+## [LOW] `ScenarioUnitDef` only allows INFANTRY and SCOUT
+
+The type annotation `'INFANTRY' | 'SCOUT'` prevents scenarios from placing cavalry, archers, or siege units.
+
+- [ ] Widen `ScenarioUnitDef.unitType` to accept all values of `UnitType`
+- [ ] Update existing scenario JSON if any new unit types are placed
+
+---
+
+## [LOW] DefenseStrategy transition is one-way
+
+Once `AdvancedProfile` switches to `MilitaryStrategy` or `DefenseStrategy`, it never returns to `ExpansionStrategy`, even if the threat is gone and the AI has little territory.
+
+- [ ] Add a re-evaluation step at the end of each strategy's `generateGoals()`:
+  - [ ] If `DefenseStrategy` and no nearby enemies and army is not outnumbered → switch back to `MilitaryStrategy`
+  - [ ] If `MilitaryStrategy` and territory is low and no active wars → switch back to `ExpansionStrategy`

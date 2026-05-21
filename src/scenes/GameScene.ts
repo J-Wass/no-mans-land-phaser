@@ -357,6 +357,24 @@ export class GameScene extends Phaser.Scene {
 
     this.eventBus.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
     this.eventBus.on('game:speed-change', ({ speed }) => { this.gameSpeed = speed; });
+
+    if (this.setup.gameMode !== 'sandbox') {
+      this.eventBus.on('nation:defeated', ({ nationId, tick }) => {
+        const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
+        if (!localNationId) return;
+
+        if (nationId === localNationId) {
+          this.bridge.openGameOver('defeat', tick);
+          return;
+        }
+
+        // Check if only the local player's nation remains
+        const remaining = this.gameState.getAllNations();
+        if (remaining.length === 1 && remaining[0]!.getId() === localNationId) {
+          this.bridge.openGameOver('victory', tick);
+        }
+      });
+    }
     this.eventBus.on('sandbox:ai-difficulty-changed', ({ difficulty }) => {
       this.aiSystem.setDifficulty(difficulty);
     });
