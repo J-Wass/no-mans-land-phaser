@@ -58,12 +58,12 @@ When the AI sends a unit to attack or defend, no `SET_UNIT_BATTLE_ORDER` command
 
 `findExpansionMove()` returns a random candidate from all unclaimed adjacent tiles with no scoring.
 
-- [ ] Score each candidate tile; prefer:
-  - [ ] Tiles with resource deposits (mine sites, food terrain)
-  - [ ] Tiles that would complete or extend a region the AI already partially controls (region bonus threshold)
+- [x] Score each candidate tile; prefer:
+  - [x] Tiles with resource deposits (mine sites, food terrain)
+  - [x] Tiles that would complete or extend a region the AI already partially controls (region bonus threshold)
   - [ ] Tiles adjacent to enemy or contested territory (deny expansion)
-- [ ] Return the highest-scoring candidate instead of a random one
-- [ ] Fall back to random only when all candidates score equally (no information)
+- [x] Return the highest-scoring candidate instead of a random one
+- [x] Fall back to random only when all candidates score equally (no information)
 
 ---
 

@@ -11,6 +11,7 @@ import type { AIContext, AIGoal, GoalStatus } from '../AITypes';
 import type { GridCoordinates } from '@/types/common';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { REGION_CONTROL_THRESHOLD } from '@/systems/regions/RegionSystem';
 
 export class ClaimTerritoryGoal implements AIGoal {
   readonly id = 'claim-territory';
@@ -100,8 +101,8 @@ export class ClaimTerritoryGoal implements AIGoal {
 
     if (candidates.length === 0) return null;
 
-    // Pick a random candidate (spread expansion)
-    const target = candidates[Math.floor(Math.random() * candidates.length)]!;
+    // Score each candidate and pick the best
+    const target = this.bestCandidate(ctx, candidates);
 
     // Find an idle unit that can reach it
     const units = ctx.gameState.getUnitsByNation(ctx.nationId).filter(
@@ -116,5 +117,50 @@ export class ClaimTerritoryGoal implements AIGoal {
       if (path && path.length > 0) return { unitId: unit.id, path };
     }
     return null;
+  }
+
+  private bestCandidate(ctx: AIContext, candidates: GridCoordinates[]): GridCoordinates {
+    const grid          = ctx.gameState.getGrid();
+    const regionSystem  = ctx.gameState.getRegionSystem();
+
+    let best      = candidates[0]!;
+    let bestScore = -Infinity;
+
+    for (const pos of candidates) {
+      let score = 0;
+      const territory = grid.getTerritory(pos);
+      if (!territory) continue;
+
+      // Prefer deposit tiles
+      if (territory.getResourceDeposit()) score += 30;
+
+      // Terrain income bonus
+      switch (territory.getTerrainType()) {
+        case TerrainType.PLAINS:      score += 5; break;
+        case TerrainType.FOREST:      score += 4; break;
+        case TerrainType.SNOW_FOREST: score += 4; break;
+        case TerrainType.DESERT:      score += 3; break;
+        default: break;
+      }
+
+      // Region completion bonus — prefer tiles in regions we partially control
+      if (regionSystem) {
+        const region = regionSystem.getRegionAt(pos);
+        if (region) {
+          let ownedCount = 0;
+          for (const tile of region.tiles) {
+            if (grid.getTerritory(tile)?.getControllingNation() === ctx.nationId) ownedCount++;
+          }
+          const fraction = ownedCount / region.tiles.length;
+          // Only bonus if we're progressing toward domination but not already there
+          if (fraction > 0 && fraction < REGION_CONTROL_THRESHOLD) {
+            score += Math.round(fraction * 20);
+          }
+        }
+      }
+
+      if (score > bestScore) { bestScore = score; best = pos; }
+    }
+    return best;
   }
 }
