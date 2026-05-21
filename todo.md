@@ -47,10 +47,10 @@ When the AI sends a unit to attack or defend, no `SET_UNIT_BATTLE_ORDER` command
 
 `BasicProfile.generateGoals()` returns only `ProduceUnitGoal` + `ClaimTerritoryGoal` + `AttackTargetGoal` with a comment "No research, no buildings." Medium AI never researches or builds.
 
-- [ ] Add `ResearchTechGoal` to BasicProfile's goal list
-- [ ] Add `BuildBuildingGoal` to BasicProfile's goal list
-- [ ] Bump `maxGoalsPerCycle` from 2 to 3 so research/building don't crowd out combat
-- [ ] Optionally give BasicProfile a simplified fixed research order (e.g. just masonry → education) instead of the full AdvancedProfile list
+- [x] Add `ResearchTechGoal` to BasicProfile's goal list
+- [x] Add `BuildBuildingGoal` to BasicProfile's goal list
+- [x] Bump `maxGoalsPerCycle` from 2 to 3 so research/building don't crowd out combat
+- [x] Optionally give BasicProfile a simplified fixed research order (e.g. just masonry → education) instead of the full AdvancedProfile list
 
 ---
 
