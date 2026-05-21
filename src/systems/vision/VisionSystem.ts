@@ -13,6 +13,11 @@
 import type { GameState } from '@/managers/GameState';
 import { airManaVisionBonus, shadowManaVisionReduction } from '@/systems/resources/ResourceBonuses';
 import type { Unit } from '@/entities/units/Unit';
+import { CityBuildingType } from '@/systems/territory/CityBuilding';
+import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import type { GridCoordinates } from '@/types/common';
+
+const WATCHTOWER_VISION_RADIUS = 3;
 
 export interface VisionResult {
   /** Tiles where everything is visible. */
@@ -57,7 +62,21 @@ export class VisionSystem {
     for (const unit of gameState.getUnitsByNation(nationId)) {
       if (!unit.isAlive()) continue;
       const radius = unit.getStats().vision + airBonus;
-      this.addVisionCircle(unit, radius, grid, visible, nearVisible);
+      this.addVisionCircle(unit.position, radius, grid, visible, nearVisible);
+    }
+
+    // ── Watchtower vision (city buildings) ─────────────────────────────────
+    for (const city of gameState.getCitiesByNation(nationId)) {
+      if (city.hasBuilding(CityBuildingType.WATCHTOWER)) {
+        this.addVisionCircle(city.position, WATCHTOWER_VISION_RADIUS, grid, visible, nearVisible);
+      }
+    }
+
+    // ── Watchtower vision (territory buildings) ─────────────────────────────
+    for (const territory of grid.getTerritoriesByNation(nationId)) {
+      if (territory.hasBuilding(TerritoryBuildingType.WATCHTOWER)) {
+        this.addVisionCircle(territory.getCoordinates(), WATCHTOWER_VISION_RADIUS, grid, visible, nearVisible);
+      }
     }
 
     // Near-visible tiles must not overlap visible
@@ -132,13 +151,13 @@ export class VisionSystem {
   // ── Private ────────────────────────────────────────────────────────────────
 
   private addVisionCircle(
-    unit:        Unit,
+    pos:         GridCoordinates,
     radius:      number,
     grid:        import('@/systems/grid/Grid').Grid,
     visible:     Set<string>,
     nearVisible: Set<string>,
   ): void {
-    const { row: ur, col: uc } = unit.position;
+    const { row: ur, col: uc } = pos;
     const nearRadius = radius + FOG_EDGE_DISTANCE;
 
     for (let dr = -nearRadius; dr <= nearRadius; dr++) {

@@ -84,13 +84,13 @@ No AI goal covers `BUILD_TERRITORY_BUILDING` for deposit tiles. AI nations never
 
 Both `CityBuildingType.WATCHTOWER` and `TerritoryBuildingType.WATCHTOWER` claim to extend vision, but `VisionSystem.compute()` only reads unit vision radii and air-mana bonus — it never checks buildings.
 
-- [ ] Define a vision radius constant for city watchtower (e.g. +2 tiles from the city tile)
-- [ ] Define a vision radius constant for territory watchtower (e.g. +2 tiles from that territory)
-- [ ] In `VisionSystem.compute()`, after the unit loop, iterate over all city buildings:
-  - [ ] For each city with `WATCHTOWER`, add a vision circle centred on the city tile
-- [ ] In `VisionSystem.compute()`, iterate over all territory buildings:
-  - [ ] For each territory with `WATCHTOWER`, add a vision circle centred on that territory tile
-- [ ] Scope the vision to the owning nation only (same as unit vision)
+- [x] Define a vision radius constant for city watchtower (e.g. +2 tiles from the city tile)
+- [x] Define a vision radius constant for territory watchtower (e.g. +2 tiles from that territory)
+- [x] In `VisionSystem.compute()`, after the unit loop, iterate over all city buildings:
+  - [x] For each city with `WATCHTOWER`, add a vision circle centred on the city tile
+- [x] In `VisionSystem.compute()`, iterate over all territory buildings:
+  - [x] For each territory with `WATCHTOWER`, add a vision circle centred on that territory tile
+- [x] Scope the vision to the owning nation only (same as unit vision)
 - [ ] Write a test confirming watchtower tiles become visible without a unit present
 
 ---
