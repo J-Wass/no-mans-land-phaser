@@ -22,6 +22,7 @@ import { getScenarioById } from '@/config/scenarios';
 import { VisionSystem } from '@/systems/vision/VisionSystem';
 import { RegionSystem } from '@/systems/regions/RegionSystem';
 import { PhaserUIBridge } from '@/ui/PhaserUIBridge';
+import { MusicManager } from '@/managers/MusicManager';
 
 const WATER_BORDER = 0;
 const TERRAIN_CYCLE: TerrainType[] = [
@@ -98,6 +99,7 @@ export class GameScene extends Phaser.Scene {
   private minZoom = 0.25;
   private gameSpeed = 1;
   private bridge!: PhaserUIBridge;
+  private musicManager!: MusicManager;
 
   // Double-click detection for city/territory menus
   private lastClickMs     = 0;
@@ -117,6 +119,14 @@ export class GameScene extends Phaser.Scene {
     this.load.image('terrain_desert', 'terrain_squares/desert.png');
     this.load.image('city_town', 'terrain_squares/town.png');
     this.load.spritesheet('infantry_neutral', 'sprites/infantry_neutral_4x.png', { frameWidth: 128, frameHeight: 128 });
+
+    this.load.audio('music_melancholy1', 'audio/music/melancholy1.mp3');
+    this.load.audio('music_melancholy2', 'audio/music/melancholy2.mp3');
+    this.load.audio('music_melancholy3', 'audio/music/melancholy3.mp3');
+    this.load.audio('music_hope1',       'audio/music/hope1.mp3');
+    this.load.audio('music_focus1',      'audio/music/focus1.mp3');
+    this.load.audio('music_glory1',      'audio/music/glory1.mp3');
+    this.load.audio('music_glory2',      'audio/music/glory2.mp3');
   }
 
   init(data: GameSceneData): void {
@@ -177,6 +187,9 @@ export class GameScene extends Phaser.Scene {
       movementSystem:  this.movementSystem,
       setup:           this.setup,
     });
+
+    this.musicManager = new MusicManager(this, this.gameState, this.eventBus);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.musicManager.destroy());
 
     const sceneData = this.scene.settings.data as GameSceneData;
     if (sceneData.saveData) {
@@ -377,6 +390,7 @@ export class GameScene extends Phaser.Scene {
           const remaining = this.gameState.getAllNations();
           if (remaining.length === 1 && remaining[0]!.getId() === localNationId) {
             this.bridge.openGameOver('victory', tick);
+            this.musicManager.notifyVictory();
           }
         }
       });
@@ -391,6 +405,7 @@ export class GameScene extends Phaser.Scene {
           if (!localNationId) return;
           if (tick >= targetTick) {
             this.bridge.openGameOver('victory', tick);
+            this.musicManager.notifyVictory();
           }
         });
       }

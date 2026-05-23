@@ -47,6 +47,7 @@ export interface TerritoryConstructionOrder {
   label:           string;
   ticksTotal:      number;
   ticksRemaining:  number;
+  isUpgrade?:      boolean;
 }
 
 export class Territory implements Serializable<TerritoryData> {

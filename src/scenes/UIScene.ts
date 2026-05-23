@@ -385,7 +385,7 @@ export class UIScene extends Phaser.Scene {
   }
 
   private buildTopBar(W: number, scale: number): void {
-    const skinny = W < 820;
+    const skinny = W < 960;
     const widthFactor = skinny ? Phaser.Math.Clamp(W / 620, 0.62, 1) : 1;
     const barH = Math.round((skinny ? 88 : 52) * scale);
     const pad = Math.round((skinny ? 8 : 10) * scale);
@@ -398,7 +398,7 @@ export class UIScene extends Phaser.Scene {
     this.track(this.add.rectangle(W / 2, 0, W, barH, 0x0d1020, 0.94).setOrigin(0.5, 0));
     this.track(this.add.rectangle(W / 2, barH, W, 1, 0x3355bb, 0.7).setOrigin(0.5, 0));
 
-    this.tickText = this.track(this.add.text(pad, midY, 'Day 1', {
+    this.tickText = this.track(this.add.text(pad, midY, formatGameTime(this.tickEngine.getCurrentTick()), {
       ...MONO, fontSize: fs(skinny ? 13 : 15, scale), color: '#d6e0ff',
     }).setOrigin(0, 0.5)) as Phaser.GameObjects.Text;
 

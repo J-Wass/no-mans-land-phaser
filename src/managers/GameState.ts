@@ -388,6 +388,8 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
         }
       }
       if (typeof cdAny.currentHealth === 'number') city.setHealth(cdAny.currentHealth);
+      const savedQueue = (cd as { productionQueue?: ProductionOrder[] }).productionQueue;
+      if (savedQueue?.length) city.restoreQueue(savedQueue);
       state.addCity(city);
     }
 

@@ -147,7 +147,15 @@ export class TickEngine {
         const completed = territory?.tickConstruction();
         if (!territory || !completed) continue;
 
-        if (completed.building === TerritoryBuildingType.OUTPOST) {
+        if (completed.isUpgrade) {
+          territory.upgradeBuildingLevel(completed.building);
+          this.eventBus.emit('territory:building-upgraded', {
+            position,
+            building: completed.building,
+            newLevel: territory.getBuildingLevel(completed.building),
+            tick: this.currentTick,
+          });
+        } else if (completed.building === TerritoryBuildingType.OUTPOST) {
           territory.setControllingNation(completed.nationId);
           territory.addBuilding(TerritoryBuildingType.OUTPOST);
           this.claimAdjacentImpassable(position, completed.nationId);
@@ -156,15 +164,19 @@ export class TickEngine {
             nationId: completed.nationId,
             tick: this.currentTick,
           });
+          this.eventBus.emit('territory:building-built', {
+            position,
+            building: completed.building,
+            tick: this.currentTick,
+          });
         } else {
           territory.addBuilding(completed.building);
+          this.eventBus.emit('territory:building-built', {
+            position,
+            building: completed.building,
+            tick: this.currentTick,
+          });
         }
-
-        this.eventBus.emit('territory:building-built', {
-          position,
-          building: completed.building,
-          tick: this.currentTick,
-        });
       }
     }
   }

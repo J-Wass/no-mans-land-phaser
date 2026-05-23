@@ -210,12 +210,22 @@ export class CommandProcessor {
     if (!this.sandboxMode && !nation.getTreasury().hasResources(def.upgradeCost))
       return { success: false, reason: 'Insufficient resources' };
 
+    if (territory.getCurrentConstruction())
+      return { success: false, reason: 'Territory is already under construction' };
+
     if (!this.sandboxMode) nation.getTreasury().consumeResources(def.upgradeCost);
-    territory.upgradeBuildingLevel(command.building);
-    const newLevel = territory.getBuildingLevel(command.building);
-    this.eventBus.emit('territory:building-upgraded', {
+    const upgradeTicks = this.sandboxMode ? Math.min(10, def.ticks) : def.ticks;
+    territory.startConstruction({
+      building:       command.building,
+      nationId:       nation.getId(),
+      label:          `${def.label} Lvl ${currentLevel + 1}`,
+      ticksTotal:     upgradeTicks,
+      ticksRemaining: upgradeTicks,
+      isUpgrade:      true,
+    });
+    this.eventBus.emit('territory:building-started', {
       position: command.position, building: command.building,
-      newLevel, tick: command.issuedAtTick,
+      nationId: nation.getId(), tick: command.issuedAtTick,
     });
     return { success: true };
   }
@@ -233,8 +243,8 @@ export class CommandProcessor {
     if (!city || city.getOwnerId() !== nation.getId())
       return { success: false, reason: 'City not found or not owned' };
 
-    if (city.getCurrentOrder())
-      return { success: false, reason: 'City production queue is busy' };
+    if (city.isQueueFull())
+      return { success: false, reason: 'Production queue is full' };
 
     const def = CITY_BUILDING_MAP.get(command.building);
     if (!def) return { success: false, reason: 'Unknown building type' };
@@ -254,7 +264,7 @@ export class CommandProcessor {
 
     if (!this.sandboxMode) nation.getTreasury().consumeResources(cost);
     const ticks = this.sandboxMode ? Math.min(10, def.ticks || 10) : def.ticks;
-    city.startOrder({
+    city.enqueueOrder({
       kind:            'building',
       buildingType:    command.building,
       label:           isUpgrade ? `${def.label} Lvl ${currentLevel + 1}` : def.label,
@@ -310,8 +320,8 @@ export class CommandProcessor {
     if (!city || city.getOwnerId() !== nation.getId())
       return { success: false, reason: 'City not found or not owned' };
 
-    if (city.getCurrentOrder())
-      return { success: false, reason: 'City production queue is busy' };
+    if (city.isQueueFull())
+      return { success: false, reason: 'Production queue is full' };
 
     const entry = PRODUCTION_CATALOG.find(e => e.id === `unit:${command.unitType}`);
     if (!entry) return { success: false, reason: 'Unknown unit type' };
@@ -334,7 +344,7 @@ export class CommandProcessor {
       return { success: false, reason: 'Insufficient resources' };
 
     if (!this.sandboxMode) nation.getTreasury().consumeResources(entry.cost);
-    city.startOrder(entry.makeOrder());
+    city.enqueueOrder(entry.makeOrder());
     return { success: true };
   }
 

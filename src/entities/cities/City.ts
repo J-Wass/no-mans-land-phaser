@@ -1,8 +1,9 @@
 /**
  * City entity - represents a city that occupies a territory.
- * One city produces one thing at a time (no queue).
  * Cities start with CITY_HALL. All other buildings must be constructed.
  */
+
+export const CITY_QUEUE_MAX = 5;
 
 import { EntityType } from '@/types/common';
 import type { EntityId, GridCoordinates, GameEntity } from '@/types/common';
@@ -16,16 +17,17 @@ import {
 } from '@/systems/territory/CityBuilding';
 
 export interface CityData {
-  id:            EntityId;
-  name:          string;
-  ownerId:       EntityId;
-  position:      GridCoordinates;
-  currentOrder:  ProductionOrder | null;
-  buildings:     CityBuildingType[];
-  buildingLevels: Partial<Record<CityBuildingType, number>>;
-  currentHealth: number;
-  maxHealth:     number;
-  meleeDamage:   number;
+  id:              EntityId;
+  name:            string;
+  ownerId:         EntityId;
+  position:        GridCoordinates;
+  currentOrder:    ProductionOrder | null;
+  productionQueue: ProductionOrder[];
+  buildings:       CityBuildingType[];
+  buildingLevels:  Partial<Record<CityBuildingType, number>>;
+  currentHealth:   number;
+  maxHealth:       number;
+  meleeDamage:     number;
 }
 
 export class City implements GameEntity, Serializable<CityData> {
@@ -38,8 +40,9 @@ export class City implements GameEntity, Serializable<CityData> {
       name,
       ownerId,
       position,
-      currentOrder:  null,
-      buildings:     [CityBuildingType.CITY_HALL],
+      currentOrder:    null,
+      productionQueue: [],
+      buildings:       [CityBuildingType.CITY_HALL],
       buildingLevels: { [CityBuildingType.CITY_HALL]: 1 },
       maxHealth:     200,
       currentHealth: 200,
@@ -76,10 +79,37 @@ export class City implements GameEntity, Serializable<CityData> {
   }
 
   public getCurrentOrder(): ProductionOrder | null { return this.data.currentOrder; }
+  public getQueue(): readonly ProductionOrder[] { return this.data.productionQueue; }
+  public isQueueFull(): boolean { return this.data.productionQueue.length >= CITY_QUEUE_MAX; }
 
-  /** Begin production. Caller must check affordability and deduct resources first. */
+  /** Begin or enqueue production. Resources must be deducted by the caller first. */
   public startOrder(order: ProductionOrder): void {
     this.data.currentOrder = { ...order };
+  }
+
+  /**
+   * Add an order to the queue (or start immediately if idle).
+   * Returns false if the queue is already at capacity.
+   */
+  public enqueueOrder(order: ProductionOrder): boolean {
+    if (!this.data.currentOrder) {
+      this.startOrder(order);
+      return true;
+    }
+    if (this.data.productionQueue.length >= CITY_QUEUE_MAX) return false;
+    this.data.productionQueue.push({ ...order });
+    return true;
+  }
+
+  /** Remove a queued item by index. Returns the removed order or null if index is invalid. */
+  public cancelQueueItem(index: number): ProductionOrder | null {
+    if (index < 0 || index >= this.data.productionQueue.length) return null;
+    return this.data.productionQueue.splice(index, 1)[0] ?? null;
+  }
+
+  /** Restore the queue directly (used by save/load). */
+  public restoreQueue(queue: ProductionOrder[]): void {
+    this.data.productionQueue = queue.map(o => ({ ...o }));
   }
 
   /**
@@ -91,7 +121,8 @@ export class City implements GameEntity, Serializable<CityData> {
     if (!order) return false;
     order.ticksRemaining = Math.max(0, order.ticksRemaining - 1);
     if (order.ticksRemaining === 0) {
-      this.data.currentOrder = null;
+      // Auto-advance the queue
+      this.data.currentOrder = this.data.productionQueue.shift() ?? null;
       return true;
     }
     return false;
@@ -169,10 +200,11 @@ export class City implements GameEntity, Serializable<CityData> {
   public toJSON(): CityData {
     return {
       ...this.data,
-      position:      { ...this.data.position },
-      currentOrder:  this.data.currentOrder ? { ...this.data.currentOrder } : null,
-      buildings:     [...this.data.buildings],
-      buildingLevels: { ...this.data.buildingLevels },
+      position:        { ...this.data.position },
+      currentOrder:    this.data.currentOrder ? { ...this.data.currentOrder } : null,
+      productionQueue: this.data.productionQueue.map(o => ({ ...o })),
+      buildings:       [...this.data.buildings],
+      buildingLevels:  { ...this.data.buildingLevels },
     };
   }
 }

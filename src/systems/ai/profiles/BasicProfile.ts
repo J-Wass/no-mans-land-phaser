@@ -30,7 +30,7 @@ export class BasicProfile extends AIProfile {
     return [
       new ProduceUnitGoal([UnitType.INFANTRY, UnitType.SCOUT]),
       new ClaimTerritoryGoal(),
-      new AttackTargetGoal(55, 800),
+      new AttackTargetGoal(40, 1800),
       new ResearchTechGoal(BASIC_RESEARCH_ORDER),
       new BuildBuildingGoal(),
     ];

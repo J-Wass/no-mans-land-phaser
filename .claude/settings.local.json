@@ -34,7 +34,13 @@
       "Bash(Select-Object -ExpandProperty FullName)",
       "Bash(Sort-Object)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\jonah\\\\Desktop\\\\phaser-test\" -Force)",
-      "Bash(Select-Object Name, PSIsContainer)"
+      "Bash(Select-Object Name, PSIsContainer)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(grep -Hm1 ^description: 'C:\\\\Users\\\\jonah\\\\Desktop\\\\no-mans-land-phaser/.claude/skills/*/SKILL.md')",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\jonah\\\\Desktop\\\\no-mans-land-phaser\\\\src\" -Recurse -Directory)",
+      "Bash(Select-Object FullName)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\jonah\\\\Desktop\\\\no-mans-land-phaser\\\\src\" -Recurse -File -Name)"
     ],
     "deny": [],
     "ask": []

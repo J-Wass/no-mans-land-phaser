@@ -5,6 +5,7 @@ import type { CatalogEntry } from '@/systems/production/ProductionCatalog';
 import { CITY_BUILDING_CATALOG, CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { CityBuildingDef } from '@/systems/territory/CityBuilding';
 import type { UnitOrder } from '@/systems/production/ProductionOrder';
+import { CITY_QUEUE_MAX } from '@/entities/cities/City';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 import { TICK_RATE } from '@/config/constants';
@@ -20,6 +21,7 @@ export class CityMenuModal {
   private tabBtns!: Record<Tab, HTMLButtonElement>;
   private orderLabel!: HTMLElement;
   private progressFill!: HTMLElement;
+  private queueList!: HTMLElement;
   private resourceTexts = new Map<ResourceType, HTMLElement>();
   private unitRows: Array<{ entry: CatalogEntry; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
   private buildingRows: Array<{ def: CityBuildingDef; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
@@ -125,6 +127,11 @@ export class CityMenuModal {
 
     prodSide.appendChild(orderRow);
     prodSide.appendChild(track);
+
+    this.queueList = document.createElement('div');
+    this.queueList.className = 'col tight';
+    this.queueList.style.marginTop = '4px';
+    prodSide.appendChild(this.queueList);
 
     // Resources side
     const resGrid = document.createElement('div');
@@ -310,11 +317,39 @@ export class CityMenuModal {
       this.orderLabel.textContent = 'Idle';
       this.orderLabel.style.color = 'var(--color-dim)';
       this.progressFill.style.width = '0%';
-      return;
+    } else {
+      this.orderLabel.textContent = `${order.label}  |  ${(order.ticksRemaining / TICK_RATE).toFixed(1)}s remaining`;
+      this.orderLabel.style.color = 'var(--color-gold)';
+      this.progressFill.style.width = `${(this.city.getProgressFraction() * 100).toFixed(1)}%`;
     }
-    this.orderLabel.textContent = `${order.label}  |  ${(order.ticksRemaining / TICK_RATE).toFixed(1)}s remaining`;
-    this.orderLabel.style.color = 'var(--color-gold)';
-    this.progressFill.style.width = `${(this.city.getProgressFraction() * 100).toFixed(1)}%`;
+
+    // Queue items
+    this.queueList.innerHTML = '';
+    const queue = this.city.getQueue();
+    for (let i = 0; i < queue.length; i++) {
+      const item = queue[i]!;
+      const row = document.createElement('div');
+      row.className = 'row spread';
+      row.style.fontSize = '11px';
+      row.style.color = 'var(--color-dim)';
+      row.style.marginTop = '2px';
+
+      const lbl = document.createElement('span');
+      lbl.className = 'text-mono';
+      lbl.textContent = `${i + 1}. ${item.label}  (${(item.ticksTotal / TICK_RATE).toFixed(1)}s)`;
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-warning btn-sm';
+      cancelBtn.style.padding = '0 6px';
+      cancelBtn.style.fontSize = '10px';
+      cancelBtn.textContent = '✕';
+      const idx = i;
+      cancelBtn.addEventListener('click', () => { this.city.cancelQueueItem(idx); this.refresh(); });
+
+      row.appendChild(lbl);
+      row.appendChild(cancelBtn);
+      this.queueList.appendChild(row);
+    }
   }
 
   private updateResources(): void {
@@ -327,19 +362,23 @@ export class CityMenuModal {
 
   private refreshBuildButtons(): void {
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
-    const busy = this.city.getCurrentOrder() !== null;
-    const treasury = nation?.getTreasury();
-    const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
+    const busy      = this.city.getCurrentOrder() !== null;
+    const queueFull = this.city.isQueueFull();
+    const treasury  = nation?.getTreasury();
+    const deposits  = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
 
     for (const row of this.unitRows) {
       const canAfford   = treasury?.hasResources(row.entry.cost) ?? false;
       const techsOk     = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
       const buildingOk  = !row.entry.requiresBuilding || this.city.hasBuilding(row.entry.requiresBuilding);
       const depositOk   = !row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit);
-      const enabled     = !busy && canAfford && techsOk && buildingOk && depositOk;
+      const enabled     = !queueFull && canAfford && techsOk && buildingOk && depositOk;
 
-      row.btn.disabled   = !enabled;
-      row.btn.textContent = techsOk && buildingOk && depositOk ? 'BUILD' : 'LOCKED';
+      row.btn.disabled    = !enabled;
+      row.btn.textContent = !techsOk || !buildingOk || !depositOk ? 'LOCKED'
+        : queueFull ? 'FULL'
+        : busy ? 'QUEUE'
+        : 'BUILD';
       row.costLbl.style.color = canAfford ? 'var(--color-dim)' : '#d19393';
       row.statusLbl.textContent = this.getLockReasonForUnit(row.entry);
       row.statusLbl.style.color = enabled ? 'var(--color-dim)' : '#d5a0a0';
@@ -352,11 +391,15 @@ export class CityMenuModal {
       const techOk       = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
       const cost         = canUpgrade ? row.def.upgradeCost : row.def.cost;
       const canAfford    = treasury?.hasResources(cost) ?? false;
-      const enabled      = !busy && techOk && canAfford && (!alreadyBuilt || canUpgrade);
+      const enabled      = !queueFull && techOk && canAfford && (!alreadyBuilt || canUpgrade);
 
       row.btn.disabled = !enabled;
       const levelSuffix = row.def.maxLevel > 1 && alreadyBuilt ? ` ${currentLevel}/${row.def.maxLevel}` : '';
-      row.btn.textContent = canUpgrade ? 'UPGRADE' : alreadyBuilt ? `BUILT${levelSuffix}` : techOk ? 'BUILD' : 'LOCKED';
+      row.btn.textContent = canUpgrade
+        ? (queueFull ? 'FULL' : busy ? 'QUEUE' : 'UPGRADE')
+        : alreadyBuilt ? `BUILT${levelSuffix}`
+        : techOk ? (queueFull ? 'FULL' : busy ? 'QUEUE' : 'BUILD')
+        : 'LOCKED';
       row.costLbl.textContent = formatCost(cost as Record<string, number>);
       row.costLbl.style.color = canAfford ? 'var(--color-dim)' : '#d19393';
       row.statusLbl.textContent = this.getLockReasonForBuilding(row.def);
@@ -366,7 +409,7 @@ export class CityMenuModal {
 
   private getLockReasonForUnit(entry: CatalogEntry): string {
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
-    if (this.city.getCurrentOrder()) return 'City is already producing something.';
+    if (this.city.isQueueFull()) return `Queue full (max ${CITY_QUEUE_MAX} items).`;
     const missing = entry.requiresTechs.filter(t => !nation?.hasResearched(t));
     if (missing.length) return `Requires research: ${missing.map(t => t.replace(/_/g, ' ')).join(', ')}.`;
     if (entry.requiresBuilding !== null && !this.city.hasBuilding(entry.requiresBuilding))
@@ -381,16 +424,15 @@ export class CityMenuModal {
   }
 
   private getLockReasonForBuilding(def: CityBuildingDef): string {
+    if (this.city.isQueueFull()) return `Queue full (max ${CITY_QUEUE_MAX} items).`;
     if (this.city.hasBuilding(def.type)) {
       const level = this.city.getBuildingLevel(def.type);
       if (def.type !== CityBuildingType.WALLS || level >= def.maxLevel) return 'Already built.';
-      if (this.city.getCurrentOrder()) return 'City is already producing something.';
       const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
       if (!nation?.getTreasury().hasResources(def.upgradeCost)) return 'Insufficient resources.';
       return `Ready to upgrade to level ${level + 1}.`;
     }
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
-    if (this.city.getCurrentOrder()) return 'City is already producing something.';
     if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech))
       return `Requires research: ${def.requiresTech.replace(/_/g, ' ').toLowerCase()}.`;
     if (!nation?.getTreasury().hasResources(def.cost)) return 'Insufficient resources.';
