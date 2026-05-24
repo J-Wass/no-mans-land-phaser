@@ -3,6 +3,9 @@ import { TECH_CATALOG, TECH_MAP } from '@/systems/research/TechTree';
 import type { TechBranch, TechId, TechNode } from '@/systems/research/TechTree';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TICK_RATE } from '@/config/constants';
+import { CITY_BUILDING_CATALOG } from '@/systems/territory/CityBuilding';
+import { TERRITORY_BUILDING_CATALOG } from '@/systems/territory/TerritoryBuilding';
+import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 
 const BRANCH_COLORS: Record<TechBranch, string> = {
   science: '#7eb7ff',
@@ -12,9 +15,30 @@ const BRANCH_COLORS: Record<TechBranch, string> = {
 
 const BRANCH_ORDER: TechBranch[] = ['science', 'society', 'arcane'];
 
+function buildUnlocksMap(): Map<TechId, string[]> {
+  const map = new Map<TechId, string[]>();
+  const add = (techId: TechId, label: string) => {
+    let arr = map.get(techId);
+    if (!arr) { arr = []; map.set(techId, arr); }
+    if (!arr.includes(label)) arr.push(label);
+  };
+  for (const b of CITY_BUILDING_CATALOG) {
+    if (b.requiresTech) add(b.requiresTech, b.label);
+  }
+  for (const b of TERRITORY_BUILDING_CATALOG) {
+    if (b.requiresTech) add(b.requiresTech, b.label);
+  }
+  for (const entry of PRODUCTION_CATALOG) {
+    for (const techId of entry.requiresTechs) add(techId, entry.label);
+  }
+  return map;
+}
+
+const TECH_UNLOCKS = buildUnlocksMap();
+
 // Graph layout constants
 const NODE_W = 156;
-const NODE_H = 88;
+const NODE_H = 104;  // extra height accommodates the unlocks line
 const COL_W  = 196;     // x-stride between depth columns
 const ROW_GAP = 12;     // gap between stacked nodes in a band
 const BAND_GAP = 28;    // gap between branch bands
@@ -302,10 +326,16 @@ export class ResearchModal {
     btn.textContent = 'START';
     btn.addEventListener('click', () => void this.startResearch(node));
 
+    const unlocks = TECH_UNLOCKS.get(node.id);
+    const unlockEl = document.createElement('div');
+    unlockEl.className = 'tech-node-unlocks';
+    unlockEl.textContent = unlocks && unlocks.length > 0 ? '→ ' + unlocks.join(', ') : '';
+
     el.appendChild(name);
+    el.appendChild(unlockEl);
     el.appendChild(sub);
     el.appendChild(btn);
-    el.title = node.description;
+    el.title = node.description + (unlocks?.length ? '\n\nUnlocks: ' + unlocks.join(', ') : '');
     return el;
   }
 

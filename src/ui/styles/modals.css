@@ -357,6 +357,17 @@
   white-space: nowrap;
 }
 
+.tech-node-unlocks {
+  font-size: calc(var(--ui-scale) * 9px);
+  color: #78b59a;
+  font-family: var(--font-data);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-height: 11px;
+}
+
 .tech-node-sub {
   font-size: calc(var(--ui-scale) * 10px);
   color: var(--color-dim);

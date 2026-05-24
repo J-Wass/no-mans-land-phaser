@@ -150,6 +150,20 @@ export class MovementSystem {
           continue;
         }
 
+        // Block friendly stacking: wait until the tile is clear
+        const friendlyOccupant = gameState.getAllUnits().find(other =>
+          other.id !== unit.id &&
+          other.isAlive() &&
+          other.getOwnerId() === unit.getOwnerId() &&
+          other.position.row === nextCoords.row &&
+          other.position.col === nextCoords.col,
+        );
+        if (friendlyOccupant) {
+          state.path.unshift(nextCoords);
+          state.ticksRemainingOnStep = 1;
+          continue;
+        }
+
         const from = unit.position;
         unit.moveTo(nextCoords);
 
@@ -231,6 +245,20 @@ export class MovementSystem {
         const nextCoords = state.path.shift();
         if (nextCoords === undefined) {
           this.states.delete(unitId);
+          continue;
+        }
+
+        // Block friendly stacking: wait until the tile is clear
+        const friendlyOccupant = gameState.getAllUnits().find(other =>
+          other.id !== unit.id &&
+          other.isAlive() &&
+          other.getOwnerId() === unit.getOwnerId() &&
+          other.position.row === nextCoords.row &&
+          other.position.col === nextCoords.col,
+        );
+        if (friendlyOccupant) {
+          state.path.unshift(nextCoords);
+          state.ticksRemainingOnStep = 1;
           continue;
         }
 
