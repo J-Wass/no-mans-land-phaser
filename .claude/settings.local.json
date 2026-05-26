@@ -40,7 +40,11 @@
       "Bash(grep -Hm1 ^description: 'C:\\\\Users\\\\jonah\\\\Desktop\\\\no-mans-land-phaser/.claude/skills/*/SKILL.md')",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\jonah\\\\Desktop\\\\no-mans-land-phaser\\\\src\" -Recurse -Directory)",
       "Bash(Select-Object FullName)",
-      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\jonah\\\\Desktop\\\\no-mans-land-phaser\\\\src\" -Recurse -File -Name)"
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\jonah\\\\Desktop\\\\no-mans-land-phaser\\\\src\" -Recurse -File -Name)",
+      "Bash(grep -E '\\\\.\\(ts|js\\)$')",
+      "Bash(npx eslint *)",
+      "Bash(echo \"=== EXIT: $? ===\")",
+      "Bash(echo \"exit $?\")"
     ],
     "deny": [],
     "ask": []

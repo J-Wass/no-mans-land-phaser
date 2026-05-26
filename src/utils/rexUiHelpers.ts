@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import type UIPlugin from 'phaser3-rex-plugins/templates/ui/ui-plugin.js';
 import { UI } from '@/config/uiTheme';
+import { computeUiScale } from '@/config/uiScale';
 
 export interface UiMetrics {
   width: number;
@@ -57,7 +58,7 @@ export function getUiMetrics(scene: Phaser.Scene): UiMetrics {
   const height = scene.scale.height;
   const shortSide = Math.min(width, height);
   const longSide = Math.max(width, height);
-  const scale = Phaser.Math.Clamp(shortSide / 900, 0.82, 1.42);
+  const scale = computeUiScale(shortSide);
   const compact = width < 1180;
   const stacked = width < 900;
   const pad = Math.round(Phaser.Math.Clamp(shortSide * 0.028, 14, 30));

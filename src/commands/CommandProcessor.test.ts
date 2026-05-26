@@ -430,10 +430,10 @@ describe('CommandProcessor', () => {
       city = new City('city-1', 'Rome City', 'nation-1', { row: 2, col: 2 });
       city.addBuilding(CityBuildingType.BARRACKS); // Infantry requires BARRACKS
       gameState.addCity(city);
-      // Infantry costs GOLD:5, FOOD:20, RAW_MATERIAL:10
-      nation.getTreasury().addResource(ResourceType.GOLD, 20);
-      nation.getTreasury().addResource(ResourceType.FOOD, 50);
-      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 30);
+      // Infantry costs GOLD:30, FOOD:400, RAW_MATERIAL:300. Grant enough to fill the queue.
+      nation.getTreasury().addResource(ResourceType.GOLD, 1000);
+      nation.getTreasury().addResource(ResourceType.FOOD, 5000);
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 5000);
     });
 
     it('queues infantry production when city has a barracks', () => {
@@ -449,32 +449,36 @@ describe('CommandProcessor', () => {
       expect(city.getCurrentOrder()).not.toBeNull();
     });
 
-    it('rejects when city production queue is busy', () => {
-      processor.dispatch({
+    it('queues additional orders behind the active one until the queue is full', () => {
+      // 1 active order + CITY_QUEUE_MAX (5) queued = 6 accepted, the 7th is rejected.
+      for (let i = 0; i < 6; i++) {
+        const r = processor.dispatch({
+          type: 'START_CITY_PRODUCTION',
+          playerId: 'player-1',
+          cityId: 'city-1',
+          unitType: UnitType.INFANTRY,
+          issuedAtTick: i + 1,
+        });
+        expect(r.success).toBe(true);
+      }
+
+      const overflow = processor.dispatch({
         type: 'START_CITY_PRODUCTION',
         playerId: 'player-1',
         cityId: 'city-1',
         unitType: UnitType.INFANTRY,
-        issuedAtTick: 1,
+        issuedAtTick: 7,
       });
 
-      const result = processor.dispatch({
-        type: 'START_CITY_PRODUCTION',
-        playerId: 'player-1',
-        cityId: 'city-1',
-        unitType: UnitType.INFANTRY,
-        issuedAtTick: 2,
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.reason).toMatch(/busy/i);
+      expect(overflow.success).toBe(false);
+      expect(overflow.reason).toMatch(/full/i);
     });
 
     it('rejects when nation cannot afford the unit', () => {
       nation.getTreasury().consumeResources({
-        [ResourceType.GOLD]: 20,
-        [ResourceType.FOOD]: 50,
-        [ResourceType.RAW_MATERIAL]: 30,
+        [ResourceType.GOLD]: 1000,
+        [ResourceType.FOOD]: 5000,
+        [ResourceType.RAW_MATERIAL]: 5000,
       });
 
       const result = processor.dispatch({
@@ -487,6 +491,62 @@ describe('CommandProcessor', () => {
 
       expect(result.success).toBe(false);
       expect(result.reason).toMatch(/insufficient/i);
+    });
+  });
+
+  describe('CANCEL_CITY_PRODUCTION', () => {
+    let city: City;
+
+    beforeEach(() => {
+      city = new City('city-1', 'Rome City', 'nation-1', { row: 2, col: 2 });
+      city.addBuilding(CityBuildingType.BARRACKS);
+      gameState.addCity(city);
+      nation.getTreasury().addResource(ResourceType.GOLD, 1000);
+      nation.getTreasury().addResource(ResourceType.FOOD, 5000);
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 5000);
+      // One active order + one queued order.
+      for (let i = 0; i < 2; i++) {
+        processor.dispatch({
+          type: 'START_CITY_PRODUCTION', playerId: 'player-1', cityId: 'city-1',
+          unitType: UnitType.INFANTRY, issuedAtTick: i + 1,
+        });
+      }
+    });
+
+    it('cancels the active order when no queue index is given', () => {
+      expect(city.getCurrentOrder()).not.toBeNull();
+      const result = processor.dispatch({
+        type: 'CANCEL_CITY_PRODUCTION', playerId: 'player-1', cityId: 'city-1', issuedAtTick: 3,
+      });
+      expect(result.success).toBe(true);
+      expect(city.getCurrentOrder()).toBeNull();
+    });
+
+    it('cancels a specific queued item by index', () => {
+      expect(city.getQueue()).toHaveLength(1);
+      const result = processor.dispatch({
+        type: 'CANCEL_CITY_PRODUCTION', playerId: 'player-1', cityId: 'city-1',
+        queueIndex: 0, issuedAtTick: 3,
+      });
+      expect(result.success).toBe(true);
+      expect(city.getQueue()).toHaveLength(0);
+    });
+
+    it('rejects an out-of-range queue index', () => {
+      const result = processor.dispatch({
+        type: 'CANCEL_CITY_PRODUCTION', playerId: 'player-1', cityId: 'city-1',
+        queueIndex: 99, issuedAtTick: 3,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects cancelling production in a city the player does not own', () => {
+      const other = new City('city-2', 'Foe', 'nation-2', { row: 4, col: 4 });
+      gameState.addCity(other);
+      const result = processor.dispatch({
+        type: 'CANCEL_CITY_PRODUCTION', playerId: 'player-1', cityId: 'city-2', issuedAtTick: 3,
+      });
+      expect(result.success).toBe(false);
     });
   });
 

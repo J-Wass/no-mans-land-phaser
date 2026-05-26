@@ -2,7 +2,7 @@ import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import type { GridCoordinates } from '@/types/common';
 import { TERRITORY_BUILDING_CATALOG, BUILDING_MAP_ICON, TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import type { TerritoryBuildingDef } from '@/systems/territory/TerritoryBuilding';
-import { MAX_WALLS_LEVEL } from '@/systems/grid/Territory';
+import { MAX_WALLS_LEVEL, TerrainType } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { formatCost } from '@/utils/uiHelpers';
 
@@ -160,8 +160,14 @@ export class TerritoryMenuModal {
     const listEl = document.createElement('div');
     listEl.className = 'scrollable col tight';
 
+    const terrainType = territory?.getTerrainType();
+    const passable = terrainType !== TerrainType.WATER && terrainType !== TerrainType.MOUNTAIN;
+
     const listable = TERRITORY_BUILDING_CATALOG.filter(b => {
-      if (b.type === TerritoryBuildingType.OUTPOST) return false;
+      // Outpost claims an unclaimed, passable tile — show it only there.
+      if (b.type === TerritoryBuildingType.OUTPOST) return ownerId === null && passable;
+      // Every other building requires the tile to already be owned.
+      if (ownerId === null) return false;
       if (!MINE_TYPES.has(b.type)) return true;
       if (b.type === TerritoryBuildingType.MANA_MINE)
         return deposit !== null && MANA_DEPOSITS.has(deposit as TerritoryResourceType);
@@ -192,10 +198,18 @@ export class TerritoryMenuModal {
     row.style.padding = '6px 4px';
     row.style.borderBottom = '1px solid rgba(100,168,255,0.1)';
 
+    const nameCell = document.createElement('div');
+    nameCell.className = 'col tight';
+    nameCell.style.flex = '2';
     const nameLbl = document.createElement('div');
     nameLbl.className = 'text-label text-mono';
-    nameLbl.style.flex = '2';
     nameLbl.textContent = `${BUILDING_MAP_ICON[def.type]} ${def.label}`;
+    const perkLbl = document.createElement('div');
+    perkLbl.className = 'text-caption text-dim text-wrap';
+    perkLbl.style.fontSize = '10px';
+    perkLbl.textContent = def.perks;
+    nameCell.appendChild(nameLbl);
+    nameCell.appendChild(perkLbl);
 
     const costLbl = document.createElement('div');
     costLbl.className = 'text-caption text-mono';
@@ -233,7 +247,7 @@ export class TerritoryMenuModal {
     btnWrap.appendChild(btn);
     if (levelLbl) btnWrap.appendChild(levelLbl);
 
-    row.appendChild(nameLbl);
+    row.appendChild(nameCell);
     row.appendChild(costLbl);
     row.appendChild(reqLbl);
     row.appendChild(btnWrap);
@@ -246,21 +260,30 @@ export class TerritoryMenuModal {
     if (!territory) return;
     const ownerId = territory.getControllingNation();
     const nation  = ownerId ? this.bridge.gameState.getNation(ownerId) : null;
-    const treasury = nation?.getTreasury();
     const construction = territory.getCurrentConstruction();
+    const owned = ownerId !== null;
+
+    // Outpost (claiming an unclaimed tile) is paid for by the LOCAL player's nation,
+    // not the tile's owner — which is null for an unclaimed tile.
+    const localPlayer = this.bridge.gameState.getLocalPlayer();
+    const localNation = localPlayer ? this.bridge.gameState.getNation(localPlayer.getControlledNationId()) : null;
 
     for (const row of this.buildingRows) {
+      const isOutpost    = row.def.type === TerritoryBuildingType.OUTPOST;
+      const buyerNation  = isOutpost ? localNation : nation;
+      const buyerTreasury = buyerNation?.getTreasury();
       const alreadyBuilt = territory.hasBuilding(row.def.type);
       const curLevel     = territory.getBuildingLevel(row.def.type);
       const maxLevel     = row.def.type === TerritoryBuildingType.WALLS ? MAX_WALLS_LEVEL : row.def.maxLevel;
       const atMax        = curLevel >= maxLevel;
       const prereqMet    = !row.def.requires || territory.hasBuilding(row.def.requires);
-      const techMet      = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
-      const canAfford    = treasury?.hasResources(row.def.cost) ?? false;
-      const owned        = ownerId !== null;
+      const techMet      = !row.def.requiresTech || (buyerNation?.hasResearched(row.def.requiresTech) ?? false);
+      const canAfford    = buyerTreasury?.hasResources(row.def.cost) ?? false;
 
-      const canUpgrade = alreadyBuilt && !atMax && (treasury?.hasResources(row.def.upgradeCost) ?? false);
-      const canBuild   = owned && !alreadyBuilt && prereqMet && techMet && canAfford;
+      const canUpgrade = !isOutpost && alreadyBuilt && !atMax && (buyerTreasury?.hasResources(row.def.upgradeCost) ?? false);
+      const canBuild   = isOutpost
+        ? (!owned && canAfford)               // outpost claims an unclaimed tile
+        : (owned && !alreadyBuilt && prereqMet && techMet && canAfford);
       const enabled    = !construction && (canBuild || canUpgrade);
 
       row.action = canUpgrade ? 'upgrade' : 'build';

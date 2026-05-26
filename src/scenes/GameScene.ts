@@ -9,13 +9,13 @@ import { MovementSystem } from '@/systems/movement/MovementSystem';
 import { Pathfinder } from '@/systems/pathfinding/Pathfinder';
 import { TickEngine } from '@/systems/tick/TickEngine';
 import { GameEventBus } from '@/systems/events/GameEventBus';
+import { EventSubscriptions } from '@/systems/events/EventSubscriptions';
 import { CommandProcessor } from '@/commands/CommandProcessor';
 import { LocalServerAdapter } from '@/network/LocalServerAdapter';
 import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import { AISystem } from '@/systems/ai/AISystem';
 import { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import { DiplomaticStatus } from '@/types/diplomacy';
-import { TerrainType } from '@/systems/grid/Territory';
 import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
 import { normalizeGameSetup } from '@/types/gameSetup';
 import { getScenarioById } from '@/config/scenarios';
@@ -25,29 +25,20 @@ import { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import { MusicManager } from '@/managers/MusicManager';
 
 const WATER_BORDER = 0;
-const TERRAIN_CYCLE: TerrainType[] = [
-  TerrainType.PLAINS, TerrainType.SNOW_FOREST, TerrainType.FOREST,
-  TerrainType.MOUNTAIN, TerrainType.DESERT, TerrainType.WATER,
-];
 import type { GameSetup, GameSaveData } from '@/types/gameSetup';
 import type { GridCoordinates } from '@/types/common';
-import type { Unit, BattleOrder } from '@/entities/units/Unit';
+import type { Unit } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
+import {
+  TERRAIN_TEXTURE, TERRAIN_CYCLE, DEPOSIT_ICON, DEPOSIT_INFO,
+  unitInitial, stanceShortLabel, stanceBadgeColor,
+} from './gameSceneHelpers';
 
 interface GameSceneData {
   gameState?: GameState;
   setup?: GameSetup;
   saveData?: GameSaveData;
 }
-
-const TERRAIN_TEXTURE: Record<TerrainType, string> = {
-  [TerrainType.PLAINS]: 'terrain_plains',
-  [TerrainType.SNOW_FOREST]: 'terrain_snow_forest',
-  [TerrainType.FOREST]: 'terrain_forest',
-  [TerrainType.MOUNTAIN]: 'terrain_mountain',
-  [TerrainType.WATER]: 'terrain_water',
-  [TerrainType.DESERT]: 'terrain_desert',
-};
 
 export class GameScene extends Phaser.Scene {
   private gameState!: GameState;
@@ -56,6 +47,7 @@ export class GameScene extends Phaser.Scene {
   private pathfinder!: Pathfinder;
   private tickEngine!: TickEngine;
   private eventBus!: GameEventBus;
+  private subs!: EventSubscriptions;
   private commandProcessor!: CommandProcessor;  // server-side: used by AI + TickEngine
   private networkAdapter!: NetworkAdapter;       // client-side: used by all player input
 
@@ -95,6 +87,7 @@ export class GameScene extends Phaser.Scene {
   private tileEditActive = false;
 
   private uiClickConsumed = false;
+  private depositTooltip: Phaser.GameObjects.Container | null = null;
   private stanceBadges: Map<string, Phaser.GameObjects.Container> = new Map();
   private minZoom = 0.25;
   private gameSpeed = 1;
@@ -125,6 +118,7 @@ export class GameScene extends Phaser.Scene {
     this.load.audio('music_melancholy3', 'audio/music/melancholy3.mp3');
     this.load.audio('music_hope1',       'audio/music/hope1.mp3');
     this.load.audio('music_focus1',      'audio/music/focus1.mp3');
+    this.load.audio('music_focus2',      'audio/music/focus2.mp3');
     this.load.audio('music_glory1',      'audio/music/glory1.mp3');
     this.load.audio('music_glory2',      'audio/music/glory2.mp3');
   }
@@ -149,6 +143,7 @@ export class GameScene extends Phaser.Scene {
     this.cityLabels.clear();
     this.contactMarkers.clear();
     this.terrainImages.clear();
+    this.depositTooltip = null;
     this.tileEditActive = false;
     this.selectedUnitId = null;
     this.selectedCityId = null;
@@ -159,6 +154,7 @@ export class GameScene extends Phaser.Scene {
     this.movementSystem = new MovementSystem();
     this.pathfinder     = new Pathfinder(this.gameState.getGrid());
     this.eventBus = new GameEventBus();
+    this.subs = new EventSubscriptions(this.eventBus);
     this.tickEngine = new TickEngine(this.gameState, this.movementSystem, this.eventBus);
     this.diplomacySystem  = new DiplomacySystem(this.gameState, this.eventBus);
     this.visionSystem     = new VisionSystem();
@@ -189,7 +185,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.musicManager = new MusicManager(this, this.gameState, this.eventBus);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.musicManager.destroy());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.musicManager.destroy();
+      this.subs.disposeAll();
+    });
 
     const sceneData = this.scene.settings.data as GameSceneData;
     if (sceneData.saveData) {
@@ -222,24 +221,24 @@ export class GameScene extends Phaser.Scene {
     this.createCitySprites();
     this.createUnitSprites();
 
-    this.eventBus.on('unit:step-complete', ({ unitId, to }) => {
+    this.subs.on('unit:step-complete', ({ unitId, to }) => {
       this.playWalkAnim(unitId, to);
       this.moveSpriteTo(unitId, to);
     });
 
-    this.eventBus.on('city:unit-spawned', ({ unitId }) => {
+    this.subs.on('city:unit-spawned', ({ unitId }) => {
       const unit = this.gameState.getUnit(unitId);
       if (unit) this.createSpriteForUnit(unit);
     });
-    this.eventBus.on('unit:destroyed', ({ unitId }) => {
+    this.subs.on('unit:destroyed', ({ unitId }) => {
       this.removeUnitSprite(unitId);
       if (this.selectedUnitId === unitId) this.clearSelection();
     });
 
-    this.eventBus.on('unit:battle-order-changed', () => { /* UIScene handles this */ });
+    this.subs.on('unit:battle-order-changed', () => { /* UIScene handles this */ });
 
     // Flash the firing unit briefly white on each ranged shot
-    this.eventBus.on('ranged:fired', ({ unitId }) => {
+    this.subs.on('ranged:fired', ({ unitId }) => {
       const sprite = this.unitSprites.get(unitId);
       if (!sprite) return;
       sprite.setTintFill(0xffffff);
@@ -249,7 +248,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Auto-show order popup when a local-player unit enters any battle
-    this.eventBus.on('battle:started', ({ unitAId, unitBId }) => {
+    this.subs.on('battle:started', ({ unitAId, unitBId }) => {
       const lp = this.gameState.getLocalPlayer();
       const ln = lp ? this.gameState.getNation(lp.getControlledNationId()) : null;
       if (!ln) return;
@@ -268,7 +267,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    this.eventBus.on('city:siege-started', ({ unitId }) => {
+    this.subs.on('city:siege-started', ({ unitId }) => {
       const lp = this.gameState.getLocalPlayer();
       const ln = lp ? this.gameState.getNation(lp.getControlledNationId()) : null;
       if (!ln) return;
@@ -284,7 +283,7 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    this.eventBus.on('city:conquered', ({ position }) => {
+    this.subs.on('city:conquered', ({ position }) => {
       // Flash "CAPTURED!" text above the city
       const flashX = position.col * TILE_SIZE + TILE_SIZE / 2;
       const flashY = position.row * TILE_SIZE - 14;
@@ -303,18 +302,18 @@ export class GameScene extends Phaser.Scene {
     });
 
 
-    this.eventBus.on('territory:conquest-started', ({ position, nationId, needed }) => {
+    this.subs.on('territory:conquest-started', ({ position, nationId, needed }) => {
       const posKey = `${position.row},${position.col}`;
       this.activeConquests.set(posKey, { progress: 0, needed, nationId });
     });
-    this.eventBus.on('territory:conquest-progress', ({ position, progress }) => {
+    this.subs.on('territory:conquest-progress', ({ position, progress }) => {
       const existing = this.activeConquests.get(`${position.row},${position.col}`);
       if (existing) existing.progress = progress;
     });
-    this.eventBus.on('territory:conquest-cancelled', ({ position }) => {
+    this.subs.on('territory:conquest-cancelled', ({ position }) => {
       this.activeConquests.delete(`${position.row},${position.col}`);
     });
-    this.eventBus.on('territory:claimed', ({ position }) => {
+    this.subs.on('territory:claimed', ({ position }) => {
       this.activeConquests.delete(`${position.row},${position.col}`);
     });
 
@@ -369,11 +368,11 @@ export class GameScene extends Phaser.Scene {
       this.bridge.openPause();
     });
 
-    this.eventBus.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
-    this.eventBus.on('game:speed-change', ({ speed }) => { this.gameSpeed = speed; });
+    this.subs.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
+    this.subs.on('game:speed-change', ({ speed }) => { this.gameSpeed = speed; });
 
     if (this.setup.gameMode !== 'sandbox') {
-      this.eventBus.on('nation:defeated', ({ nationId, tick }) => {
+      this.subs.on('nation:defeated', ({ nationId, tick }) => {
         const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
         if (!localNationId) return;
 
@@ -400,7 +399,7 @@ export class GameScene extends Phaser.Scene {
       const condition = scenario?.victoryCondition;
       if (condition?.type === 'survive_ticks') {
         const targetTick = condition.ticks;
-        this.eventBus.on('game:tick', ({ tick }) => {
+        this.subs.on('game:tick', ({ tick }) => {
           const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
           if (!localNationId) return;
           if (tick >= targetTick) {
@@ -410,10 +409,10 @@ export class GameScene extends Phaser.Scene {
         });
       }
     }
-    this.eventBus.on('sandbox:ai-difficulty-changed', ({ difficulty }) => {
+    this.subs.on('sandbox:ai-difficulty-changed', ({ difficulty }) => {
       this.aiSystem.setDifficulty(difficulty);
     });
-    this.eventBus.on('sandbox:tile-edit-mode', ({ active }) => {
+    this.subs.on('sandbox:tile-edit-mode', ({ active }) => {
       this.tileEditActive = active;
     });
 
@@ -540,20 +539,6 @@ export class GameScene extends Phaser.Scene {
     const grid = this.gameState.getGrid();
     const { rows, cols } = grid.getSize();
 
-    const DEPOSIT_ICON: Record<string, string> = {
-      COPPER:         '⊛',
-      IRON:           '⊗',
-      FIRE_GLASS:     '◈',
-      SILVER:         '◇',
-      GOLD_DEPOSIT:   '◆',
-      WATER_MANA:     '~',
-      FIRE_MANA:      '▲',
-      LIGHTNING_MANA: '⚡',
-      EARTH_MANA:     '◉',
-      AIR_MANA:       '≋',
-      SHADOW_MANA:    '◐',
-    };
-
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const territory = grid.getTerritory({ row: r, col: c });
@@ -569,8 +554,52 @@ export class GameScene extends Phaser.Scene {
           stroke: '#000000',
           strokeThickness: 2,
         }).setOrigin(0.5).setDepth(83);
+
+        // Invisible hover zone over the whole tile so the player can hover the
+        // deposit to learn what it does. Clicks still pass through to the map.
+        const info = DEPOSIT_INFO[deposit] ?? deposit;
+        const tileCx = c * TILE_SIZE + TILE_SIZE / 2;
+        const tileCy = r * TILE_SIZE + TILE_SIZE / 2;
+        const zone = this.add.rectangle(tileCx, tileCy, TILE_SIZE, TILE_SIZE, 0x000000, 0.001)
+          .setDepth(84)
+          .setInteractive({ useHandCursor: false });
+        const tileKey = `${r},${c}`;
+        zone.on('pointerover', () => {
+          // Don't reveal deposits the player hasn't discovered yet.
+          if (!this.currentDiscovered.has(tileKey)) return;
+          this.showDepositTooltip(tileCx, r * TILE_SIZE, info);
+        });
+        zone.on('pointerout', () => this.hideDepositTooltip());
       }
     }
+  }
+
+  /** Show the deposit hover tooltip above the given tile (world coords). */
+  private showDepositTooltip(worldX: number, tileTopY: number, text: string): void {
+    if (!this.depositTooltip) {
+      const bg = this.add.rectangle(0, 0, 10, 10, 0x0a0e1e, 0.95).setStrokeStyle(1, 0x5a6cc0).setOrigin(0.5, 1);
+      const label = this.add.text(0, 0, '', {
+        fontSize: '10px', color: '#e6ecff', fontFamily: 'monospace', align: 'center',
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 1);
+      this.depositTooltip = this.add.container(0, 0, [bg, label]).setDepth(950);
+    }
+    const bg = this.depositTooltip.getAt(0) as Phaser.GameObjects.Rectangle;
+    const label = this.depositTooltip.getAt(1) as Phaser.GameObjects.Text;
+    label.setText(text);
+    const padX = 8;
+    const padY = 6;
+    bg.setSize(label.width + padX * 2, label.height + padY * 2);
+    label.setPosition(0, -padY);
+    bg.setPosition(0, 0);
+    // Counter-scale so the tooltip stays a readable size at any zoom.
+    this.depositTooltip.setScale(1 / this.cameras.main.zoom);
+    this.depositTooltip.setPosition(worldX, tileTopY - 4);
+    this.depositTooltip.setVisible(true);
+  }
+
+  private hideDepositTooltip(): void {
+    this.depositTooltip?.setVisible(false);
   }
 
   private createCitySprites(): void {
@@ -1162,16 +1191,18 @@ export class GameScene extends Phaser.Scene {
     // Show war confirmation popup; dispatch only if player confirms
     this.bridge.openWarConfirm(
       neutralsHit.map(id => this.gameState.getNation(id)?.getName() ?? id),
-      async () => {
-        for (const targetNationId of neutralsHit) {
-          await this.networkAdapter.sendCommand({
-            type: 'DECLARE_WAR',
-            playerId,
-            targetNationId,
-            issuedAtTick: this.tickEngine.getCurrentTick(),
-          });
-        }
-        dispatchMove();
+      () => {
+        void (async () => {
+          for (const targetNationId of neutralsHit) {
+            await this.networkAdapter.sendCommand({
+              type: 'DECLARE_WAR',
+              playerId,
+              targetNationId,
+              issuedAtTick: this.tickEngine.getCurrentTick(),
+            });
+          }
+          dispatchMove();
+        })();
       },
     );
   }
@@ -1549,35 +1580,5 @@ export class GameScene extends Phaser.Scene {
 
   private updateUISelection(unit: Unit | undefined): void {
     this.eventBus.emit('unit:selected', { unit: unit ?? null });
-  }
-}
-
-function unitInitial(unit: Unit): string {
-  switch (unit.getUnitType()) {
-    case 'INFANTRY': return 'I';
-    case 'SCOUT': return 'S';
-    case 'HEAVY_INFANTRY': return 'H';
-    case 'CAVALRY': return 'C';
-    case 'LONGBOWMAN': return 'L';
-    case 'CROSSBOWMAN': return 'X';
-    case 'CATAPULT': return 'K';
-    case 'TREBUCHET': return 'T';
-    default: return '?';
-  }
-}
-
-function stanceShortLabel(order: BattleOrder): string {
-  switch (order) {
-    case 'FALL_BACK': return 'FALL BACK';
-    case 'HOLD':      return 'HOLD';
-    case 'ADVANCE':   return 'ADVANCE';
-  }
-}
-
-function stanceBadgeColor(order: BattleOrder): string {
-  switch (order) {
-    case 'FALL_BACK': return '#ffaa44';
-    case 'HOLD':      return '#aaaacc';
-    case 'ADVANCE':   return '#44ddff';
   }
 }

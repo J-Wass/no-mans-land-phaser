@@ -17,13 +17,18 @@ const MANA_DEPOSITS = new Set<TerritoryResourceType>([
   TerritoryResourceType.SHADOW_MANA,
 ]);
 
-/** Map from deposit type to the mine that exploits it. */
+/**
+ * Map from deposit type to the mine that exploits it.
+ *
+ * SILVER and GOLD_DEPOSIT are intentionally absent: there is no dedicated mine
+ * building for them, and each mine enforces a matching `requiresDeposit`, so
+ * dispatching COPPER_MINE onto a silver/gold tile is always rejected by the
+ * CommandProcessor. Mapping them here just made the AI spam failing commands.
+ */
 const DEPOSIT_TO_MINE: Partial<Record<TerritoryResourceType, TerritoryBuildingType>> = {
   [TerritoryResourceType.COPPER]:         TerritoryBuildingType.COPPER_MINE,
   [TerritoryResourceType.IRON]:           TerritoryBuildingType.IRON_MINE,
   [TerritoryResourceType.FIRE_GLASS]:     TerritoryBuildingType.FIRE_GLASS_MINE,
-  [TerritoryResourceType.SILVER]:         TerritoryBuildingType.COPPER_MINE,
-  [TerritoryResourceType.GOLD_DEPOSIT]:   TerritoryBuildingType.COPPER_MINE,
 };
 
 /** Higher = prefer earlier. Mana and advanced ore mines are most impactful. */
@@ -42,6 +47,10 @@ const MINE_PRIORITY: Record<TerritoryBuildingType, number> = {
 
 export class BuildTerritoryGoal implements AIGoal {
   readonly id = 'build-territory';
+
+  /** Memoized full-grid scan result; valid only for the tick it was computed on. */
+  private memoTick = -1;
+  private memoBuild: { position: GridCoordinates; mine: TerritoryBuildingType } | null = null;
 
   priority(_ctx: AIContext): number { return 45; }
 
@@ -64,6 +73,17 @@ export class BuildTerritoryGoal implements AIGoal {
   }
 
   private findBuild(ctx: AIContext): { position: GridCoordinates; mine: TerritoryBuildingType } | null {
+    // isFeasible() and execute() both call this within the same evaluation tick;
+    // memoize so the full-grid scan runs once per cycle, not twice.
+    if (this.memoTick === ctx.currentTick) return this.memoBuild;
+
+    const result = this.computeBuild(ctx);
+    this.memoTick = ctx.currentTick;
+    this.memoBuild = result;
+    return result;
+  }
+
+  private computeBuild(ctx: AIContext): { position: GridCoordinates; mine: TerritoryBuildingType } | null {
     const nation = ctx.gameState.getNation(ctx.nationId);
     if (!nation) return null;
 

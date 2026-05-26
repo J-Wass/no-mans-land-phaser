@@ -17,9 +17,11 @@ import type { Unit } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
-import type { EntityId, GridCoordinates } from '@/types/common';
+import type { EntityId } from '@/types/common';
 import type { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { weaponTierDamageBonus, fireManaDamageFactor } from '@/systems/resources/ResourceBonuses';
+import { manhattan } from '@/systems/grid/geometry';
+import { healthFactor, damageVariance } from '@/config/combatBalance';
 
 /** Ticks between consecutive shots from a stationary ranged unit (2 s at TICK_RATE=10). */
 export const RANGED_FIRE_INTERVAL_TICKS = 20;
@@ -27,6 +29,8 @@ export const RANGED_FIRE_INTERVAL_TICKS = 20;
 export class RangedFireSystem {
   /** Earliest tick on which each unit may fire again. */
   private readonly nextFireTick: Map<EntityId, number> = new Map();
+
+  constructor(private readonly random: () => number = Math.random) {}
 
   public tick(gameState: GameState, eventBus: GameEventBus, currentTick: number): void {
     for (const unit of gameState.getAllUnits()) {
@@ -69,7 +73,7 @@ export class RangedFireSystem {
         target.city.setHealth(newHp);
         const cityDist = manhattan(unit.position, target.city.position);
         if (cityDist <= 3) {
-          const cityHealthFactor = 0.55 + 0.45 * (target.city.getHealth() / target.city.getMaxHealth());
+          const cityHealthFactor = healthFactor(target.city.getHealth(), target.city.getMaxHealth());
           unit.takeDamage(Math.max(1, Math.round(target.city.getMeleeDamage() * cityHealthFactor)));
         }
         eventBus.emit('ranged:fired', {
@@ -162,14 +166,9 @@ export class RangedFireSystem {
   ): number {
     const stats      = attacker.getStats();
     const baseDamage = stats.rangedDamage + weaponTierDamageBonus(deposits);
-    const healthRatio  = attacker.getHealth() / stats.maxHealth;
-    const healthFactor = 0.55 + 0.45 * healthRatio;
+    const hpFactor = healthFactor(attacker.getHealth(), stats.maxHealth);
     const fireFactor = fireManaDamageFactor(deposits, counts);
-    const randomness = 0.9 + Math.random() * 0.2;
-    return Math.max(1, Math.round(baseDamage * healthFactor * fireFactor * randomness));
+    const randomness = damageVariance(this.random());
+    return Math.max(1, Math.round(baseDamage * hpFactor * fireFactor * randomness));
   }
-}
-
-function manhattan(a: GridCoordinates, b: GridCoordinates): number {
-  return Math.abs(a.row - b.row) + Math.abs(a.col - b.col);
 }

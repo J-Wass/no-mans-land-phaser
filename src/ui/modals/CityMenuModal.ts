@@ -10,6 +10,7 @@ import { ResourceType } from '@/systems/resources/ResourceType';
 import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 import { TICK_RATE } from '@/config/constants';
 import { formatCost } from '@/utils/uiHelpers';
+import { EventSubscriptions } from '@/systems/events/EventSubscriptions';
 
 type Tab = 'units' | 'buildings';
 
@@ -26,6 +27,7 @@ export class CityMenuModal {
   private unitRows: Array<{ entry: CatalogEntry; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
   private buildingRows: Array<{ def: CityBuildingDef; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
   private rafId = 0;
+  private subs?: EventSubscriptions;
 
   constructor(private bridge: PhaserUIBridge, private city: City) {
     this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') this.close(); };
@@ -113,7 +115,7 @@ export class CityMenuModal {
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-warning btn-sm';
     cancelBtn.textContent = 'CANCEL';
-    cancelBtn.addEventListener('click', () => { this.city.cancelOrder(); this.refresh(); });
+    cancelBtn.addEventListener('click', () => { void this.cancelProduction(); });
 
     orderRow.appendChild(this.orderLabel);
     orderRow.appendChild(cancelBtn);
@@ -264,6 +266,11 @@ export class CityMenuModal {
     name.className = 'text-label text-bold';
     name.textContent = def.label;
 
+    const perk = document.createElement('div');
+    perk.className = 'text-caption text-dim text-wrap';
+    perk.style.fontSize = '10px';
+    perk.textContent = def.perks;
+
     const costLbl = document.createElement('div');
     costLbl.className = 'text-caption text-mono';
     costLbl.style.color = 'var(--color-dim)';
@@ -275,6 +282,7 @@ export class CityMenuModal {
     statusLbl.style.color = 'var(--color-dim)';
 
     info.appendChild(name);
+    info.appendChild(perk);
     info.appendChild(costLbl);
     info.appendChild(statusLbl);
 
@@ -344,7 +352,7 @@ export class CityMenuModal {
       cancelBtn.style.fontSize = '10px';
       cancelBtn.textContent = '✕';
       const idx = i;
-      cancelBtn.addEventListener('click', () => { this.city.cancelQueueItem(idx); this.refresh(); });
+      cancelBtn.addEventListener('click', () => { void this.cancelProduction(idx); });
 
       row.appendChild(lbl);
       row.appendChild(cancelBtn);
@@ -371,7 +379,8 @@ export class CityMenuModal {
       const canAfford   = treasury?.hasResources(row.entry.cost) ?? false;
       const techsOk     = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
       const buildingOk  = !row.entry.requiresBuilding || this.city.hasBuilding(row.entry.requiresBuilding);
-      const depositOk   = !row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit);
+      const depositOk   = (!row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit))
+        && (!row.entry.requiresAnyDeposit || row.entry.requiresAnyDeposit.some(d => deposits.has(d)));
       const enabled     = !queueFull && canAfford && techsOk && buildingOk && depositOk;
 
       row.btn.disabled    = !enabled;
@@ -419,6 +428,11 @@ export class CityMenuModal {
       if (!deposits.has(entry.requiresDeposit))
         return `Requires active ${entry.requiresDeposit.replace(/_/g, ' ').toLowerCase()} deposit.`;
     }
+    if (entry.requiresAnyDeposit) {
+      const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
+      if (!entry.requiresAnyDeposit.some(d => deposits.has(d)))
+        return `Requires an active ${entry.requiresAnyDeposit.map(d => d.replace(/_/g, ' ').toLowerCase()).join(' / ')} deposit.`;
+    }
     if (!nation?.getTreasury().hasResources(entry.cost)) return 'Insufficient resources.';
     return 'Ready to queue.';
   }
@@ -465,18 +479,27 @@ export class CityMenuModal {
     if (result.success) this.refresh();
   }
 
+  /** Cancel the active order, or a queued item when `queueIndex` is given. */
+  private async cancelProduction(queueIndex?: number): Promise<void> {
+    const lp = this.bridge.gameState.getLocalPlayer();
+    if (!lp) return;
+    const result = await this.bridge.networkAdapter.sendCommand({
+      type: 'CANCEL_CITY_PRODUCTION',
+      playerId: lp.getId(),
+      cityId: this.city.id,
+      ...(queueIndex !== undefined ? { queueIndex } : {}),
+      issuedAtTick: 0,
+    });
+    if (result.success) this.refresh();
+  }
+
   private subscribeEvents(): void {
     const onRefresh = () => this.refresh();
-    this.bridge.eventBus.on('city:unit-spawned',       onRefresh);
-    this.bridge.eventBus.on('city:building-built',     onRefresh);
-    this.bridge.eventBus.on('city:production-complete',onRefresh);
-    this.bridge.eventBus.on('nation:research-complete', onRefresh);
-    (this as any)._unsub = () => {
-      this.bridge.eventBus.off('city:unit-spawned',       onRefresh);
-      this.bridge.eventBus.off('city:building-built',     onRefresh);
-      this.bridge.eventBus.off('city:production-complete',onRefresh);
-      this.bridge.eventBus.off('nation:research-complete', onRefresh);
-    };
+    this.subs = new EventSubscriptions(this.bridge.eventBus);
+    this.subs.on('city:unit-spawned',       onRefresh);
+    this.subs.on('city:building-built',      onRefresh);
+    this.subs.on('city:production-complete', onRefresh);
+    this.subs.on('nation:research-complete', onRefresh);
   }
 
   private close(): void {
@@ -487,6 +510,6 @@ export class CityMenuModal {
   destroy(): void {
     document.removeEventListener('keydown', this.escHandler);
     cancelAnimationFrame(this.rafId);
-    (this as any)._unsub?.();
+    this.subs?.disposeAll();
   }
 }

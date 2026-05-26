@@ -43,11 +43,14 @@ export class ProduceUnitGoal implements AIGoal {
     for (const city of ctx.gameState.getCitiesByNation(ctx.nationId)) {
       if (city.getCurrentOrder()) continue; // busy
 
+      const deposits = ctx.gameState.getNationActiveDeposits(ctx.nationId);
       for (const unitType of this.preferredTypes) {
         const entry = PRODUCTION_CATALOG.find(e => e.id === `unit:${unitType}`);
         if (!entry) continue;
         if (!entry.requiresTechs.every(t => nation.hasResearched(t))) continue;
         if (entry.requiresBuilding && !city.hasBuilding(entry.requiresBuilding)) continue;
+        if (entry.requiresDeposit && !deposits.has(entry.requiresDeposit)) continue;
+        if (entry.requiresAnyDeposit && !entry.requiresAnyDeposit.some(d => deposits.has(d))) continue;
         if (!nation.getTreasury().hasResources(entry.cost)) continue;
         return { cityId: city.id, unitType };
       }

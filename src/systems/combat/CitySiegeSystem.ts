@@ -21,11 +21,15 @@ import type { SavedSiegeState } from '@/types/gameSetup';
 import { BATTLE_ROUND_TICKS } from '@/systems/combat/BattleSystem';
 import { TerrainType } from '@/systems/grid/Territory';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
-
-const CITY_REGEN_INTERVAL = 50;  // ticks between HP regen (every 5 s at TICK_RATE=10)
-const CITY_REGEN_AMOUNT   = 5;   // HP restored per interval
-const WALL_MITIGATION_PER_LEVEL = 0.06;
-const ADVANCE_MITIGATION_FACTOR = 0.45; // pressing the assault cuts wall mitigation
+import {
+  healthFactor,
+  damageVariance,
+  CITY_REGEN_INTERVAL,
+  CITY_REGEN_AMOUNT,
+  WALL_MITIGATION_PER_LEVEL,
+  ADVANCE_MITIGATION_FACTOR,
+  CITY_POST_CONQUEST_HP,
+} from '@/config/combatBalance';
 
 interface SiegeState extends SavedSiegeState {}
 
@@ -123,20 +127,20 @@ export class CitySiegeSystem {
       const stats    = unit.getStats();
       const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
       const baseDmg  = useRanged ? stats.rangedDamage : stats.meleeDamage;
-      const unitHealthFactor = 0.55 + 0.45 * (unit.getHealth() / stats.maxHealth);
+      const unitHealthFactor = healthFactor(unit.getHealth(), stats.maxHealth);
       const wallLevel = city.getBuildingLevel(CityBuildingType.WALLS);
       const baseWallMitigation = Math.min(0.5, wallLevel * WALL_MITIGATION_PER_LEVEL);
       const wallMitigation = unit.getBattleOrder() === 'ADVANCE'
         ? baseWallMitigation * ADVANCE_MITIGATION_FACTOR
         : baseWallMitigation;
       const damageToCity = Math.max(1, Math.round(
-        baseDmg * unitHealthFactor * (1 - wallMitigation) * (0.9 + this.random() * 0.2),
+        baseDmg * unitHealthFactor * (1 - wallMitigation) * damageVariance(this.random()),
       ));
 
       // Compute city → unit counterattack
-      const cityHealthFactor = 0.55 + 0.45 * (city.getHealth() / city.getMaxHealth());
+      const cityHealthFactor = healthFactor(city.getHealth(), city.getMaxHealth());
       const damageToUnit = Math.max(0, Math.round(
-        city.getMeleeDamage() * cityHealthFactor * (0.9 + this.random() * 0.2),
+        city.getMeleeDamage() * cityHealthFactor * damageVariance(this.random()),
       ));
 
       city.takeDamage(damageToCity);
@@ -221,7 +225,7 @@ export class CitySiegeSystem {
         const byNationId = victor.getOwnerId();
         city.setOwnerId(byNationId);
         city.cancelOrder();
-        city.setHealth(Math.ceil(city.getMaxHealth() * 0.35)); // city at 35% after conquest
+        city.setHealth(Math.ceil(city.getMaxHealth() * CITY_POST_CONQUEST_HP));
 
         const territory = gameState.getGrid().getTerritory(city.position);
         if (territory) territory.setControllingNation(byNationId);

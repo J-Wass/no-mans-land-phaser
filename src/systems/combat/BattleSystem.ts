@@ -13,8 +13,30 @@ import {
   earthManaHPFactor,
   shadowManaWithdrawBonus,
 } from '@/systems/resources/ResourceBonuses';
+import {
+  healthFactor,
+  damageVariance,
+  MORALE_DAMAGE_SCALAR,
+  ADVANCE_PACE_FACTOR,
+  MITIGATION_CAP,
+  WITHDRAW_BASE_CHANCE,
+  WITHDRAW_SPEED_WEIGHT,
+  WITHDRAW_CHANCE_MIN,
+  WITHDRAW_CHANCE_MAX,
+  RETREAT_COOLDOWN_TICKS,
+  XP_KILL,
+  XP_WIN,
+  XP_LOSS,
+} from '@/config/combatBalance';
 
+/** Round cadence for sieges and territory battles (1 s at TICK_RATE=10). */
 export const BATTLE_ROUND_TICKS = 1 * TICK_RATE;
+
+/**
+ * Unit-vs-unit melee resolves on a slower cadence so clashes read as a drawn-out
+ * fight rather than an instant exchange. Pure pacing — total damage is unchanged.
+ */
+export const UNIT_BATTLE_ROUND_TICKS = 2 * TICK_RATE;
 
 export interface SavedBattleState {
   id: string;
@@ -63,7 +85,7 @@ export class BattleSystem {
       attackerId: attacker.id,
       attackerOrigin: { ...attackerOrigin },
       defenderOrigin: { ...defender.position },
-      ticksUntilRound: BATTLE_ROUND_TICKS,
+      ticksUntilRound: UNIT_BATTLE_ROUND_TICKS,
       roundsElapsed: 0,
       startedAtTick: currentTick,
     };
@@ -110,7 +132,7 @@ export class BattleSystem {
       battle.ticksUntilRound--;
       if (battle.ticksUntilRound > 0) continue;
 
-      battle.ticksUntilRound = BATTLE_ROUND_TICKS;
+      battle.ticksUntilRound = UNIT_BATTLE_ROUND_TICKS;
       battle.roundsElapsed++;
 
       const terrain = gameState.getGrid().getTerritory(battle.position)?.getTerrainType() ?? TerrainType.PLAINS;
@@ -120,7 +142,7 @@ export class BattleSystem {
       const countsB = gameState.getNationActiveDepositCounts(unitB.getOwnerId());
       const orderA = effectiveBattleOrder(unitA);
       const orderB = effectiveBattleOrder(unitB);
-      const battlePaceFactor = orderA === 'ADVANCE' || orderB === 'ADVANCE' ? 1.25 : 1;
+      const battlePaceFactor = orderA === 'ADVANCE' || orderB === 'ADVANCE' ? ADVANCE_PACE_FACTOR : 1;
       const kinematicsA = gameState.getNation(unitA.getOwnerId())?.hasResearched('kinematics') ?? false;
       const kinematicsB = gameState.getNation(unitB.getOwnerId())?.hasResearched('kinematics') ?? false;
 
@@ -152,8 +174,8 @@ export class BattleSystem {
       unitA.takeDamage(damageToUnitA);
       unitB.takeDamage(damageToUnitB);
 
-      const moraleHitA = Math.ceil(damageToUnitA / unitA.getStats().maxHealth * 45);
-      const moraleHitB = Math.ceil(damageToUnitB / unitB.getStats().maxHealth * 45);
+      const moraleHitA = Math.ceil(damageToUnitA / unitA.getStats().maxHealth * MORALE_DAMAGE_SCALAR);
+      const moraleHitB = Math.ceil(damageToUnitB / unitB.getStats().maxHealth * MORALE_DAMAGE_SCALAR);
       unitA.setMorale(unitA.getMorale() - moraleHitA);
       unitB.setMorale(unitB.getMorale() - moraleHitB);
 
@@ -272,15 +294,14 @@ export class BattleSystem {
     const isSiege = attacker.getUnitType() === 'CATAPULT' || attacker.getUnitType() === 'TREBUCHET';
     const kinematicsBonus = attackerHasKinematics && useRanged && isSiege ? 3 : 0;
     const baseDamage = rawBase + weaponTierDamageBonus(attackerDeposits) + kinematicsBonus;
-    const healthRatio = attacker.getHealth() / stats.maxHealth;
-    const healthFactor = 0.55 + 0.45 * healthRatio;
+    const hpFactor = healthFactor(attacker.getHealth(), stats.maxHealth);
     const orderFactor = getOrderAttackFactor(order, attacker.getUnitType());
     const matchupFactor = getMatchupAttackFactor(attacker.getUnitType(), defender.getUnitType(), defender.getStats().armorType, useRanged);
     const terrainFactor = getTerrainAttackFactor(attacker.getUnitType(), terrain, order, useRanged);
     const fireFactor = fireManaDamageFactor(attackerDeposits, attackerCounts);
-    const randomness = 0.9 + this.random() * 0.2;
+    const randomness = damageVariance(this.random());
 
-    return baseDamage * healthFactor * orderFactor * matchupFactor * terrainFactor * fireFactor * battlePaceFactor * randomness;
+    return baseDamage * hpFactor * orderFactor * matchupFactor * terrainFactor * fireFactor * battlePaceFactor * randomness;
   }
 
   private getMitigationScore(
@@ -295,7 +316,7 @@ export class BattleSystem {
     const terrainBonus = getTerrainMitigation(defender.getUnitType(), terrain, order);
     const matchupBonus = getMatchupMitigation(defender.getUnitType(), attacker.getUnitType(), order);
     const earthBonus = earthManaHPFactor(defenderDeposits, defenderCounts) - 1.0;
-    return clamp(base + terrainBonus + matchupBonus + earthBonus, 0, 0.65);
+    return clamp(base + terrainBonus + matchupBonus + earthBonus, 0, MITIGATION_CAP);
   }
 
   private resolveWithdraw(
@@ -323,7 +344,11 @@ export class BattleSystem {
     const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
     const counts = gameState.getNationActiveDepositCounts(unit.getOwnerId());
     const speedDelta = unit.getStats().speed - opponent.getStats().speed;
-    const chance = clamp(0.3 + speedDelta * 0.07 + shadowManaWithdrawBonus(deposits, counts), 0.15, 0.9);
+    const chance = clamp(
+      WITHDRAW_BASE_CHANCE + speedDelta * WITHDRAW_SPEED_WEIGHT + shadowManaWithdrawBonus(deposits, counts),
+      WITHDRAW_CHANCE_MIN,
+      WITHDRAW_CHANCE_MAX,
+    );
     if (this.random() >= chance) return false;
 
     return this.findRetreatTarget(gameState, unit, opponent, battle) !== null;
@@ -350,11 +375,11 @@ export class BattleSystem {
 
     if (winner?.isAlive()) {
       if (loser && !loser.isAlive()) {
-        winner.addXP(3);
+        winner.addXP(XP_KILL);
       } else if (loser?.isAlive()) {
-        winner.addXP(2);
-        loser.addXP(1);
-        loser.setRetreatCooldownUntilTick(currentTick + 20);
+        winner.addXP(XP_WIN);
+        loser.addXP(XP_LOSS);
+        loser.setRetreatCooldownUntilTick(currentTick + RETREAT_COOLDOWN_TICKS);
       }
     }
 

@@ -6,6 +6,12 @@ export interface GameSetup {
   difficulty: Difficulty;
   gameMode: GameMode;
   scenarioId: string | null;
+  /**
+   * Optional fixed seed for the deterministic RNG. When set (e.g. shared by a
+   * multiplayer host), every client generates the identical initial state.
+   * Omitted for normal single-player, where a fresh seed is chosen.
+   */
+  seed?: number;
 }
 
 export function normalizeGameSetup(setup?: Partial<GameSetup> | null): GameSetup {
@@ -15,6 +21,7 @@ export function normalizeGameSetup(setup?: Partial<GameSetup> | null): GameSetup
     difficulty: setup?.difficulty ?? 'medium',
     gameMode: setup?.gameMode ?? 'skirmish',
     scenarioId: setup?.scenarioId ?? null,
+    ...(typeof setup?.seed === 'number' ? { seed: setup.seed } : {}),
   };
 }
 

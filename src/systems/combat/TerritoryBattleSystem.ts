@@ -19,10 +19,16 @@ import type { UnitMovementState } from '@/systems/movement/MovementState';
 import { BATTLE_ROUND_TICKS } from '@/systems/combat/BattleSystem';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { TerrainType } from '@/systems/grid/Territory';
-
-const TERRITORY_REGEN_INTERVAL = 50;  // ticks between HP regen (5 s at TICK_RATE=10)
-const TERRITORY_REGEN_AMOUNT   = 5;
-const WALL_MITIGATION          = 0.20; // damage reduction when territory has walls (unit attacking)
+import { CARDINAL_OFFSETS } from '@/systems/grid/geometry';
+import {
+  healthFactor,
+  damageVariance,
+  TERRITORY_REGEN_INTERVAL,
+  TERRITORY_REGEN_AMOUNT,
+  TERRITORY_WALL_MITIGATION,
+  TERRITORY_RANGED_COUNTER_FACTOR,
+  TERRITORY_RETREAT_REGEN,
+} from '@/config/combatBalance';
 
 export interface TerritoryBattleState {
   id:              string;
@@ -134,17 +140,17 @@ export class TerritoryBattleSystem {
       const stats     = unit.getStats();
       const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
       const baseDmg   = useRanged ? stats.rangedDamage : stats.meleeDamage;
-      const healthFactor = 0.55 + 0.45 * (unit.getHealth() / stats.maxHealth);
+      const hpFactor  = healthFactor(unit.getHealth(), stats.maxHealth);
       const wallMit   = (territory.hasBuilding(TerritoryBuildingType.WALLS) && unit.getBattleOrder() !== 'ADVANCE')
-        ? WALL_MITIGATION : 0;
+        ? TERRITORY_WALL_MITIGATION : 0;
       const damageToTerritory = Math.max(1, Math.round(
-        baseDmg * healthFactor * (1 - wallMit) * (0.9 + this.random() * 0.2),
+        baseDmg * hpFactor * (1 - wallMit) * damageVariance(this.random()),
       ));
 
       // Territory → unit damage
-      const counterFactor = useRanged ? 0.85 : 1.0;
+      const counterFactor = useRanged ? TERRITORY_RANGED_COUNTER_FACTOR : 1.0;
       const damageToUnit = Math.max(0, Math.round(
-        territory.getAttackDamage() * counterFactor * (0.9 + this.random() * 0.2),
+        territory.getAttackDamage() * counterFactor * damageVariance(this.random()),
       ));
 
       territory.takeDamage(damageToTerritory);
@@ -225,10 +231,8 @@ export class TerritoryBattleSystem {
         });
       }
     } else if (reason === 'retreat' && unit) {
-      territory: {
-        const territory = gameState.getGrid().getTerritory(battle.position);
-        if (territory) territory.heal(10); // partial regen on retreat
-      }
+      const retreatedTerritory = gameState.getGrid().getTerritory(battle.position);
+      if (retreatedTerritory) retreatedTerritory.heal(TERRITORY_RETREAT_REGEN); // partial regen on retreat
       const retreatTo = this.findRetreatTile(gameState, unit, battle);
       if (retreatTo) {
         const from = unit.position;
@@ -300,11 +304,7 @@ export class TerritoryBattleSystem {
     nationId:  string,
   ): void {
     const grid    = gameState.getGrid();
-    const offsets = [
-      { row: -1, col: 0 }, { row: 1, col: 0 },
-      { row: 0, col: -1 }, { row: 0, col: 1 },
-    ];
-    for (const off of offsets) {
+    for (const off of CARDINAL_OFFSETS) {
       const nbr = grid.getTerritory({ row: position.row + off.row, col: position.col + off.col });
       if (!nbr) continue;
       const t = nbr.getTerrainType();

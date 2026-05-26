@@ -7,9 +7,17 @@ import type { AIContext } from './AITypes';
 import type { AIProfile } from './profiles/AIProfile';
 
 export class AIController {
-  private lastEvalTick = 0;
+  private lastEvalTick: number;
 
-  constructor(private readonly profile: AIProfile) {}
+  /**
+   * @param phaseOffset Per-nation stagger (in ticks). Controllers share the same
+   *   tickInterval, so without an offset every nation would evaluate on the exact
+   *   same ticks, stacking all the heavy goal scans into one frame. Seeding
+   *   lastEvalTick with the offset spreads evaluations across the interval.
+   */
+  constructor(private readonly profile: AIProfile, phaseOffset = 0) {
+    this.lastEvalTick = -(phaseOffset % Math.max(1, profile.tickInterval));
+  }
 
   public tick(ctx: AIContext): void {
     if (ctx.currentTick - this.lastEvalTick < this.profile.tickInterval) return;

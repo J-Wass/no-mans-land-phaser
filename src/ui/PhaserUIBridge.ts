@@ -5,7 +5,7 @@ import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import type { TickEngine } from '@/systems/tick/TickEngine';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
-import type { GameSetup } from '@/types/gameSetup';
+import type { GameSetup, GameSaveData } from '@/types/gameSetup';
 import type { City } from '@/entities/cities/City';
 import type { GridCoordinates } from '@/types/common';
 import { UIManager } from '@/ui/UIManager';
@@ -180,6 +180,29 @@ export class PhaserUIBridge {
     this.phaserScene.scene.stop('UIScene');
     this.phaserScene.scene.stop('GameScene');
     this.phaserScene.scene.start('MenuScene');
+  }
+
+  /** Build a full save snapshot of the current game. Shared by the HUD and pause menu. */
+  buildSaveData(): GameSaveData {
+    const movementStates = Array.from(this.movementSystem.getAllStates()).map(
+      ([unitId, state]) => ({ unitId, path: [...state.path], ticksRemainingOnStep: state.ticksRemainingOnStep }),
+    );
+    return {
+      version: 1,
+      savedAt: Date.now(),
+      setup: this.setup,
+      currentTick: this.tickEngine.getCurrentTick(),
+      state: this.gameState.toJSON() as Record<string, unknown>,
+      movementStates,
+      battleStates: this.tickEngine.getBattleStates(),
+      siegeStates: this.tickEngine.getSiegeStates(),
+      peaceCooldowns: this.diplomacySystem.toSavedState(),
+    };
+  }
+
+  /** Save the current game to a slot. */
+  saveToSlot(slot: number): void {
+    SaveSystem.save(slot, this.buildSaveData());
   }
 
   loadGame(slot: number): void {

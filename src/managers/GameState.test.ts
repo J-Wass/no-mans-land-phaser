@@ -24,6 +24,36 @@ describe('GameState', () => {
     expect(state.nextUnitSerial('INFANTRY')).toBe(103);
   });
 
+  it('keeps the nation->units index consistent across add and remove', () => {
+    const state = new GameState({ rows: 4, cols: 4 });
+    const a = new Infantry('u-a', 'nation-1', { row: 0, col: 0 });
+    const b = new Infantry('u-b', 'nation-1', { row: 0, col: 1 });
+    const c = new Infantry('u-c', 'nation-2', { row: 1, col: 0 });
+    state.addUnit(a);
+    state.addUnit(b);
+    state.addUnit(c);
+
+    expect(state.getUnitsByNation('nation-1').map(u => u.id).sort()).toEqual(['u-a', 'u-b']);
+    expect(state.getUnitsByNation('nation-2').map(u => u.id)).toEqual(['u-c']);
+
+    state.removeUnit('u-a');
+    expect(state.getUnitsByNation('nation-1').map(u => u.id)).toEqual(['u-b']);
+    expect(state.getUnitsByNation('nation-3')).toEqual([]);
+  });
+
+  it('round-trips the deterministic RNG state through save/load', () => {
+    const state = new GameState({ rows: 4, cols: 4 }, 13579);
+    // Advance the stream a bit, then snapshot.
+    for (let i = 0; i < 5; i++) state.getRng().next();
+    const snapshot = state.toJSON();
+
+    const restored = GameState.fromJSON(snapshot);
+    // Both generators must now yield the identical continuation.
+    const original = Array.from({ length: 10 }, () => state.getRng().next());
+    const reloaded = Array.from({ length: 10 }, () => restored.getRng().next());
+    expect(reloaded).toEqual(original);
+  });
+
   it('tracks known nations from discovered land, cities, and diplomacy', () => {
     const state = new GameState({ rows: 4, cols: 4 });
     const observer = createNation('nation-a');

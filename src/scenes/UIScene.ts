@@ -7,6 +7,8 @@ import type { GameState } from '@/managers/GameState';
 import type { GameSetup } from '@/types/gameSetup';
 import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
+import { EventSubscriptions } from '@/systems/events/EventSubscriptions';
+import { Minimap } from '@/scenes/Minimap';
 import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import type { TickEngine } from '@/systems/tick/TickEngine';
 import { ResourceType } from '@/systems/resources/ResourceType';
@@ -72,6 +74,8 @@ const TERRAIN_MATERIAL_INTERVAL = 50;
 const TERRAIN_GOLD_INTERVAL = 80;
 const UPKEEP_INTERVAL = 30;
 
+// The always-on canvas HUD intentionally uses a wider scale range than the
+// shared modal formula in @/config/uiScale (full-screen layout, height-based).
 function uiScale(h: number): number {
   return Math.min(1.8, Math.max(0.75, h / 900));
 }
@@ -110,6 +114,8 @@ export class UIScene extends Phaser.Scene {
   private gameState!: GameState;
   private networkAdapter!: NetworkAdapter;
   private eventBus!: GameEventBus;
+  private subs!: EventSubscriptions;
+  private minimap: Minimap | undefined;
   private tickEngine!: TickEngine;
   private playerId = '';
 
@@ -121,7 +127,6 @@ export class UIScene extends Phaser.Scene {
   private researchBtnText: Phaser.GameObjects.Text | null = null;
   private researchProgressRect: Phaser.GameObjects.Rectangle | null = null;
   private researchBtnFullW = 0;
-  private outpostErrorMsg: string | null = null;
   private hudObjects: Phaser.GameObjects.GameObject[] = [];
   private tickText: Phaser.GameObjects.Text | null = null;
   private speedBtnText: Phaser.GameObjects.Text | null = null;
@@ -159,16 +164,23 @@ export class UIScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.subs = new EventSubscriptions(this.eventBus);
     this.setupEventListeners();
     this.rebuildHUD();
+    // The minimap is created once (outside the rebuilt HUD objects) so it persists.
+    this.minimap = new Minimap(this, this.gameState, this.eventBus);
     this.scale.on('resize', this.rebuildHUD, this);
     window.addEventListener('accessibility:changed', this.accessibilityHandler);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       window.removeEventListener('accessibility:changed', this.accessibilityHandler);
+      this.subs.disposeAll();
+      this.minimap?.destroy();
+      this.minimap = undefined;
     });
   }
 
   override update(): void {
+    this.minimap?.update();
     if (!this.selectedUnit) return;
     if (this.hpFillRect && this.hpText) {
       const hp = this.selectedUnit.getHealth();
@@ -209,12 +221,12 @@ export class UIScene extends Phaser.Scene {
   }
 
   private setupEventListeners(): void {
-    this.eventBus.on('game:tick', ({ tick }) => {
+    this.subs.on('game:tick', ({ tick }) => {
       this.tickText?.setText(formatGameTime(tick));
       this.refreshResources();
     });
 
-    this.eventBus.on('unit:selected', ({ unit }) => {
+    this.subs.on('unit:selected', ({ unit }) => {
       this.selectedUnit = unit;
       if (unit) {
         this.selectedCity = null;
@@ -223,7 +235,7 @@ export class UIScene extends Phaser.Scene {
       this.rebuildHUD();
     });
 
-    this.eventBus.on('city:selected', ({ city }) => {
+    this.subs.on('city:selected', ({ city }) => {
       this.selectedCity = city;
       if (city) {
         this.selectedUnit = null;
@@ -232,7 +244,7 @@ export class UIScene extends Phaser.Scene {
       this.rebuildHUD();
     });
 
-    this.eventBus.on('territory:highlighted', ({ position }) => {
+    this.subs.on('territory:highlighted', ({ position }) => {
       this.selectedTerritoryPos = position;
       if (position) {
         this.selectedUnit = null;
@@ -241,18 +253,18 @@ export class UIScene extends Phaser.Scene {
       this.rebuildHUD();
     });
 
-    this.eventBus.on('unit:battle-order-changed', ({ unitId }) => {
+    this.subs.on('unit:battle-order-changed', ({ unitId }) => {
       if (this.selectedUnit?.id === unitId) this.rebuildHUD();
     });
 
-    this.eventBus.on('unit:destroyed', ({ unitId }) => {
+    this.subs.on('unit:destroyed', ({ unitId }) => {
       if (this.selectedUnit?.id === unitId) {
         this.selectedUnit = null;
       }
       this.rebuildHUD();
     });
 
-    this.eventBus.on('territory:claimed', ({ position, nationId, fromNationId }) => {
+    this.subs.on('territory:claimed', ({ position, nationId, fromNationId }) => {
       const localNation = this.getLocalNation();
       if (!localNation) return;
       if (nationId !== localNation.getId() && fromNationId !== localNation.getId()) return;
@@ -267,14 +279,14 @@ export class UIScene extends Phaser.Scene {
       this.rebuildHUD();
     });
 
-    this.eventBus.on('territory:building-started', ({ position, nationId, building }) => {
+    this.subs.on('territory:building-started', ({ position, nationId, building }) => {
       if (!this.isLocalNation(nationId)) return;
       const label = TERRITORY_BUILDING_MAP.get(building)?.label ?? building.replace(/_/g, ' ');
       this.pushNotification(`${label} started at (${position.row}, ${position.col}).`);
       this.rebuildHUD();
     });
 
-    this.eventBus.on('territory:building-built', ({ position, building }) => {
+    this.subs.on('territory:building-built', ({ position, building }) => {
       const ownerId = this.gameState.getGrid().getTerritory(position)?.getControllingNation();
       if (!ownerId || !this.isLocalNation(ownerId)) return;
       const label = TERRITORY_BUILDING_MAP.get(building)?.label ?? building.replace(/_/g, ' ');
@@ -282,21 +294,21 @@ export class UIScene extends Phaser.Scene {
       this.rebuildHUD();
     });
 
-    this.eventBus.on('city:unit-spawned', ({ cityId, unitType }) => {
+    this.subs.on('city:unit-spawned', ({ cityId, unitType }) => {
       const cityName = this.gameState.getCity(cityId)?.getName() ?? 'A city';
       const city = this.gameState.getCity(cityId);
       if (!city || !this.isLocalNation(city.getOwnerId())) return;
       this.pushNotification(`${cityName} trained ${unitType.replace(/_/g, ' ').toLowerCase()}.`);
     });
 
-    this.eventBus.on('city:production-complete', ({ cityId, order }) => {
+    this.subs.on('city:production-complete', ({ cityId, order }) => {
       const cityName = this.gameState.getCity(cityId)?.getName() ?? 'A city';
       const city = this.gameState.getCity(cityId);
       if (!city || !this.isLocalNation(city.getOwnerId())) return;
       this.pushNotification(`${cityName} completed ${order.label.toLowerCase()}.`);
     });
 
-    this.eventBus.on('city:building-built', ({ cityId, building }) => {
+    this.subs.on('city:building-built', ({ cityId, building }) => {
       const cityName = this.gameState.getCity(cityId)?.getName() ?? 'A city';
       const city = this.gameState.getCity(cityId);
       if (!city || !this.isLocalNation(city.getOwnerId())) return;
@@ -304,7 +316,7 @@ export class UIScene extends Phaser.Scene {
       this.pushNotification(`${cityName} built ${label}.`);
     });
 
-    this.eventBus.on('unit:withdrew', ({ unitId, to }) => {
+    this.subs.on('unit:withdrew', ({ unitId, to }) => {
       const unit = this.gameState.getUnit(unitId);
       if (!unit || !this.isLocalNation(unit.getOwnerId())) return;
       const label = unit ? unitDisplayName(unit) : 'A unit';
@@ -312,21 +324,22 @@ export class UIScene extends Phaser.Scene {
       this.rebuildHUD();
     });
 
-    this.eventBus.on('nation:research-complete', ({ nationId, techId }) => {
+    this.subs.on('nation:research-complete', ({ nationId, techId }) => {
       if (!this.isLocalNation(nationId)) return;
       const nationName = this.gameState.getNation(nationId)?.getName() ?? 'A nation';
       this.pushNotification(`${nationName} completed ${techId.replace(/_/g, ' ')}.`);
     });
 
-    this.eventBus.on('diplomacy:war-declared', ({ nationId1, nationId2 }) => {
+    this.subs.on('diplomacy:war-declared', ({ nationId1, nationId2 }) => {
       if (!this.isLocalNation(nationId1) && !this.isLocalNation(nationId2)) return;
       const a = this.gameState.getNation(nationId1)?.getName() ?? 'Unknown';
       const b = this.gameState.getNation(nationId2)?.getName() ?? 'Unknown';
       this.pushNotification(`${a} and ${b} are now at war.`);
+      this.flashWarAlert();
       this.rebuildHUD();
     });
 
-    this.eventBus.on('diplomacy:peace-signed', ({ fromNationId, toNationId }) => {
+    this.subs.on('diplomacy:peace-signed', ({ fromNationId, toNationId }) => {
       if (!this.isLocalNation(fromNationId) && !this.isLocalNation(toNationId)) return;
       const a = this.gameState.getNation(fromNationId)?.getName() ?? 'Unknown';
       const b = this.gameState.getNation(toNationId)?.getName() ?? 'Unknown';
@@ -334,13 +347,13 @@ export class UIScene extends Phaser.Scene {
       this.rebuildHUD();
     });
 
-    this.eventBus.on('unit:step-complete', ({ unitId }) => {
+    this.subs.on('unit:step-complete', ({ unitId }) => {
       if (this.selectedUnit?.id === unitId) this.rebuildHUD();
     });
 
     // Track which regions we've already notified about to avoid repeat messages
     const dominatedNotified = new Set<string>();
-    this.eventBus.on('region:dominated', ({ regionId, nationId }) => {
+    this.subs.on('region:dominated', ({ regionId, nationId }) => {
       if (!this.isLocalNation(nationId)) return;
       if (dominatedNotified.has(regionId)) return;
       dominatedNotified.add(regionId);
@@ -351,6 +364,8 @@ export class UIScene extends Phaser.Scene {
 
   private rebuildHUD(): void {
     MONO = { fontFamily: getFont() };
+    // Keep the persistent minimap sized/positioned to the current viewport.
+    this.minimap?.layout();
     for (const obj of this.hudObjects) {
       if (obj.active) obj.destroy();
     }
@@ -402,7 +417,10 @@ export class UIScene extends Phaser.Scene {
       ...MONO, fontSize: fs(skinny ? 13 : 15, scale), color: '#d6e0ff',
     }).setOrigin(0, 0.5)) as Phaser.GameObjects.Text;
 
-    this.track(this.add.text(pad + Math.round((skinny ? 58 : 74) * scale), midY, this.setup.difficulty.toUpperCase(), {
+    // Place the difficulty label after the measured width of the time label so the
+    // two never overlap regardless of "Day N HH:00" length or font scaling.
+    const difficultyX = pad + this.tickText.width + gap;
+    this.track(this.add.text(difficultyX, midY, this.setup.difficulty.toUpperCase(), {
       ...MONO, fontSize: fs(skinny ? 10 : 12, scale), color: difficultyColor(this.setup.difficulty), fontStyle: 'bold',
     }).setOrigin(0, 0.5));
 
@@ -426,14 +444,15 @@ export class UIScene extends Phaser.Scene {
       : Math.round(86 * scale);
     const resourceStartX = skinny
       ? pad
-      : W - pad - btnW * 2 - gap * 2 - resourceW * RESOURCE_BUTTONS.length - gap * (RESOURCE_BUTTONS.length - 1) - Math.round(18 * scale);
+      : W - pad - btnW * 3 - gap * 3 - resourceW * RESOURCE_BUTTONS.length - gap * (RESOURCE_BUTTONS.length - 1) - Math.round(18 * scale);
     RESOURCE_BUTTONS.forEach((resource, index) => {
       const x = resourceStartX + index * (resourceW + gap) + resourceW / 2;
       this.makeResourceButton(x, resourceY, resourceW, btnH, scale, resource);
     });
 
-    const researchX = W - pad - btnW - gap - btnW / 2;
     const menuX = W - pad - btnW / 2;
+    const saveX = W - pad - (btnW + gap) - btnW / 2;
+    const researchX = W - pad - (btnW + gap) * 2 - btnW / 2;
 
     const nation = this.getLocalNation();
     const currentResearch = nation?.getCurrentResearch();
@@ -457,6 +476,12 @@ export class UIScene extends Phaser.Scene {
       0, barThick, 0x44cc22,
     ).setOrigin(0, 0)) as Phaser.GameObjects.Rectangle;
     this.researchBtnFullW = btnW;
+
+    this.makeButton(saveX, midY, btnW, btnH, 'SAVE', scale, () => {
+      this.bridge.saveToSlot(1);
+      this.pushNotification('Game saved to Slot 1');
+      this.rebuildHUD();
+    }, 0x14321e);
 
     this.makeButton(menuX, midY, btnW, btnH, skinny ? 'MENU' : 'MENU [ESC]', scale, () => {
       this.scene.get('GameScene')?.input.keyboard?.emit('keydown-ESC');
@@ -750,10 +775,6 @@ export class UIScene extends Phaser.Scene {
       manaParts.push(`Shadow:HIDDEN${wdBonus > 0 ? `+${Math.round(wdBonus * 100)}%WD` : ''}`);
     }
     const manaLine = manaParts.join('  ');
-    const territory = this.gameState.getGrid().getTerritory(unit.position);
-    const unclaimed = territory?.getControllingNation() === null;
-    const territoryConstruction = territory?.getCurrentConstruction() ?? null;
-    const canOutpost = !territoryConstruction && unclaimed && territory?.getTerrainType() !== TerrainType.WATER && territory?.getTerrainType() !== TerrainType.MOUNTAIN;
     const pad = Math.round(12 * scale);
     const barW = Math.round(170 * scale);
     const barH = Math.round(8 * scale);
@@ -761,7 +782,7 @@ export class UIScene extends Phaser.Scene {
     const btnH = Math.round(24 * scale);
     const gap = Math.round(6 * scale);
     const panelW = Math.round(360 * scale);
-    const panelH = Math.round(246 * scale) + (canOutpost ? btnH + gap : 0);
+    const panelH = Math.round(246 * scale);
     const x = 0;
     const y = H - panelH;
 
@@ -802,45 +823,9 @@ export class UIScene extends Phaser.Scene {
       }).setOrigin(0, 0));
     }
 
-    let rowY = y + panelH - pad - btnH;
-    if (canOutpost) {
-      const outpost = TERRITORY_BUILDING_MAP.get(TerritoryBuildingType.OUTPOST);
-      const cost = outpost?.cost ?? {};
-      const label = [
-        cost[ResourceType.GOLD] ? `${cost[ResourceType.GOLD]}${RESOURCE_EMOJI[ResourceType.GOLD]}` : '',
-        cost[ResourceType.RAW_MATERIAL] ? `${cost[ResourceType.RAW_MATERIAL]}${RESOURCE_EMOJI[ResourceType.RAW_MATERIAL]}` : '',
-        cost[ResourceType.FOOD] ? `${cost[ResourceType.FOOD]}${RESOURCE_EMOJI[ResourceType.FOOD]}` : '',
-      ].filter(Boolean).join(' ');
-      const secs = outpost ? (outpost.ticks / TICK_RATE).toFixed(0) : '0';
-      this.makeButton(x + pad + Math.round(50 * scale), rowY, Math.round(100 * scale), btnH, 'OUTPOST', scale, () => {
-        this.networkAdapter.sendCommand({
-          type: 'BUILD_TERRITORY',
-          playerId: this.playerId,
-          position: unit.position,
-          building: TerritoryBuildingType.OUTPOST,
-          issuedAtTick: this.tickEngine.getCurrentTick(),
-        }).then(result => {
-          if (!result.success) {
-            this.outpostErrorMsg = result.reason ?? 'Cannot build outpost';
-            this.rebuildHUD();
-            this.time.delayedCall(3500, () => {
-              this.outpostErrorMsg = null;
-              this.rebuildHUD();
-            });
-          }
-        }).catch(() => { /* ignore */ });
-      }, 0x203320);
-      this.track(this.add.text(x + pad + Math.round(110 * scale), rowY - Math.round(16 * scale), `${label}  ${secs}s`, {
-        ...MONO, fontSize: fs(9, scale), color: '#8acc9a',
-      }).setOrigin(0.5, 0));
-      if (this.outpostErrorMsg) {
-        this.track(this.add.text(x + pad, rowY + Math.round(16 * scale), this.outpostErrorMsg, {
-          ...MONO, fontSize: fs(10, scale), color: '#ff8080',
-          wordWrap: { width: panelW - pad * 2 },
-        }).setOrigin(0, 0));
-      }
-      rowY -= btnH + gap;
-    }
+    // Outpost construction lives in the territory buildings menu now (double-click
+    // an unclaimed tile adjacent to your land), not on the unit panel.
+    const rowY = y + panelH - pad - btnH;
 
     STANCE_ORDERS.forEach(({ order, label }, index) => {
       const bx = x + pad + index * (btnW + gap) + btnW / 2;
@@ -1158,6 +1143,30 @@ export class UIScene extends Phaser.Scene {
           tip: 'Build Schools in cities (requires Education tech).',
         };
     }
+  }
+
+  /** Flash red bands along the screen edges a few times — used on war declaration. */
+  private flashWarAlert(): void {
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const thickness = Math.round(Math.min(W, H) * 0.07);
+    const color = 0xcc1111;
+    const depth = 9000;
+    const bars: Phaser.GameObjects.Rectangle[] = [
+      this.add.rectangle(W / 2, 0, W, thickness, color).setOrigin(0.5, 0),
+      this.add.rectangle(W / 2, H, W, thickness, color).setOrigin(0.5, 1),
+      this.add.rectangle(0, H / 2, thickness, H, color).setOrigin(0, 0.5),
+      this.add.rectangle(W, H / 2, thickness, H, color).setOrigin(1, 0.5),
+    ];
+    bars.forEach(b => b.setScrollFactor(0).setDepth(depth).setAlpha(0));
+    this.tweens.add({
+      targets: bars,
+      alpha: 0.55,
+      duration: 400,
+      yoyo: true,
+      repeat: 2, // 3 pulses ≈ 2.4 s
+      onComplete: () => bars.forEach(b => b.destroy()),
+    });
   }
 
   private pushNotification(text: string): void {

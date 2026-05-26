@@ -32,6 +32,7 @@ import {
 import GAME_NAMES from '@/config/names.json';
 import { getScenarioById, getScenarioMap } from '@/config/scenarios';
 import type { ScenarioDepositDef } from '@/config/scenarios';
+import { Rng } from '@/systems/random/Rng';
 
 /** Root-level techs (no prerequisites) - eligible for random starting grant. */
 const ROOT_TECHS: TechId[] = ['writing', 'hunting', 'masonry', 'scientific_method', 'mathematics'];
@@ -60,7 +61,12 @@ export class BootScene extends Phaser.Scene {
     const setup: GameSetup = normalizeGameSetup(data?.setup);
     const totalNations = 1 + Math.min(setup.opponentCount, 4);
     const GRID_SIZE = computeGridSize(totalNations);
-    const gameState = new GameState({ rows: GRID_SIZE, cols: GRID_SIZE });
+    // Seed comes from the setup (so a host can share it) or is freshly chosen.
+    const seed = setup.seed ?? Rng.randomSeed();
+    const gameState = new GameState({ rows: GRID_SIZE, cols: GRID_SIZE }, seed);
+    // Map generation and spawn placement draw from the authoritative RNG so the
+    // entire initial state is reproducible from the seed.
+    const rng = gameState.getRng().fn();
     const grid = gameState.getGrid();
     const waterBorder = Math.max(3, Math.round(GRID_SIZE * 0.12));
 
@@ -79,28 +85,34 @@ export class BootScene extends Phaser.Scene {
         const mapRows = getScenarioMap(scenario.id);
         if (mapRows) applyScenarioMap(grid, mapRows);
         applyScenarioDeposits(grid, scenario.deposits);
-        this.populateScenarioGameState(gameState, setup, grid, GRID_SIZE);
+        this.populateScenarioGameState(gameState, setup, grid, GRID_SIZE, rng);
       } else {
-        placeProceduralTerrain(grid, GRID_SIZE);
-        placeResourceDeposits(grid, GRID_SIZE);
-        this.populateSkirmishGameState(gameState, setup, grid, GRID_SIZE);
+        placeProceduralTerrain(grid, GRID_SIZE, rng);
+        placeResourceDeposits(grid, GRID_SIZE, rng);
+        this.populateSkirmishGameState(gameState, setup, grid, GRID_SIZE, rng);
       }
     } else {
-      placeProceduralTerrain(grid, GRID_SIZE);
-      placeResourceDeposits(grid, GRID_SIZE);
-      this.populateSkirmishGameState(gameState, setup, grid, GRID_SIZE);
+      placeProceduralTerrain(grid, GRID_SIZE, rng);
+      placeResourceDeposits(grid, GRID_SIZE, rng);
+      this.populateSkirmishGameState(gameState, setup, grid, GRID_SIZE, rng);
     }
 
     this.scene.start('GameScene', { gameState, setup });
   }
 
-  private populateSkirmishGameState(gameState: GameState, setup: GameSetup, grid: Grid, gridSize: number): void {
+  private populateSkirmishGameState(
+    gameState: GameState,
+    setup: GameSetup,
+    grid: Grid,
+    gridSize: number,
+    rng: () => number,
+  ): void {
     const totalNations  = 1 + Math.min(setup.opponentCount, 4);
-    const spawnPairs    = pickCoastalSpawnPairs(grid, gridSize, totalNations);
+    const spawnPairs    = pickCoastalSpawnPairs(grid, gridSize, totalNations, rng);
     const takenPositions: GridCoordinates[] = [];
     const shuffledNations = [...GAME_NAMES.nations];
 
-    shuffleInPlace(shuffledNations);
+    shuffleInPlace(shuffledNations, rng);
 
     for (let i = 0; i < totalNations; i++) {
       const cfg  = shuffledNations[i];
@@ -117,7 +129,7 @@ export class BootScene extends Phaser.Scene {
         [ResourceType.FOOD]: 30,
         [ResourceType.RAW_MATERIAL]: 20,
       });
-      grantTechs(nation, [ROOT_TECHS[Math.floor(Math.random() * ROOT_TECHS.length)]!]);
+      grantTechs(nation, [ROOT_TECHS[Math.floor(rng() * ROOT_TECHS.length)]!]);
 
       gameState.addNation(nation);
       gameState.addPlayer(new Player(playerId, isLocal ? 'Player' : cfg.name, nationId, isLocal));
@@ -131,16 +143,23 @@ export class BootScene extends Phaser.Scene {
         takenPositions,
         cfg.cities,
         gridSize,
+        rng,
       );
 
       assignStartingTerritory(grid, nationId, cityPositions, gridSize);
     }
   }
 
-  private populateScenarioGameState(gameState: GameState, setup: GameSetup, grid: Grid, gridSize: number): void {
+  private populateScenarioGameState(
+    gameState: GameState,
+    setup: GameSetup,
+    grid: Grid,
+    gridSize: number,
+    rng: () => number,
+  ): void {
     const scenario = getScenarioById(setup.scenarioId);
     if (!scenario) {
-      this.populateSkirmishGameState(gameState, setup, grid, gridSize);
+      this.populateSkirmishGameState(gameState, setup, grid, gridSize, rng);
       return;
     }
 
@@ -227,7 +246,7 @@ function applyScenarioDeposits(grid: Grid, deposits: ScenarioDepositDef[]): void
   }
 }
 
-function placeResourceDeposits(grid: Grid, gridSize: number): void {
+function placeResourceDeposits(grid: Grid, gridSize: number, rng: () => number): void {
   // Scale deposit counts with map area relative to a 60×60 reference.
   const scale = Math.max(0.5, (gridSize * gridSize) / (60 * 60));
   const s = (base: number) => Math.max(1, Math.round(base * scale));
@@ -249,10 +268,10 @@ function placeResourceDeposits(grid: Grid, gridSize: number): void {
   ];
 
   for (const slot of oreSlots) {
-    placeDeposits(grid, slot.deposit, slot.count, slot.terrain, gridSize);
+    placeDeposits(grid, slot.deposit, slot.count, slot.terrain, gridSize, rng);
   }
   for (const slot of manaSlots) {
-    placeDeposits(grid, slot.deposit, slot.count, slot.terrain, gridSize);
+    placeDeposits(grid, slot.deposit, slot.count, slot.terrain, gridSize, rng);
   }
 }
 
@@ -265,6 +284,7 @@ function seedNation(
   takenPositions: GridCoordinates[],
   cityNames: string[],
   gridSize: number,
+  rng: () => number,
 ): GridCoordinates[] {
   const infantry = new Infantry(`unit-inf-${serial}`, nationId, pair.infantry);
   const scout    = new Scout(`unit-scout-${serial}`, nationId, pair.scout);
@@ -273,7 +293,7 @@ function seedNation(
 
   takenPositions.push(pair.infantry, pair.scout);
 
-  const cityPositions = findCityPositions(grid, pair.infantry, takenPositions, gridSize);
+  const cityPositions = findCityPositions(grid, pair.infantry, takenPositions, gridSize, rng);
   for (let j = 0; j < 2; j++) {
     const pos = cityPositions[j];
     if (!pos) continue;
@@ -293,13 +313,13 @@ function seedNation(
   return cityPositions;
 }
 
-function randomInRange(min: number, max: number): number {
-  return min + Math.floor(Math.random() * (max - min + 1));
+function randomInRange(min: number, max: number, rng: () => number): number {
+  return min + Math.floor(rng() * (max - min + 1));
 }
 
-function shuffleInPlace<T>(items: T[]): void {
+function shuffleInPlace<T>(items: T[], rng: () => number): void {
   for (let i = items.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     [items[i], items[j]] = [items[j]!, items[i]!];
   }
 }
@@ -321,11 +341,11 @@ function grantTechs(nation: Nation, techs: TechId[]): void {
   }
 }
 
-function placeProceduralTerrain(grid: Grid, gridSize: number): void {
+function placeProceduralTerrain(grid: Grid, gridSize: number, rng: () => number): void {
   const center = (gridSize - 1) / 2;
   const baseRadius = gridSize * 0.46;
-  const coastPhaseA = Math.random() * Math.PI * 2;
-  const coastPhaseB = Math.random() * Math.PI * 2;
+  const coastPhaseA = rng() * Math.PI * 2;
+  const coastPhaseB = rng() * Math.PI * 2;
 
   for (let r = 1; r < gridSize - 1; r++) {
     for (let c = 1; c < gridSize - 1; c++) {
@@ -368,17 +388,17 @@ function placeProceduralTerrain(grid: Grid, gridSize: number): void {
     }
   }
 
-  const rangeCount = randomInRange(2, 3);
+  const rangeCount = randomInRange(2, 3, rng);
   for (let i = 0; i < rangeCount; i++) {
-    carveMountainRange(grid, gridSize);
+    carveMountainRange(grid, gridSize, rng);
   }
 
   for (let i = 0; i < 6; i++) {
-    const row = randomInRange(3, gridSize - 4);
-    const col = randomInRange(3, gridSize - 4);
+    const row = randomInRange(3, gridSize - 4, rng);
+    const col = randomInRange(3, gridSize - 4, rng);
     const territory = grid.getTerritory({ row, col });
     if (!territory || territory.getTerrainType() === TerrainType.WATER || territory.getTerrainType() === TerrainType.MOUNTAIN) continue;
-    enrichBiomeCluster(grid, territory.getTerrainType() === TerrainType.DESERT ? TerrainType.DESERT : TerrainType.FOREST, row, col, randomInRange(2, 4), gridSize);
+    enrichBiomeCluster(grid, territory.getTerrainType() === TerrainType.DESERT ? TerrainType.DESERT : TerrainType.FOREST, row, col, randomInRange(2, 4, rng), gridSize, rng);
   }
 
   smoothCoastline(grid, gridSize);
@@ -390,6 +410,7 @@ function placeDeposits(
   count: number,
   terrainTypes: TerrainType[],
   gridSize: number,
+  rng: () => number,
 ): void {
   const candidates: GridCoordinates[] = [];
   for (let r = 1; r < gridSize - 1; r++) {
@@ -403,7 +424,7 @@ function placeDeposits(
     }
   }
 
-  shuffleInPlace(candidates);
+  shuffleInPlace(candidates, rng);
   let placed = 0;
   for (const candidate of candidates) {
     if (placed >= count) break;
@@ -425,23 +446,23 @@ function touchesWater(grid: Grid, position: GridCoordinates): boolean {
   return false;
 }
 
-function carveMountainRange(grid: Grid, gridSize: number): void {
-  let row = randomInRange(3, gridSize - 4);
-  let col = Math.random() < 0.5 ? 2 : gridSize - 3;
-  let directionRow = Math.random() < 0.5 ? -1 : 1;
+function carveMountainRange(grid: Grid, gridSize: number, rng: () => number): void {
+  let row = randomInRange(3, gridSize - 4, rng);
+  let col = rng() < 0.5 ? 2 : gridSize - 3;
+  let directionRow = rng() < 0.5 ? -1 : 1;
   let directionCol = col < centerColumn(gridSize) ? 1 : -1;
-  const length = randomInRange(Math.floor(gridSize * 0.55), Math.floor(gridSize * 0.9));
+  const length = randomInRange(Math.floor(gridSize * 0.55), Math.floor(gridSize * 0.9), rng);
 
   for (let i = 0; i < length; i++) {
-    paintMountainCell(grid, row, col);
-    if (Math.random() < 0.45) paintMountainCell(grid, row + directionRow, col);
-    if (Math.random() < 0.35) paintMountainCell(grid, row, col + directionCol);
+    paintMountainCell(grid, row, col, rng);
+    if (rng() < 0.45) paintMountainCell(grid, row + directionRow, col, rng);
+    if (rng() < 0.35) paintMountainCell(grid, row, col + directionCol, rng);
 
     row += directionRow;
     col += directionCol;
-    if (Math.random() < 0.4) directionRow += Math.random() < 0.5 ? -1 : 1;
+    if (rng() < 0.4) directionRow += rng() < 0.5 ? -1 : 1;
     directionRow = Math.max(-1, Math.min(1, directionRow));
-    if (Math.random() < 0.25) directionCol *= -1;
+    if (rng() < 0.25) directionCol *= -1;
 
     row = Math.max(2, Math.min(gridSize - 3, row));
     col = Math.max(2, Math.min(gridSize - 3, col));
@@ -452,7 +473,7 @@ function centerColumn(gridSize: number): number {
   return Math.floor(gridSize / 2);
 }
 
-function paintMountainCell(grid: Grid, row: number, col: number): void {
+function paintMountainCell(grid: Grid, row: number, col: number, rng: () => number): void {
   const territory = grid.getTerritory({ row, col });
   if (!territory || territory.getTerrainType() === TerrainType.WATER) return;
   territory.setTerrainType(TerrainType.MOUNTAIN);
@@ -460,7 +481,7 @@ function paintMountainCell(grid: Grid, row: number, col: number): void {
   for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
     const neighbor = grid.getTerritory({ row: row + dr, col: col + dc });
     if (!neighbor || neighbor.getTerrainType() === TerrainType.WATER || neighbor.getTerrainType() === TerrainType.MOUNTAIN) continue;
-    if (Math.random() < 0.55) neighbor.setTerrainType(TerrainType.SNOW_FOREST);
+    if (rng() < 0.55) neighbor.setTerrainType(TerrainType.SNOW_FOREST);
   }
 }
 
@@ -471,6 +492,7 @@ function enrichBiomeCluster(
   centerCol: number,
   radius: number,
   gridSize: number,
+  rng: () => number,
 ): void {
   for (let r = centerRow - radius; r <= centerRow + radius; r++) {
     for (let c = centerCol - radius; c <= centerCol + radius; c++) {
@@ -479,7 +501,7 @@ function enrichBiomeCluster(
       if (!territory || territory.getTerrainType() === TerrainType.WATER || territory.getTerrainType() === TerrainType.MOUNTAIN) continue;
       const dist = Math.abs(r - centerRow) + Math.abs(c - centerCol);
       if (dist > radius) continue;
-      if (Math.random() < 0.72 - dist * 0.12) {
+      if (rng() < 0.72 - dist * 0.12) {
         territory.setTerrainType(terrain);
       }
     }

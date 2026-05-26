@@ -15,7 +15,7 @@ import type {
   MoveUnitCommand, BuildTerritoryCommand, BuildCityBuildingCommand,
   UpgradeTerritoryBuildingCommand,
   StartResearchCommand, CancelResearchCommand, QueueResearchCommand, RemoveQueuedResearchCommand,
-  MoveQueuedResearchCommand, StartCityProductionCommand,
+  MoveQueuedResearchCommand, StartCityProductionCommand, CancelCityProductionCommand,
   SetUnitBattleOrderCommand,
   DeclareWarCommand, ProposePeaceCommand, OfferTradeCommand,
 } from './GameCommand';
@@ -28,6 +28,7 @@ import type { TechId } from '@/systems/research/TechTree';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import type { GridCoordinates } from '@/types/common';
+import { CARDINAL_OFFSETS } from '@/systems/grid/geometry';
 
 const MANA_DEPOSITS = new Set<TerritoryResourceType>([
   TerritoryResourceType.WATER_MANA,
@@ -59,10 +60,18 @@ export class CommandProcessor {
       case 'REMOVE_QUEUED_RESEARCH': return this.handleRemoveQueuedResearch(command);
       case 'MOVE_QUEUED_RESEARCH':   return this.handleMoveQueuedResearch(command);
       case 'START_CITY_PRODUCTION':  return this.handleStartCityProduction(command);
+      case 'CANCEL_CITY_PRODUCTION': return this.handleCancelCityProduction(command);
       case 'SET_UNIT_BATTLE_ORDER':  return this.handleSetUnitBattleOrder(command);
       case 'DECLARE_WAR':            return this.handleDeclareWar(command);
       case 'PROPOSE_PEACE':          return this.handleProposePeace(command);
       case 'OFFER_TRADE':            return this.handleOfferTrade(command);
+      default: {
+        // Exhaustiveness guard: if a new GameCommand variant is added without a
+        // case above, this fails to compile (command is no longer `never`).
+        const _exhaustive: never = command;
+        void _exhaustive;
+        return { success: false, reason: 'Unknown command type' };
+      }
     }
   }
 
@@ -340,11 +349,38 @@ export class CommandProcessor {
         return { success: false, reason: `Requires active ${entry.requiresDeposit} mine` };
     }
 
+    if (!this.sandboxMode && entry.requiresAnyDeposit) {
+      const deposits = this.gameState.getNationActiveDeposits(nation.getId());
+      if (!entry.requiresAnyDeposit.some(d => deposits.has(d)))
+        return { success: false, reason: `Requires an active ${entry.requiresAnyDeposit.join('/')} mine` };
+    }
+
     if (!this.sandboxMode && !nation.getTreasury().hasResources(entry.cost))
       return { success: false, reason: 'Insufficient resources' };
 
     if (!this.sandboxMode) nation.getTreasury().consumeResources(entry.cost);
     city.enqueueOrder(entry.makeOrder());
+    return { success: true };
+  }
+
+  // ── CANCEL_CITY_PRODUCTION ────────────────────────────────────────────────
+
+  private handleCancelCityProduction(command: CancelCityProductionCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const city = this.gameState.getCity(command.cityId);
+    if (!city || city.getOwnerId() !== nation.getId())
+      return { success: false, reason: 'City not found or not owned' };
+
+    if (command.queueIndex === undefined) {
+      city.cancelOrder();
+    } else if (!city.cancelQueueItem(command.queueIndex)) {
+      return { success: false, reason: 'Invalid queue index' };
+    }
     return { success: true };
   }
 
@@ -499,12 +535,8 @@ export class CommandProcessor {
 
   /** Returns true if any cardinal neighbor of `position` is owned by `nationId`. */
   private isAdjacentToOwnedTerritory(position: GridCoordinates, nationId: string): boolean {
-    const offsets = [
-      { row: -1, col: 0 }, { row: 1, col: 0 },
-      { row: 0, col: -1 }, { row: 0, col: 1 },
-    ];
     const grid = this.gameState.getGrid();
-    for (const off of offsets) {
+    for (const off of CARDINAL_OFFSETS) {
       const nbr = grid.getTerritory({ row: position.row + off.row, col: position.col + off.col });
       if (nbr?.getControllingNation() === nationId) return true;
     }

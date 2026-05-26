@@ -7,7 +7,7 @@ type MusicCategory = 'melancholy' | 'hope' | 'focus' | 'glory';
 const TRACKS: Record<MusicCategory, string[]> = {
   melancholy: ['music_melancholy1', 'music_melancholy2', 'music_melancholy3'],
   hope:       ['music_hope1'],
-  focus:      ['music_focus1'],
+  focus:      ['music_focus1', 'music_focus2'],
   glory:      ['music_glory1', 'music_glory2'],
 };
 
@@ -25,7 +25,8 @@ export class MusicManager {
   private pendingTimer: Phaser.Time.TimerEvent | null = null;
   private currentTick = 0;
   private gameOver = false;
-  private lastPlayed: Map<MusicCategory, string> = new Map();
+  /** The most recently started track key — never replayed back-to-back if avoidable. */
+  private lastTrackKey: string | null = null;
 
   private readonly handleWarDeclared = (_p: GameEventMap['diplomacy:war-declared']) => this.checkDiplomacy();
   private readonly handlePeaceSigned = (_p: GameEventMap['diplomacy:peace-signed']) => this.checkDiplomacy();
@@ -107,10 +108,11 @@ export class MusicManager {
   private playCategory(category: MusicCategory): void {
     this.currentCategory = category;
     const pool = TRACKS[category];
-    const last = this.lastPlayed.get(category);
-    const choices = pool.length > 1 ? pool.filter(k => k !== last) : pool;
-    const key = choices[Math.floor(Math.random() * choices.length)]!;
-    this.lastPlayed.set(category, key);
+    // Never repeat the just-played track unless this category has nothing else.
+    const choices = pool.filter(k => k !== this.lastTrackKey);
+    const finalChoices = choices.length > 0 ? choices : pool;
+    const key = finalChoices[Math.floor(Math.random() * finalChoices.length)]!;
+    this.lastTrackKey = key;
     const sound = this.scene.sound.add(key, { volume: 1.0 });
     sound.once('complete', () => this.onTrackEnd());
     sound.play();

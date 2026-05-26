@@ -21,6 +21,7 @@ import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import type { RegionSystem } from '@/systems/regions/RegionSystem';
+import { Rng } from '@/systems/random/Rng';
 
 export interface DefeatedNationData {
   id:             EntityId;
@@ -43,8 +44,16 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   /** Tiles each nation has ever had line-of-sight on. */
   private discoveredTiles:  Map<EntityId, Set<string>>;
   private regionSystem:     RegionSystem | null = null;
+  /** Authoritative deterministic RNG — the single randomness source for the simulation. */
+  private rng:              Rng;
+  /**
+   * nationId → set of its unit ids. Derived index maintained on add/remove.
+   * Safe because a unit's ownerId is immutable for its lifetime, so the only
+   * mutations are creation and destruction (both routed through this class).
+   */
+  private unitsByNation:    Map<EntityId, Set<EntityId>>;
 
-  constructor(gridConfig: GridConfig) {
+  constructor(gridConfig: GridConfig, seed: number = Rng.randomSeed()) {
     this.grid             = new Grid(gridConfig);
     this.nations          = new Map();
     this.cities           = new Map();
@@ -55,7 +64,12 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     this.activeNationId   = null;
     this.unitTypeCounters = new Map();
     this.discoveredTiles  = new Map();
+    this.rng              = new Rng(seed);
+    this.unitsByNation    = new Map();
   }
+
+  /** The authoritative deterministic RNG. All simulation randomness must draw from this. */
+  public getRng(): Rng { return this.rng; }
 
   /** Increment and return the next ordinal serial number for a unit type. */
   public nextUnitSerial(type: string): number {
@@ -205,13 +219,29 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   }
 
   // ── Unit management ───────────────────────────────────────────────────────
-  public addUnit(unit: Unit): void  { this.units.set(unit.id, unit); }
+  public addUnit(unit: Unit): void  {
+    this.units.set(unit.id, unit);
+    let set = this.unitsByNation.get(unit.getOwnerId());
+    if (!set) { set = new Set(); this.unitsByNation.set(unit.getOwnerId(), set); }
+    set.add(unit.id);
+  }
   public getUnit(id: EntityId): Unit | null { return this.units.get(id) ?? null; }
   public getAllUnits(): Unit[] { return Array.from(this.units.values()); }
   public getUnitsByNation(nationId: EntityId): Unit[] {
-    return this.getAllUnits().filter(u => u.getOwnerId() === nationId);
+    const ids = this.unitsByNation.get(nationId);
+    if (!ids) return [];
+    const result: Unit[] = [];
+    for (const id of ids) {
+      const unit = this.units.get(id);
+      if (unit) result.push(unit);
+    }
+    return result;
   }
-  public removeUnit(id: EntityId): boolean { return this.units.delete(id); }
+  public removeUnit(id: EntityId): boolean {
+    const unit = this.units.get(id);
+    if (unit) this.unitsByNation.get(unit.getOwnerId())?.delete(id);
+    return this.units.delete(id);
+  }
 
   // ── Resource deposits ─────────────────────────────────────────────────────
 
@@ -294,6 +324,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     return {
       currentTurn:      this.currentTurn,
       activeNationId:   this.activeNationId,
+      rngState:         this.rng.getState(),
       grid:             this.grid.toJSON(),
       nations:          Array.from(this.nations.values()).map(n => n.toJSON()),
       defeatedNations:  Array.from(this.defeatedNations.values()).map(n => ({ ...n })),
@@ -311,6 +342,10 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   /** Reconstruct a GameState from a toJSON() snapshot. Used by the save/load system. */
   public static fromJSON(data: ReturnType<GameState['toJSON']>): GameState {
     const state = new GameState({ rows: data.grid.rows, cols: data.grid.cols });
+
+    // Restore deterministic RNG state (absent in saves from before determinism work)
+    const savedRngState = (data as { rngState?: number }).rngState;
+    if (typeof savedRngState === 'number') state.rng.setState(savedRngState);
 
     // Restore terrain and territory metadata
     for (const td of data.grid.territories) {

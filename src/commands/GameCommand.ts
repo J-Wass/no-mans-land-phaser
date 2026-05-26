@@ -79,6 +79,15 @@ export interface StartCityProductionCommand {
   issuedAtTick: number;
 }
 
+export interface CancelCityProductionCommand {
+  type:         'CANCEL_CITY_PRODUCTION';
+  playerId:     PlayerId;
+  cityId:       EntityId;
+  /** Queue index to cancel. Omit to cancel the active (current) order. */
+  queueIndex?:  number;
+  issuedAtTick: number;
+}
+
 export interface SetUnitBattleOrderCommand {
   type:         'SET_UNIT_BATTLE_ORDER';
   playerId:     PlayerId;
@@ -131,6 +140,7 @@ export type GameCommand =
   | RemoveQueuedResearchCommand
   | MoveQueuedResearchCommand
   | StartCityProductionCommand
+  | CancelCityProductionCommand
   | SetUnitBattleOrderCommand
   | DeclareWarCommand
   | ProposePeaceCommand

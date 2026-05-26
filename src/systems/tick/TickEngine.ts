@@ -18,6 +18,7 @@ import { waterManaRegenBonus } from '@/systems/resources/ResourceBonuses';
 import { TICK_RATE } from '@/config/constants';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { TerrainType } from '@/systems/grid/Territory';
+import { CARDINAL_OFFSETS } from '@/systems/grid/geometry';
 
 /** Ticks between water-mana heal pulses (same cadence as city heal). */
 const WATER_MANA_HEAL_INTERVAL_TICKS = TICK_RATE;
@@ -38,16 +39,24 @@ const MORALE_RECOVERY_CITY     = 5;
 export class TickEngine {
   private currentTick = 0;
   private readonly productionSystem        = new ProductionSystem();
-  private readonly battleSystem            = new BattleSystem();
-  private readonly citySiegeSystem         = new CitySiegeSystem();
-  private readonly rangedFireSystem        = new RangedFireSystem();
-  private readonly territoryBattleSystem   = new TerritoryBattleSystem();
+  private readonly battleSystem:            BattleSystem;
+  private readonly citySiegeSystem:         CitySiegeSystem;
+  private readonly rangedFireSystem:        RangedFireSystem;
+  private readonly territoryBattleSystem:   TerritoryBattleSystem;
 
   constructor(
     private gameState: GameState,
     private movementSystem: MovementSystem,
     private eventBus: GameEventBus
-  ) {}
+  ) {
+    // Every combat system shares the one authoritative RNG so the simulation is
+    // deterministic and lockstep-safe for multiplayer.
+    const random = gameState.getRng().fn();
+    this.battleSystem          = new BattleSystem(random);
+    this.citySiegeSystem       = new CitySiegeSystem(random);
+    this.rangedFireSystem      = new RangedFireSystem(random);
+    this.territoryBattleSystem = new TerritoryBattleSystem(random);
+  }
 
   /** Advance one tick. Returns the new tick count. */
   public advance(): number {
@@ -182,12 +191,8 @@ export class TickEngine {
   }
 
   private claimAdjacentImpassable(position: { row: number; col: number }, nationId: EntityId): void {
-    const offsets = [
-      { row: -1, col: 0 }, { row: 1, col: 0 },
-      { row: 0, col: -1 }, { row: 0, col: 1 },
-    ];
     const grid = this.gameState.getGrid();
-    for (const off of offsets) {
+    for (const off of CARDINAL_OFFSETS) {
       const nbr = grid.getTerritory({ row: position.row + off.row, col: position.col + off.col });
       if (!nbr) continue;
       const terrain = nbr.getTerrainType();
@@ -218,14 +223,26 @@ export class TickEngine {
 
   /** Heal all alive units of nations with active water mana mines, anywhere on the map. */
   private healUnitsWithWaterMana(): void {
+    // The water-mana rate is a per-nation property derived from a full territory
+    // scan; compute it once per nation per pulse instead of once per unit.
+    const rateByNation = new Map<EntityId, number>();
+    const rateFor = (nationId: EntityId): number => {
+      let rate = rateByNation.get(nationId);
+      if (rate === undefined) {
+        const deposits = this.gameState.getNationActiveDeposits(nationId);
+        const counts   = this.gameState.getNationActiveDepositCounts(nationId);
+        rate = waterManaRegenBonus(deposits, counts);
+        rateByNation.set(nationId, rate);
+      }
+      return rate;
+    };
+
     for (const unit of this.gameState.getAllUnits()) {
       if (!unit.isAlive()) continue;
       if (unit.isEngagedInBattle()) continue;
       if (unit.getHealth() >= unit.getStats().maxHealth) continue;
 
-      const deposits = this.gameState.getNationActiveDeposits(unit.getOwnerId());
-      const counts   = this.gameState.getNationActiveDepositCounts(unit.getOwnerId());
-      const rate     = waterManaRegenBonus(deposits, counts);
+      const rate = rateFor(unit.getOwnerId());
       if (rate > 0) {
         unit.heal(Math.ceil(unit.getStats().maxHealth * rate));
       }

@@ -329,13 +329,17 @@ export class ResearchModal {
     const unlocks = TECH_UNLOCKS.get(node.id);
     const unlockEl = document.createElement('div');
     unlockEl.className = 'tech-node-unlocks';
-    unlockEl.textContent = unlocks && unlocks.length > 0 ? '→ ' + unlocks.join(', ') : '';
+    // List the units/buildings this tech leads to; otherwise fall back to the
+    // effect description so it's always clear what researching this gets you.
+    unlockEl.textContent = unlocks && unlocks.length > 0
+      ? 'Leads to: ' + unlocks.join(', ')
+      : node.description;
 
     el.appendChild(name);
     el.appendChild(unlockEl);
     el.appendChild(sub);
     el.appendChild(btn);
-    el.title = node.description + (unlocks?.length ? '\n\nUnlocks: ' + unlocks.join(', ') : '');
+    el.title = node.description + (unlocks?.length ? '\n\nLeads to: ' + unlocks.join(', ') : '');
     return el;
   }
 

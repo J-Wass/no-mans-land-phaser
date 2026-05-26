@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import { BattleSystem, BATTLE_ROUND_TICKS } from './BattleSystem';
+import { BattleSystem, UNIT_BATTLE_ROUND_TICKS } from './BattleSystem';
 import { CitySiegeSystem } from './CitySiegeSystem';
 import { GameState } from '@/managers/GameState';
 import { MovementSystem } from '@/systems/movement/MovementSystem';
@@ -23,7 +23,7 @@ describe('BattleSystem', () => {
 
   function tickRounds(rounds: number, startTick = 0): number {
     let tick = startTick;
-    for (let i = 0; i < rounds * BATTLE_ROUND_TICKS; i++) {
+    for (let i = 0; i < rounds * UNIT_BATTLE_ROUND_TICKS; i++) {
       tick++;
       battleSystem.tick(gameState, movementSystem, eventBus, tick);
     }
@@ -88,7 +88,7 @@ describe('BattleSystem', () => {
     controlState.addUnit(normalCavalry);
     controlState.addUnit(normalInfantry);
     controlBattleSystem.startBattle(normalCavalry, normalInfantry, { row: 2, col: 1 }, { row: 2, col: 2 }, 0, controlMovement, controlEvents);
-    for (let tick = 1; tick <= BATTLE_ROUND_TICKS; tick++) {
+    for (let tick = 1; tick <= UNIT_BATTLE_ROUND_TICKS; tick++) {
       controlBattleSystem.tick(controlState, controlMovement, controlEvents, tick);
     }
 

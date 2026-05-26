@@ -250,25 +250,11 @@ export class PauseModal {
     this.destroy();
     const newModal = new PauseModal(this.bridge);
     const el = newModal.render();
-    import('@/ui/UIManager').then(({ UIManager }) => UIManager.open('pause', el));
+    void import('@/ui/UIManager').then(({ UIManager }) => UIManager.open('pause', el));
   }
 
   private saveGame(slot: number): void {
-    const movementStates = Array.from(this.bridge.movementSystem.getAllStates()).map(
-      ([unitId, state]) => ({ unitId, path: [...state.path], ticksRemainingOnStep: state.ticksRemainingOnStep }),
-    );
-    const saveData: GameSaveData = {
-      version: 1,
-      savedAt: Date.now(),
-      setup: this.bridge.setup,
-      currentTick: this.bridge.tickEngine.getCurrentTick(),
-      state: this.bridge.gameState.toJSON() as Record<string, unknown>,
-      movementStates,
-      battleStates: this.bridge.tickEngine.getBattleStates(),
-      siegeStates: this.bridge.tickEngine.getSiegeStates(),
-      peaceCooldowns: this.bridge.diplomacySystem.toSavedState(),
-    };
-    SaveSystem.save(slot, saveData);
+    this.bridge.saveToSlot(slot);
     this.showFeedback(`Saved to slot ${slot}.`, 'var(--color-success)');
     // Refresh the slot list
     this.refreshAccessibility();
@@ -280,7 +266,7 @@ export class PauseModal {
       this.showFeedback(`Slot ${slot} is empty.`, 'var(--color-danger)');
       return;
     }
-    import('@/ui/UIManager').then(({ UIManager }) => UIManager.close('pause'));
+    void import('@/ui/UIManager').then(({ UIManager }) => UIManager.close('pause'));
     this.bridge.phaserScene.scene.resume('GameScene');
     this.bridge.phaserScene.scene.resume('UIScene');
     this.bridge.phaserScene.scene.stop('UIScene');

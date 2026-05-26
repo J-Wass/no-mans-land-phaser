@@ -2,6 +2,7 @@ import './styles/tokens.css';
 import './styles/modals.css';
 import type { GameSetup } from '@/types/gameSetup';
 import { applyAccessibilitySettings, getFontSizeScale } from '@/config/accessibility';
+import { computeUiScale } from '@/config/uiScale';
 
 export type StartGameCallback = (opts: { setup: GameSetup; saveData?: import('@/types/gameSetup').GameSaveData }) => void;
 
@@ -9,7 +10,7 @@ function computeMetrics() {
   const w = window.innerWidth;
   const h = window.innerHeight;
   const shortSide = Math.min(w, h);
-  const scale = Math.max(0.82, Math.min(1.42, shortSide / 900));
+  const scale = computeUiScale(shortSide);
   return {
     scale,
     compact: w < 1180,
@@ -78,7 +79,7 @@ class UIManagerClass {
   showMenu(onStart: StartGameCallback): void {
     this.startGameCb = onStart;
     // MenuPage imported lazily to avoid circular deps at module load time
-    import('@/ui/pages/MenuPage').then(({ MenuPage }) => {
+    void import('@/ui/pages/MenuPage').then(({ MenuPage }) => {
       const page = new MenuPage(opts => this.startGameCb?.(opts));
       if (this.menuEl) this.menuEl.remove();
       this.menuEl = page.render();

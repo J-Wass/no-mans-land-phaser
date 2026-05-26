@@ -167,6 +167,11 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
     return this.data.stats;
   }
 
+  /** Overwrite stats from a save snapshot — used only when restoring a unit. */
+  public restoreStats(stats: UnitStats): void {
+    this.data.stats = { ...stats };
+  }
+
   public getBattleOrder(): BattleOrder {
     return this.data.battleOrder;
   }

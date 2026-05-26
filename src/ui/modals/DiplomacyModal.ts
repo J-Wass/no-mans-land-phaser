@@ -141,7 +141,7 @@ export class DiplomacyModal {
         const newModal = new DiplomacyModal(this.bridge, nation.getId());
         const el = newModal.render();
         (this.bridge as any).activeModals?.set('diplomacy', newModal);
-        import('@/ui/UIManager').then(({ UIManager }) => UIManager.open('diplomacy', el));
+        void import('@/ui/UIManager').then(({ UIManager }) => UIManager.open('diplomacy', el));
       });
       listCol.appendChild(row);
     }
@@ -222,16 +222,18 @@ export class DiplomacyModal {
         peaceBtn.className = `btn btn-success btn-sm${onCooldown ? ' disabled' : ''}`;
         peaceBtn.disabled = onCooldown;
         peaceBtn.textContent = onCooldown ? `PEACE (${Math.ceil(cooldown / TICK_RATE)}s)` : 'PROPOSE PEACE';
-        peaceBtn.addEventListener('click', async () => {
-          const lp = this.bridge.gameState.getLocalPlayer();
-          if (!lp) return;
-          await this.bridge.networkAdapter.sendCommand({
-            type: 'PROPOSE_PEACE',
-            playerId: lp.getId(),
-            targetNationId: targetNation.getId(),
-            issuedAtTick: currentTick,
-          });
-          this.close();
+        peaceBtn.addEventListener('click', () => {
+          void (async () => {
+            const lp = this.bridge.gameState.getLocalPlayer();
+            if (!lp) return;
+            await this.bridge.networkAdapter.sendCommand({
+              type: 'PROPOSE_PEACE',
+              playerId: lp.getId(),
+              targetNationId: targetNation.getId(),
+              issuedAtTick: currentTick,
+            });
+            this.close();
+          })();
         });
         statusRow.appendChild(peaceBtn);
       } else if (status === DiplomaticStatus.NEUTRAL) {
@@ -244,16 +246,18 @@ export class DiplomacyModal {
         warBtn.disabled = !canWar;
         warBtn.textContent = !canWar && cooldown > 0
           ? `WAR (${Math.ceil(cooldown / TICK_RATE)}s)` : 'DECLARE WAR';
-        warBtn.addEventListener('click', async () => {
-          const lp = this.bridge.gameState.getLocalPlayer();
-          if (!lp) return;
-          await this.bridge.networkAdapter.sendCommand({
-            type: 'DECLARE_WAR',
-            playerId: lp.getId(),
-            targetNationId: targetNation.getId(),
-            issuedAtTick: currentTick,
-          });
-          this.close();
+        warBtn.addEventListener('click', () => {
+          void (async () => {
+            const lp = this.bridge.gameState.getLocalPlayer();
+            if (!lp) return;
+            await this.bridge.networkAdapter.sendCommand({
+              type: 'DECLARE_WAR',
+              playerId: lp.getId(),
+              targetNationId: targetNation.getId(),
+              issuedAtTick: currentTick,
+            });
+            this.close();
+          })();
         });
         statusRow.appendChild(warBtn);
       }
@@ -379,30 +383,32 @@ export class DiplomacyModal {
       tradeBtn.className = 'btn btn-secondary btn-sm';
       tradeBtn.style.alignSelf = 'center';
       tradeBtn.textContent = '⇄ EXECUTE TRADE';
-      tradeBtn.addEventListener('click', async () => {
-        const lp = this.bridge.gameState.getLocalPlayer();
-        if (!lp) return;
-        const result = await this.bridge.networkAdapter.sendCommand({
-          type: 'OFFER_TRADE',
-          playerId: lp.getId(),
-          targetNationId: targetNation.getId(),
-          offer: { ...this.tradeOffer },
-          request: { ...this.tradeRequest },
-          issuedAtTick: currentTick,
-        });
-        if (result.success) {
-          tradeStatus.textContent = 'Trade accepted!';
-          tradeStatus.style.color = '#88ff88';
-          this.tradeOffer = {};
-          this.tradeRequest = {};
-          for (const res of TRADE_RESOURCES) {
-            offerLbls.get(res.type)!.textContent = '0';
-            requestLbls.get(res.type)!.textContent = '0';
+      tradeBtn.addEventListener('click', () => {
+        void (async () => {
+          const lp = this.bridge.gameState.getLocalPlayer();
+          if (!lp) return;
+          const result = await this.bridge.networkAdapter.sendCommand({
+            type: 'OFFER_TRADE',
+            playerId: lp.getId(),
+            targetNationId: targetNation.getId(),
+            offer: { ...this.tradeOffer },
+            request: { ...this.tradeRequest },
+            issuedAtTick: currentTick,
+          });
+          if (result.success) {
+            tradeStatus.textContent = 'Trade accepted!';
+            tradeStatus.style.color = '#88ff88';
+            this.tradeOffer = {};
+            this.tradeRequest = {};
+            for (const res of TRADE_RESOURCES) {
+              offerLbls.get(res.type)!.textContent = '0';
+              requestLbls.get(res.type)!.textContent = '0';
+            }
+          } else {
+            tradeStatus.textContent = result.reason ?? 'Trade rejected.';
+            tradeStatus.style.color = '#ff8888';
           }
-        } else {
-          tradeStatus.textContent = result.reason ?? 'Trade rejected.';
-          tradeStatus.style.color = '#ff8888';
-        }
+        })();
       });
 
       tradeSection.appendChild(tradeBtn);

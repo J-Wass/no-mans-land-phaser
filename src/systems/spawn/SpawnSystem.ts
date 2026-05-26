@@ -7,6 +7,9 @@ import { TerrainType } from '@/systems/grid/Territory';
 import type { Grid } from '@/systems/grid/Grid';
 import type { GridCoordinates } from '@/types/common';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { chebyshev } from '@/systems/grid/geometry';
+
+export { chebyshev };
 
 export interface SpawnPair {
   infantry: GridCoordinates;
@@ -24,7 +27,12 @@ export interface SpawnPair {
  *     furthest (Chebyshev distance) from the nearest already-placed spawn.
  *  4. For each chosen anchor tile, find an adjacent passable tile for the scout.
  */
-export function pickCoastalSpawnPairs(grid: Grid, gridSize: number, count: number): SpawnPair[] {
+export function pickCoastalSpawnPairs(
+  grid: Grid,
+  gridSize: number,
+  count: number,
+  rng: () => number = Math.random,
+): SpawnPair[] {
   const COAST_DEPTH = 4; // tiles from the edge to consider "coastal"
 
   // 1. Collect passable coastal tiles
@@ -43,7 +51,7 @@ export function pickCoastalSpawnPairs(grid: Grid, gridSize: number, count: numbe
 
   // 2. Shuffle (Fisher-Yates) for randomness
   for (let i = candidates.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     const tmp = candidates[i]!;
     candidates[i] = candidates[j]!;
     candidates[j] = tmp;
@@ -76,7 +84,7 @@ export function pickCoastalSpawnPairs(grid: Grid, gridSize: number, count: numbe
   // 4. Attach a scout tile adjacent to each anchor
   return anchors.map(anchor => ({
     infantry: anchor,
-    scout:    findAdjacentPassable(grid, anchor, gridSize, anchors) ?? anchor,
+    scout:    findAdjacentPassable(grid, anchor, gridSize, anchors, rng) ?? anchor,
   }));
 }
 
@@ -91,6 +99,7 @@ export function findCityPositions(
   anchor: GridCoordinates,
   taken: GridCoordinates[],
   gridSize: number,
+  rng: () => number = Math.random,
 ): GridCoordinates[] {
   const candidates: GridCoordinates[] = [];
   for (let r = anchor.row - 7; r <= anchor.row + 7; r++) {
@@ -106,7 +115,7 @@ export function findCityPositions(
 
   // Shuffle for variety
   for (let i = candidates.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(rng() * (i + 1));
     const tmp = candidates[i]!;
     candidates[i] = candidates[j]!;
     candidates[j] = tmp;
@@ -185,11 +194,6 @@ export function assignStartingTerritory(
   }
 }
 
-/** Chebyshev distance (diagonal counts as 1). */
-export function chebyshev(a: GridCoordinates, b: GridCoordinates): number {
-  return Math.max(Math.abs(a.row - b.row), Math.abs(a.col - b.col));
-}
-
 export function isPassable(grid: Grid, coords: GridCoordinates): boolean {
   const territory = grid.getTerritory(coords);
   if (!territory) return false;
@@ -206,6 +210,7 @@ export function findAdjacentPassable(
   origin: GridCoordinates,
   gridSize: number,
   takenAnchors: GridCoordinates[],
+  rng: () => number = Math.random,
 ): GridCoordinates | null {
   const offsets = [
     { row: 0, col: 1 },
@@ -214,7 +219,7 @@ export function findAdjacentPassable(
     { row: -1, col: 0 },
   ];
 
-  const start = Math.floor(Math.random() * offsets.length);
+  const start = Math.floor(rng() * offsets.length);
 
   for (let i = 0; i < offsets.length; i++) {
     const off = offsets[(start + i) % offsets.length]!;

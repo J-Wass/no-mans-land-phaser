@@ -28,40 +28,44 @@ export interface TechNode {
   description: string;
 }
 
+/** Global research-time multiplier applied to every tech's base duration. */
+export const RESEARCH_SPEED_MULTIPLIER = 4;
+
 // T(id, name, branch, requires, ticks, cost, description)
-// ticks: research duration (TICK_RATE=10 → 300 ticks = 30 s)
+// ticks: BASE research duration (TICK_RATE=10 → 300 ticks = 30 s); scaled by
+//        RESEARCH_SPEED_MULTIPLIER so all research takes proportionally longer.
 // cost:  research-point cost paid upfront from treasury
 const T = (
   id: TechId, name: string, branch: TechBranch,
   requires: TechId[], ticks: number, cost: number, description: string,
-): TechNode => ({ id, name, branch, requires, ticks, researchCost: cost, description });
+): TechNode => ({ id, name, branch, requires, ticks: ticks * RESEARCH_SPEED_MULTIPLIER, researchCost: cost, description });
 
 /** Full tech catalog — display order within each branch is top to bottom. */
 export const TECH_CATALOG: TechNode[] = [
   // ── Society ──────────────────────────────────────────────────────────────────
-  T('writing',              'Writing',              'society', [],                                     300,  5, 'Unlocks Trade, Education'),
-  T('hunting',              'Hunting',              'society', [],                                     300,  5, 'Unlocks Longbowman; req. for Ancient Rituals'),
-  T('masonry',              'Masonry',              'society', [],                                     300,  5, 'Unlocks Barracks, Walls, Farms, Workshop, Copper Mine'),
-  T('trade',                'Trade',                'society', ['writing'],                            450, 10, 'Unlocks Market (city)'),
-  T('education',            'Education',            'society', ['writing'],                            450, 10, 'Unlocks School (city)'),
-  T('the_wheel',            'The Wheel',            'society', ['masonry'],                            450, 10, 'Contributes to Catapult & Trebuchet'),
+  T('writing',              'Writing',              'society', [],                                     300,  5, 'Leads to Trade and Education.'),
+  T('hunting',              'Hunting',              'society', [],                                     300,  5, 'Leads to Ancient Rituals.'),
+  T('masonry',              'Masonry',              'society', [],                                     300,  5, 'Leads to The Wheel and Ancient Rituals.'),
+  T('trade',                'Trade',                'society', ['writing'],                            450, 10, 'Improves your commerce income.'),
+  T('education',            'Education',            'society', ['writing'],                            450, 10, 'Boosts your research output.'),
+  T('the_wheel',            'The Wheel',            'society', ['masonry'],                            450, 10, 'Leads to siege weapons.'),
 
   // ── Science ──────────────────────────────────────────────────────────────────
-  T('scientific_method',    'Scientific Method',    'science', [],                                     300,  5, 'Foundation of the science branch'),
-  T('mathematics',          'Mathematics',          'science', [],                                     300,  5, 'Contributes to Physics'),
-  T('chemistry',            'Chemistry',            'science', ['scientific_method'],                  450, 10, 'Contributes to Iron Working & The Elements'),
-  T('biology',              'Biology',              'science', ['scientific_method'],                  450, 10, 'Unlocks Animal Domestication'),
-  T('physics',              'Physics',              'science', ['scientific_method', 'mathematics'],   600, 15, 'Contributes to Iron Working and Kinematics'),
-  T('animal_domestication', 'Animal Domestication', 'science', ['biology'],                           600, 15, 'Unlocks Cavalry'),
-  T('iron_working',         'Iron Working',         'science', ['chemistry', 'physics'],               750, 20, 'Unlocks Heavy Infantry, Iron Mine'),
-  T('mechanization',        'Mechanization',        'science', ['iron_working'],                       750, 20, 'Unlocks Crossbowman & Trebuchet'),
-  T('steel_working',        'Steel Working',        'science', ['iron_working'],                       900, 25, 'Unlocks Fire Glass Mine & Trebuchet'),
-  T('kinematics',           'Kinematics',           'science', ['physics'],                            600, 15, '+3 ranged damage for Catapult and Trebuchet'),
+  T('scientific_method',    'Scientific Method',    'science', [],                                     300,  5, 'Leads to Chemistry, Biology, and Physics.'),
+  T('mathematics',          'Mathematics',          'science', [],                                     300,  5, 'Leads to Physics.'),
+  T('chemistry',            'Chemistry',            'science', ['scientific_method'],                  450, 10, 'Leads to Iron Working and The Elements.'),
+  T('biology',              'Biology',              'science', ['scientific_method'],                  450, 10, 'Leads to Animal Domestication.'),
+  T('physics',              'Physics',              'science', ['scientific_method', 'mathematics'],   600, 15, 'Leads to Iron Working, Mana Studies, and Kinematics.'),
+  T('animal_domestication', 'Animal Domestication', 'science', ['biology'],                           600, 15, 'Leads to mounted units.'),
+  T('iron_working',         'Iron Working',         'science', ['chemistry', 'physics'],               750, 20, 'Leads to Mechanization and Steel Working.'),
+  T('mechanization',        'Mechanization',        'science', ['iron_working'],                       750, 20, 'Leads to advanced ranged units.'),
+  T('steel_working',        'Steel Working',        'science', ['iron_working'],                       900, 25, 'Leads to the finest weapons.'),
+  T('kinematics',           'Kinematics',           'science', ['physics'],                            600, 15, '+3 ranged damage for Catapult and Trebuchet.'),
 
   // ── Arcane ───────────────────────────────────────────────────────────────────
-  T('ancient_rituals',      'Ancient Rituals',      'arcane',  ['hunting', 'masonry'],                600, 15, 'Foundation of the arcane branch'),
-  T('mana_studies',         'Mana Studies',         'arcane',  ['ancient_rituals', 'physics'],         750, 20, 'Unlocks Mana Mine (territory)'),
-  T('the_elements',         'The Elements',         'arcane',  ['mana_studies', 'chemistry'],          900, 25, 'Advanced elemental mastery; foundation for future arcane buildings'),
+  T('ancient_rituals',      'Ancient Rituals',      'arcane',  ['hunting', 'masonry'],                600, 15, 'Leads to Mana Studies.'),
+  T('mana_studies',         'Mana Studies',         'arcane',  ['ancient_rituals', 'physics'],         750, 20, 'Leads to The Elements.'),
+  T('the_elements',         'The Elements',         'arcane',  ['mana_studies', 'chemistry'],          900, 25, 'Mastery of elemental magic.'),
 ];
 
 export const TECH_MAP = new Map<TechId, TechNode>(TECH_CATALOG.map(t => [t.id, t]));

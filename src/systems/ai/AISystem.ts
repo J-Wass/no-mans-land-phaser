@@ -32,6 +32,9 @@ export class AISystem {
   }
 
   public setDifficulty(difficulty: Difficulty): void {
+    // Idempotent: rebuilding controllers resets each AdvancedProfile's strategy and
+    // every controller's evaluation phase, so skip when nothing actually changed.
+    if (difficulty === this.difficulty) return;
     this.difficulty = difficulty;
     this.controllers.clear();
     this.initControllers();
@@ -55,7 +58,12 @@ export class AISystem {
         currentTick,
       };
 
-      controller.tick(ctx);
+      // Isolate each nation: a thrown goal must not abort the AI for the rest.
+      try {
+        controller.tick(ctx);
+      } catch (err) {
+        console.error(`[AISystem] controller for ${nationId} threw`, err);
+      }
     }
   }
 
@@ -63,10 +71,15 @@ export class AISystem {
 
   private initControllers(): void {
     if (this.difficulty === 'sandbox') return; // AI is entirely passive in sandbox mode
+    let aiIndex = 0;
     for (const nation of this.gameState.getAllNations()) {
       if (!nation.isAIControlled()) continue;
       const profile = this.createProfile();
-      this.controllers.set(nation.getId(), new AIController(profile));
+      // Stagger evaluations: spread nations across the profile's interval so they
+      // don't all run their heavy goal scans on the same tick.
+      const phaseOffset = aiIndex * 7;
+      this.controllers.set(nation.getId(), new AIController(profile, phaseOffset));
+      aiIndex++;
     }
   }
 

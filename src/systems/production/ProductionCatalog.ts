@@ -23,7 +23,10 @@ export interface CatalogEntry {
   ticks:            number;
   requiresTechs:    TechId[];
   requiresBuilding: CityBuildingType | null;
+  /** A single deposit type that must be active. */
   requiresDeposit:  TerritoryResourceType | null;
+  /** Any one of these deposit types satisfies the requirement (OR semantics). */
+  requiresAnyDeposit: TerritoryResourceType[] | null;
   makeOrder(): ProductionOrder;
 }
 
@@ -36,6 +39,7 @@ const unit = (
   requiresTechs:    TechId[],
   requiresBuilding: CityBuildingType | null,
   requiresDeposit:  TerritoryResourceType | null = null,
+  requiresAnyDeposit: TerritoryResourceType[] | null = null,
 ): CatalogEntry => ({
   id: `unit:${unitType}`,
   label,
@@ -45,6 +49,7 @@ const unit = (
   requiresTechs,
   requiresBuilding,
   requiresDeposit,
+  requiresAnyDeposit,
   makeOrder: (): UnitOrder => ({
     kind: 'unit', unitType, label, ticksTotal: ticks, ticksRemaining: ticks,
   }),
@@ -77,9 +82,10 @@ export const PRODUCTION_CATALOG: CatalogEntry[] = [
 
   unit(UnitType.CROSSBOWMAN,
     'Crossbowman',
-    'HP 150  ATK 15  RNG 2  SPD 1  VIS 1  UPKEEP F1 M1  REQ COPPER',
+    'HP 150  ATK 15  RNG 2  SPD 1  VIS 1  UPKEEP F1 M1  REQ COPPER/IRON/FIRE GLASS',
     { [ResourceType.GOLD]: 50, [ResourceType.FOOD]: 550, [ResourceType.RAW_MATERIAL]: 400 },
-    90, ['mechanization'], CityBuildingType.BARRACKS, TerritoryResourceType.COPPER),
+    90, ['mechanization'], CityBuildingType.BARRACKS, null,
+    [TerritoryResourceType.COPPER, TerritoryResourceType.IRON, TerritoryResourceType.FIRE_GLASS]),
 
   unit(UnitType.HEAVY_INFANTRY,
     'Heavy Infantry',

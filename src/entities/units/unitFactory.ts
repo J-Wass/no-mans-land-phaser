@@ -50,6 +50,11 @@ export function createUnitFromData(data: UnitData): Unit {
     }
   }
 
+  // Restore serialized stats first (constructor only set base stats); this keeps
+  // save/load — and late-joining multiplayer clients — byte-for-byte consistent.
+  // Older saves may omit stats, in which case the constructor defaults stand.
+  if (data.stats) unit.restoreStats(data.stats);
+
   // Restore mutable state that may differ from the constructor defaults
   unit.setHealth(data.currentHealth);
   unit.setBattleOrder(data.battleOrder ?? 'HOLD');
