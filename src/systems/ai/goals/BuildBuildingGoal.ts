@@ -44,6 +44,7 @@ export class BuildBuildingGoal implements AIGoal {
     const nation = ctx.gameState.getNation(ctx.nationId);
     if (!nation) return null;
 
+    // Pass 1: construct any missing preferred building.
     for (const city of ctx.gameState.getCitiesByNation(ctx.nationId)) {
       if (city.getCurrentOrder()) continue;
 
@@ -54,6 +55,22 @@ export class BuildBuildingGoal implements AIGoal {
         if (!def || def.ticks === 0) continue; // ticks=0 means built-in only
         if (def.requiresTech && !nation.hasResearched(def.requiresTech)) continue;
         if (!nation.getTreasury().hasResources(def.cost)) continue;
+
+        return { cityId: city.id, building: buildingType };
+      }
+    }
+
+    // Pass 2: upgrade existing buildings (Barracks first → unlocks advanced units & faster mobilization).
+    for (const city of ctx.gameState.getCitiesByNation(ctx.nationId)) {
+      if (city.getCurrentOrder()) continue;
+
+      for (const buildingType of PREFERRED) {
+        if (!city.hasBuilding(buildingType)) continue;
+
+        const def = CITY_BUILDING_CATALOG.find(d => d.type === buildingType);
+        if (!def) continue;
+        if (city.getBuildingLevel(buildingType) >= def.maxLevel) continue;
+        if (!nation.getTreasury().hasResources(def.upgradeCost)) continue;
 
         return { cityId: city.id, building: buildingType };
       }

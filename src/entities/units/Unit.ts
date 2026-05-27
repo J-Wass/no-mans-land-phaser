@@ -321,8 +321,6 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
     this.data.retreatCooldownUntilTick = tick;
   }
 
-  public abstract getCost(): ResourceCost;
-
   /** Per-tick-interval upkeep cost. Deducted by ProductionSystem every UPKEEP_INTERVAL ticks. */
   public getUpkeep(): ResourceCost {
     return this.data.stats.upkeep;

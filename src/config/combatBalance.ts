@@ -50,6 +50,16 @@ export const RETREAT_COOLDOWN_TICKS = 20;
 export const XP_KILL = 3;
 export const XP_WIN = 2;
 export const XP_LOSS = 1;
+/** XP a unit earns when it lands ranged damage on a target in a combat round. */
+export const XP_RANGED_HIT = 1;
+
+/** Damage multiplier by veteran level (index 0 = Recruit, 1 = Veteran, 2 = Elite). */
+export const VETERAN_DAMAGE_MULT = [1.0, 1.1, 1.2] as const;
+
+/** Multiply a unit's offensive damage by its rank bonus. */
+export function veteranDamageMultiplier(veteranLevel: number): number {
+  return VETERAN_DAMAGE_MULT[Math.max(0, Math.min(2, veteranLevel))] ?? 1.0;
+}
 
 // ── City siege ───────────────────────────────────────────────────────────────
 

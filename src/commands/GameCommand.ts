@@ -88,6 +88,23 @@ export interface CancelCityProductionCommand {
   issuedAtTick: number;
 }
 
+export interface RazeCityCommand {
+  type:         'RAZE_CITY';
+  playerId:     PlayerId;
+  cityId:       EntityId;
+  /** true → start razing (random level loss every 5s), false → stop. */
+  enabled:      boolean;
+  issuedAtTick: number;
+}
+
+export interface RemoveCityBuildingLevelCommand {
+  type:         'REMOVE_CITY_BUILDING_LEVEL';
+  playerId:     PlayerId;
+  cityId:       EntityId;
+  building:     CityBuildingType;
+  issuedAtTick: number;
+}
+
 export interface SetUnitBattleOrderCommand {
   type:         'SET_UNIT_BATTLE_ORDER';
   playerId:     PlayerId;
@@ -141,6 +158,8 @@ export type GameCommand =
   | MoveQueuedResearchCommand
   | StartCityProductionCommand
   | CancelCityProductionCommand
+  | RazeCityCommand
+  | RemoveCityBuildingLevelCommand
   | SetUnitBattleOrderCommand
   | DeclareWarCommand
   | ProposePeaceCommand

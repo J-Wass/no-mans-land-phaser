@@ -76,6 +76,7 @@ export class PhaserUIBridge {
     const el = modal.render();
     this.activeModals.set('cityMenu', modal);
     UIManager.open('cityMenu', el);
+    this.eventBus.emit('ui:modal-opened', { modal: 'cityMenu' });
   }
 
   closeCityMenu(): void {
@@ -92,6 +93,7 @@ export class PhaserUIBridge {
     const el = modal.render();
     this.activeModals.set('territoryMenu', modal);
     UIManager.open('territoryMenu', el);
+    this.eventBus.emit('ui:modal-opened', { modal: 'territoryMenu' });
   }
 
   closeTerritoryMenu(): void {
@@ -107,6 +109,7 @@ export class PhaserUIBridge {
     const el = modal.render();
     this.activeModals.set('research', modal);
     UIManager.open('research', el);
+    this.eventBus.emit('ui:modal-opened', { modal: 'research' });
   }
 
   closeResearch(): void {
@@ -125,6 +128,7 @@ export class PhaserUIBridge {
     const el = modal.render();
     this.activeModals.set('diplomacy', modal);
     UIManager.open('diplomacy', el);
+    this.eventBus.emit('ui:modal-opened', { modal: 'diplomacy' });
   }
 
   closeDiplomacy(): void {

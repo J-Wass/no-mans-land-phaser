@@ -49,15 +49,15 @@ export class ProductionSystem {
       if (currentTick % GOLD_INTERVAL     === 0) t.addResource(ResourceType.GOLD,         1);
       if (currentTick >= RESEARCH_START_TICK && currentTick % RESEARCH_INTERVAL === 0) t.addResource(ResourceType.RESEARCH, 1);
 
-      // City building bonuses
-      if (city.hasBuilding(CityBuildingType.FARMS)
-          && currentTick % FOOD_INTERVAL === 0)          t.addResource(ResourceType.FOOD,         1);
-      if (city.hasBuilding(CityBuildingType.WORKSHOP)
-          && currentTick % MATERIAL_INTERVAL === 0)      t.addResource(ResourceType.RAW_MATERIAL, 1);
-      if (city.hasBuilding(CityBuildingType.SCHOOL)
-          && currentTick >= RESEARCH_START_TICK && currentTick % RESEARCH_INTERVAL === 0) t.addResource(ResourceType.RESEARCH, 1);
-      if (city.hasBuilding(CityBuildingType.MARKET)
-          && currentTick % GOLD_INTERVAL === 0)          t.addResource(ResourceType.GOLD,         1);
+      // City building bonuses — scale with building level (L1..L5).
+      const farmsLvl    = city.getBuildingLevel(CityBuildingType.FARMS);
+      const workshopLvl = city.getBuildingLevel(CityBuildingType.WORKSHOP);
+      const schoolLvl   = city.getBuildingLevel(CityBuildingType.SCHOOL);
+      const marketLvl   = city.getBuildingLevel(CityBuildingType.MARKET);
+      if (farmsLvl > 0    && currentTick % FOOD_INTERVAL === 0)      t.addResource(ResourceType.FOOD,         farmsLvl);
+      if (workshopLvl > 0 && currentTick % MATERIAL_INTERVAL === 0)  t.addResource(ResourceType.RAW_MATERIAL, workshopLvl);
+      if (schoolLvl > 0   && currentTick >= RESEARCH_START_TICK && currentTick % RESEARCH_INTERVAL === 0) t.addResource(ResourceType.RESEARCH, schoolLvl);
+      if (marketLvl > 0   && currentTick % GOLD_INTERVAL === 0)      t.addResource(ResourceType.GOLD,         marketLvl);
     }
 
     // ── Territory building bonuses + terrain yields ───────────────────────────
@@ -109,6 +109,14 @@ export class ProductionSystem {
       }
     }
 
+    // ── City raze / level-removal decay ───────────────────────────────────────
+    const razeRng = gameState.getRng().fn();
+    for (const city of gameState.getAllCities()) {
+      if (city.tickDecay(razeRng)) {
+        eventBus.emit('city:buildings-changed', { cityId: city.id, tick: currentTick });
+      }
+    }
+
     // ── City production orders ────────────────────────────────────────────────
     for (const city of gameState.getAllCities()) {
       const orderSnapshot = city.getCurrentOrder();
@@ -123,7 +131,7 @@ export class ProductionSystem {
           const unitId = `unit-city-${++unitSerial}`;
           const unit   = spawnUnit(orderSnapshot.unitType, unitId, city.getOwnerId(), spawnPos);
           unit.setHomeCityId(city.id);
-          unit.setUnitSerial(gameState.nextUnitSerial(orderSnapshot.unitType));
+          unit.setUnitSerial(gameState.nextUnitSerial(orderSnapshot.unitType, city.getOwnerId()));
           gameState.addUnit(unit);
           eventBus.emit('city:unit-spawned', {
             cityId: city.id, unitId, unitType: orderSnapshot.unitType,

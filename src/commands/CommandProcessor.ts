@@ -16,10 +16,11 @@ import type {
   UpgradeTerritoryBuildingCommand,
   StartResearchCommand, CancelResearchCommand, QueueResearchCommand, RemoveQueuedResearchCommand,
   MoveQueuedResearchCommand, StartCityProductionCommand, CancelCityProductionCommand,
+  RazeCityCommand, RemoveCityBuildingLevelCommand,
   SetUnitBattleOrderCommand,
   DeclareWarCommand, ProposePeaceCommand, OfferTradeCommand,
 } from './GameCommand';
-import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
+import { PRODUCTION_CATALOG, BARRACKS_MOBILIZATION_SPEEDUP_PER_LEVEL } from '@/systems/production/ProductionCatalog';
 import { TERRITORY_BUILDING_MAP, TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { MAX_WALLS_LEVEL } from '@/systems/grid/Territory';
 import { CITY_BUILDING_MAP, CityBuildingType } from '@/systems/territory/CityBuilding';
@@ -61,6 +62,8 @@ export class CommandProcessor {
       case 'MOVE_QUEUED_RESEARCH':   return this.handleMoveQueuedResearch(command);
       case 'START_CITY_PRODUCTION':  return this.handleStartCityProduction(command);
       case 'CANCEL_CITY_PRODUCTION': return this.handleCancelCityProduction(command);
+      case 'RAZE_CITY':              return this.handleRazeCity(command);
+      case 'REMOVE_CITY_BUILDING_LEVEL': return this.handleRemoveCityBuildingLevel(command);
       case 'SET_UNIT_BATTLE_ORDER':  return this.handleSetUnitBattleOrder(command);
       case 'DECLARE_WAR':            return this.handleDeclareWar(command);
       case 'PROPOSE_PEACE':          return this.handleProposePeace(command);
@@ -260,9 +263,9 @@ export class CommandProcessor {
 
     const alreadyBuilt = city.hasBuilding(command.building);
     const currentLevel = city.getBuildingLevel(command.building);
-    const isUpgrade = alreadyBuilt && command.building === CityBuildingType.WALLS && currentLevel < def.maxLevel;
+    const isUpgrade = alreadyBuilt && currentLevel < def.maxLevel;
     if (alreadyBuilt && !isUpgrade)
-      return { success: false, reason: 'Building already constructed' };
+      return { success: false, reason: 'Building already at max level' };
 
     if (!this.sandboxMode && def.requiresTech && !nation.hasResearched(def.requiresTech))
       return { success: false, reason: `Requires research: ${def.requiresTech}` };
@@ -340,8 +343,13 @@ export class CommandProcessor {
       if (!techsOk) return { success: false, reason: 'Required tech not researched' };
     }
 
-    if (entry.requiresBuilding && !city.hasBuilding(entry.requiresBuilding))
-      return { success: false, reason: `Requires ${entry.requiresBuilding}` };
+    if (entry.requiresBuilding) {
+      const buildingLevel = city.getBuildingLevel(entry.requiresBuilding);
+      if (buildingLevel <= 0)
+        return { success: false, reason: `Requires ${entry.requiresBuilding}` };
+      if (buildingLevel < entry.requiresBuildingLevel)
+        return { success: false, reason: `Requires ${entry.requiresBuilding} level ${entry.requiresBuildingLevel}` };
+    }
 
     if (!this.sandboxMode && entry.requiresDeposit) {
       const deposits = this.gameState.getNationActiveDeposits(nation.getId());
@@ -359,7 +367,22 @@ export class CommandProcessor {
       return { success: false, reason: 'Insufficient resources' };
 
     if (!this.sandboxMode) nation.getTreasury().consumeResources(entry.cost);
-    city.enqueueOrder(entry.makeOrder());
+
+    // Higher-level Barracks mobilize units faster.
+    const order = entry.makeOrder();
+    if (order.kind === 'unit' && entry.requiresBuilding === CityBuildingType.BARRACKS) {
+      const barracksLevel = city.getBuildingLevel(CityBuildingType.BARRACKS);
+      const speedMult = Math.max(0.5, 1 - BARRACKS_MOBILIZATION_SPEEDUP_PER_LEVEL * Math.max(0, barracksLevel - 1));
+      const ticks = Math.max(1, Math.round(order.ticksTotal * speedMult));
+      order.ticksTotal = ticks;
+      order.ticksRemaining = ticks;
+    }
+    city.enqueueOrder(order);
+    this.eventBus.emit('city:production-started', {
+      cityId:   city.id,
+      unitType: command.unitType,
+      tick:     command.issuedAtTick,
+    });
     return { success: true };
   }
 
@@ -381,6 +404,48 @@ export class CommandProcessor {
     } else if (!city.cancelQueueItem(command.queueIndex)) {
       return { success: false, reason: 'Invalid queue index' };
     }
+    return { success: true };
+  }
+
+  // ── RAZE_CITY ─────────────────────────────────────────────────────────────
+
+  private handleRazeCity(command: RazeCityCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const city = this.gameState.getCity(command.cityId);
+    if (!city || city.getOwnerId() !== nation.getId())
+      return { success: false, reason: 'City not found or not owned' };
+
+    city.setRazing(command.enabled);
+    this.eventBus.emit('city:buildings-changed', { cityId: city.id, tick: command.issuedAtTick });
+    return { success: true };
+  }
+
+  // ── REMOVE_CITY_BUILDING_LEVEL ────────────────────────────────────────────
+
+  private handleRemoveCityBuildingLevel(command: RemoveCityBuildingLevelCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const city = this.gameState.getCity(command.cityId);
+    if (!city || city.getOwnerId() !== nation.getId())
+      return { success: false, reason: 'City not found or not owned' };
+
+    if (command.building === CityBuildingType.CITY_HALL)
+      return { success: false, reason: 'City Hall cannot be downgraded' };
+    if (!city.hasBuilding(command.building))
+      return { success: false, reason: 'Building not present' };
+
+    if (!city.queueLevelRemoval(command.building))
+      return { success: false, reason: 'Cannot remove level' };
+    this.eventBus.emit('city:buildings-changed', { cityId: city.id, tick: command.issuedAtTick });
     return { success: true };
   }
 

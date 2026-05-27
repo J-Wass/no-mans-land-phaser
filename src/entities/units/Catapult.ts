@@ -1,6 +1,5 @@
 import { Unit, UnitType } from './Unit';
 import type { EntityId, GridCoordinates } from '@/types/common';
-import type { ResourceCost } from '@/systems/resources/ResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
 
 export class Catapult extends Unit {
@@ -15,13 +14,5 @@ export class Catapult extends Unit {
       vision: 1,
       upkeep: { [ResourceType.FOOD]: 1, [ResourceType.RAW_MATERIAL]: 2 },
     });
-  }
-
-  public getCost(): ResourceCost {
-    return {
-      [ResourceType.FOOD]: 25,
-      [ResourceType.RAW_MATERIAL]: 40,
-      [ResourceType.GOLD]: 15,
-    };
   }
 }

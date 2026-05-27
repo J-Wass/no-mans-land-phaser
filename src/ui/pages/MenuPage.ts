@@ -23,6 +23,28 @@ export class MenuPage {
 
   constructor(private onStart: StartGameCallback) {}
 
+  /** Wrap onStart so every launch flags the player as no-longer-new. */
+  private startGame(opts: Parameters<StartGameCallback>[0]): void {
+    try { localStorage.setItem('nml:hasPlayed', '1'); } catch { /* storage unavailable */ }
+    this.onStart(opts);
+  }
+
+  private isNewPlayer(): boolean {
+    try { return !localStorage.getItem('nml:hasPlayed'); } catch { return false; }
+  }
+
+  private tutorialScenarioId(): string | null {
+    return SCENARIOS.find(s => s.isTutorial)?.id ?? null;
+  }
+
+  private startTutorial(): void {
+    const id = this.tutorialScenarioId();
+    if (!id) return;
+    this.startGame({
+      setup: { ...this.setup, gameMode: 'scenario', scenarioId: id, difficulty: 'sandbox', opponentCount: 1 },
+    });
+  }
+
   render(): HTMLElement {
     const root = document.createElement('div');
     root.className = 'modal-backdrop fullscreen';
@@ -38,6 +60,11 @@ export class MenuPage {
 
     // Header
     root.appendChild(this.buildHeader());
+
+    // First-time-player nudge toward the tutorial
+    if (this.isNewPlayer() && this.tutorialScenarioId()) {
+      root.appendChild(this.buildNewPlayerBanner());
+    }
 
     // 3-card row
     const cardRow = document.createElement('div');
@@ -67,6 +94,38 @@ export class MenuPage {
     this.refreshScenarioBtns();
 
     return root;
+  }
+
+  private buildNewPlayerBanner(): HTMLElement {
+    const banner = document.createElement('div');
+    banner.className = 'panel-alt row spread';
+    banner.style.alignItems = 'center';
+    banner.style.gap = 'var(--ui-gap)';
+    banner.style.borderColor = 'var(--color-accent-soft)';
+
+    const text = document.createElement('div');
+    text.className = 'text-body text-wrap';
+    text.style.flex = '1';
+    text.textContent = "👋 New here? The Tutorial walks you through the basics against a passive opponent.";
+
+    const startBtn = document.createElement('button');
+    startBtn.className = 'btn btn-primary';
+    startBtn.textContent = 'START TUTORIAL';
+    startBtn.addEventListener('click', () => this.startTutorial());
+
+    const dismiss = document.createElement('button');
+    dismiss.className = 'btn btn-ghost btn-sm';
+    dismiss.textContent = '✕';
+    dismiss.title = 'Dismiss';
+    dismiss.addEventListener('click', () => {
+      try { localStorage.setItem('nml:hasPlayed', '1'); } catch { /* storage unavailable */ }
+      banner.remove();
+    });
+
+    banner.appendChild(text);
+    banner.appendChild(startBtn);
+    banner.appendChild(dismiss);
+    return banner;
   }
 
   private buildHeader(): HTMLElement {
@@ -114,7 +173,7 @@ export class MenuPage {
       for (const s of SCENARIOS) {
         const btn = document.createElement('button');
         btn.className = 'btn btn-secondary btn-full btn-sm';
-        btn.textContent = s.name.toUpperCase();
+        btn.textContent = s.isTutorial ? `★ ${s.name.toUpperCase()}` : s.name.toUpperCase();
         btn.addEventListener('click', () => {
           this.setup.scenarioId = s.id;
           this.refreshScenarioBtns();
@@ -142,7 +201,15 @@ export class MenuPage {
     startBtn.disabled = !enabled;
     startBtn.textContent = enabled ? 'START SCENARIO' : 'SCENARIO UNAVAILABLE';
     startBtn.addEventListener('click', () => {
-      this.onStart({ setup: { ...this.setup, opponentCount: 1, gameMode: 'scenario', scenarioId: this.setup.scenarioId ?? DEFAULT_SCENARIO_ID } });
+      const chosen = getScenarioById(this.setup.scenarioId);
+      this.startGame({ setup: {
+        ...this.setup,
+        opponentCount: 1,
+        gameMode: 'scenario',
+        scenarioId: this.setup.scenarioId ?? DEFAULT_SCENARIO_ID,
+        // The tutorial relies on a passive opponent — disable the AI.
+        ...(chosen?.isTutorial ? { difficulty: 'sandbox' as const } : {}),
+      } });
     });
     card.appendChild(startBtn);
 
@@ -198,7 +265,7 @@ export class MenuPage {
     startBtn.className = 'btn btn-success btn-full';
     startBtn.textContent = 'START STANDARD MATCH';
     startBtn.addEventListener('click', () => {
-      this.onStart({ setup: { ...this.setup, gameMode: 'skirmish', difficulty: this.standardDifficulty, scenarioId: null } });
+      this.startGame({ setup: { ...this.setup, gameMode: 'skirmish', difficulty: this.standardDifficulty, scenarioId: null } });
     });
     card.appendChild(startBtn);
 
@@ -227,7 +294,7 @@ export class MenuPage {
     startBtn.className = 'btn btn-primary btn-full';
     startBtn.textContent = 'START SANDBOX';
     startBtn.addEventListener('click', () => {
-      this.onStart({ setup: { ...this.setup, gameMode: 'sandbox', difficulty: 'sandbox', opponentCount: 1, scenarioId: null } });
+      this.startGame({ setup: { ...this.setup, gameMode: 'sandbox', difficulty: 'sandbox', opponentCount: 1, scenarioId: null } });
     });
 
     card.appendChild(lbl);
@@ -284,7 +351,7 @@ export class MenuPage {
       if (!firstSave) return;
       const saveData = SaveSystem.load(firstSave.slot);
       if (!saveData) return;
-      this.onStart({ setup: saveData.setup, saveData });
+      this.startGame({ setup: saveData.setup, saveData });
     });
 
     row.appendChild(lbl);

@@ -589,7 +589,7 @@ describe('CommandProcessor', () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.reason).toMatch(/already constructed/i);
+      expect(result.reason).toMatch(/already at max level/i);
     });
   });
 

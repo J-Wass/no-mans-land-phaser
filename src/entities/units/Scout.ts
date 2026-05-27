@@ -1,6 +1,5 @@
 import { Unit, UnitType } from './Unit';
 import type { EntityId, GridCoordinates } from '@/types/common';
-import type { ResourceCost } from '@/systems/resources/ResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
 
 export class Scout extends Unit {
@@ -15,12 +14,5 @@ export class Scout extends Unit {
       vision: 2,
       upkeep: { [ResourceType.FOOD]: 1, [ResourceType.RAW_MATERIAL]: 1 },
     });
-  }
-
-  public getCost(): ResourceCost {
-    return {
-      [ResourceType.FOOD]: 15,
-      [ResourceType.RAW_MATERIAL]: 5,
-    };
   }
 }

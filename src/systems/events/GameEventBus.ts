@@ -54,12 +54,16 @@ export type GameEventMap = {
   'diplomacy:war-declared':    { nationId1: EntityId; nationId2: EntityId; tick: number };
   /** A peace treaty has been accepted. */
   'diplomacy:peace-signed':    { fromNationId: EntityId; toNationId: EntityId; tick: number };
+  /** A unit production order was successfully queued at a city. */
+  'city:production-started':   { cityId: EntityId; unitType: UnitType; tick: number };
   /** City finished producing a unit; renderer should create the sprite. */
   'city:unit-spawned':         { cityId: EntityId; unitId: EntityId; unitType: UnitType; position: GridCoordinates; tick: number };
   /** City finished a resource project. */
   'city:production-complete':  { cityId: EntityId; order: ProductionOrder; tick: number };
   /** City finished constructing a building. */
   'city:building-built':       { cityId: EntityId; building: CityBuildingType; tick: number };
+  /** A city's buildings or their levels changed (conquest down-level, raze, single level removal). */
+  'city:buildings-changed':    { cityId: EntityId; tick: number };
   /** A previously unclaimed (or captured) territory was claimed by a nation. */
   'territory:claimed':              { position: GridCoordinates; nationId: EntityId; tick: number; fromNationId?: EntityId };
   /** A building was constructed on a territory tile. */
@@ -96,6 +100,8 @@ export type GameEventMap = {
   'territory:highlighted':     { position: GridCoordinates | null };
   /** A UIScene interactive element consumed a click — GameScene should ignore it. */
   'ui:click-consumed':         Record<string, never>;
+  /** A full-screen DOM menu/modal was opened (used by the tutorial to detect player navigation). */
+  'ui:modal-opened':           { modal: 'cityMenu' | 'territoryMenu' | 'research' | 'diplomacy' };
   /** Sandbox toolbar: player changed AI difficulty (or 'sandbox' = off). */
   'sandbox:ai-difficulty-changed': { difficulty: Difficulty };
   /** Sandbox toolbar: tile paint mode toggled. */

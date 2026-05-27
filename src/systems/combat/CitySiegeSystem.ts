@@ -29,6 +29,8 @@ import {
   WALL_MITIGATION_PER_LEVEL,
   ADVANCE_MITIGATION_FACTOR,
   CITY_POST_CONQUEST_HP,
+  XP_RANGED_HIT,
+  veteranDamageMultiplier,
 } from '@/config/combatBalance';
 
 interface SiegeState extends SavedSiegeState {}
@@ -126,7 +128,8 @@ export class CitySiegeSystem {
       // Compute unit → city damage
       const stats    = unit.getStats();
       const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
-      const baseDmg  = useRanged ? stats.rangedDamage : stats.meleeDamage;
+      const baseDmg  = (useRanged ? stats.rangedDamage : stats.meleeDamage)
+        * veteranDamageMultiplier(unit.getVeteranLevel());
       const unitHealthFactor = healthFactor(unit.getHealth(), stats.maxHealth);
       const wallLevel = city.getBuildingLevel(CityBuildingType.WALLS);
       const baseWallMitigation = Math.min(0.5, wallLevel * WALL_MITIGATION_PER_LEVEL);
@@ -136,6 +139,7 @@ export class CitySiegeSystem {
       const damageToCity = Math.max(1, Math.round(
         baseDmg * unitHealthFactor * (1 - wallMitigation) * damageVariance(this.random()),
       ));
+      if (useRanged && damageToCity > 0) unit.addXP(XP_RANGED_HIT);
 
       // Compute city → unit counterattack
       const cityHealthFactor = healthFactor(city.getHealth(), city.getMaxHealth());
@@ -225,6 +229,9 @@ export class CitySiegeSystem {
         const byNationId = victor.getOwnerId();
         city.setOwnerId(byNationId);
         city.cancelOrder();
+        // Capturing a city damages its infrastructure: every building drops one level
+        // (level-1 buildings are destroyed; City Hall is exempt).
+        city.downgradeAllOnConquest();
         city.setHealth(Math.ceil(city.getMaxHealth() * CITY_POST_CONQUEST_HP));
 
         const territory = gameState.getGrid().getTerritory(city.position);
@@ -243,6 +250,8 @@ export class CitySiegeSystem {
           nationId: byNationId,
           tick:     currentTick,
         });
+        // City icons / building list reflect the conquest down-level
+        eventBus.emit('city:buildings-changed', { cityId: city.id, tick: currentTick });
       }
 
       const pendingMovement = this.getPendingMovement(siege);

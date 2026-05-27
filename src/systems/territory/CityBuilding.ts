@@ -25,6 +25,9 @@ export const MAX_CITY_WALLS_LEVEL = 5;
 export const CITY_WALLS_HP_PER_LEVEL = 60;
 export const CITY_WALLS_DMG_PER_LEVEL = 3;
 
+/** Shared cap for the upgradeable economy/military buildings (Farms, Workshop, Market, Barracks, School). */
+export const MAX_CITY_BUILDING_LEVEL = 5;
+
 export interface CityBuildingDef {
   type:         CityBuildingType;
   label:        string;
@@ -53,12 +56,12 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   {
     type: CityBuildingType.BARRACKS,
     label: 'Barracks',
-    perks: 'Enables unit training',
+    perks: 'Trains units. Higher levels unlock advanced units and speed up mobilization (−5%/level).',
     cost: { [ResourceType.GOLD]: 15, [ResourceType.RAW_MATERIAL]: 30 },
     ticks: 400,
     requiresTech: 'masonry',
-    maxLevel: 1,
-    upgradeCost: {},
+    maxLevel: MAX_CITY_BUILDING_LEVEL,
+    upgradeCost: { [ResourceType.GOLD]: 20, [ResourceType.RAW_MATERIAL]: 40 },
   },
   {
     type: CityBuildingType.WALLS,
@@ -73,22 +76,22 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   {
     type: CityBuildingType.FARMS,
     label: 'Farms',
-    perks: '🍎 +2/s',
+    perks: '🍎 +2/s per level',
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 20 },
     ticks: 300,
     requiresTech: 'masonry',
-    maxLevel: 1,
-    upgradeCost: {},
+    maxLevel: MAX_CITY_BUILDING_LEVEL,
+    upgradeCost: { [ResourceType.GOLD]: 12, [ResourceType.RAW_MATERIAL]: 24 },
   },
   {
     type: CityBuildingType.WORKSHOP,
     label: 'Workshop',
-    perks: '🧱 +1/s',
+    perks: '🧱 +1/s per level',
     cost: { [ResourceType.GOLD]: 10, [ResourceType.RAW_MATERIAL]: 20 },
     ticks: 300,
     requiresTech: 'masonry',
-    maxLevel: 1,
-    upgradeCost: {},
+    maxLevel: MAX_CITY_BUILDING_LEVEL,
+    upgradeCost: { [ResourceType.GOLD]: 12, [ResourceType.RAW_MATERIAL]: 24 },
   },
   {
     type: CityBuildingType.WATCHTOWER,
@@ -103,22 +106,22 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   {
     type: CityBuildingType.SCHOOL,
     label: 'School',
-    perks: '🔬 +1/s',
+    perks: '🔬 +1/s per level',
     cost: { [ResourceType.GOLD]: 15, [ResourceType.RAW_MATERIAL]: 25, [ResourceType.FOOD]: 10 },
     ticks: 400,
     requiresTech: 'education',
-    maxLevel: 1,
-    upgradeCost: {},
+    maxLevel: MAX_CITY_BUILDING_LEVEL,
+    upgradeCost: { [ResourceType.GOLD]: 18, [ResourceType.RAW_MATERIAL]: 30, [ResourceType.FOOD]: 12 },
   },
   {
     type: CityBuildingType.MARKET,
     label: 'Market',
-    perks: '🪙 +1/s',
+    perks: '🪙 +1/s per level',
     cost: { [ResourceType.GOLD]: 20, [ResourceType.RAW_MATERIAL]: 35 },
     ticks: 400,
     requiresTech: 'trade',
-    maxLevel: 1,
-    upgradeCost: {},
+    maxLevel: MAX_CITY_BUILDING_LEVEL,
+    upgradeCost: { [ResourceType.GOLD]: 24, [ResourceType.RAW_MATERIAL]: 42 },
   },
 ];
 

@@ -3,6 +3,7 @@ import type { ResourceType } from '@/systems/resources/ResourceType';
 import type { UnitType } from '@/entities/units/Unit';
 import evershadowRaw from '@/config/maps/evershadow.terrain?raw';
 import invadersRaw   from '@/config/maps/invaders.terrain?raw';
+import tutorialRaw   from '@/config/maps/tutorial.terrain?raw';
 import SCENARIO_DATA from './scenarios.json';
 
 // ── Map file registry ─────────────────────────────────────────────────────────
@@ -11,6 +12,7 @@ import SCENARIO_DATA from './scenarios.json';
 const MAP_REGISTRY: Record<string, string[]> = {
   'evershadow-tribe': evershadowRaw.trim().split('\n').map(r => r.trimEnd()),
   'the-invaders':     invadersRaw.trim().split('\n').map(r => r.trimEnd()),
+  'tutorial':         tutorialRaw.trim().split('\n').map(r => r.trimEnd()),
 };
 
 export function getScenarioMap(id: string): string[] | null {
@@ -23,6 +25,8 @@ export interface ScenarioCityDef {
   name: string;
   row:  number;
   col:  number;
+  /** Buildings to pre-construct at level 1 (keys of CityBuildingType). */
+  buildings?: string[];
 }
 
 export interface ScenarioUnitDef {
@@ -65,6 +69,8 @@ export interface ScenarioDefinition {
   nations:           ScenarioNationConfig[];
   diplomacy?:        ScenarioDiplomacyDef[];
   victoryCondition?: VictoryCondition;
+  /** When true, this scenario launches the interactive tutorial (guided steps + checklist). */
+  isTutorial?:       boolean;
 }
 
 export const SCENARIOS = SCENARIO_DATA.scenarios as ScenarioDefinition[];

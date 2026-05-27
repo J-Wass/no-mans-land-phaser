@@ -27,6 +27,8 @@ import {
   XP_KILL,
   XP_WIN,
   XP_LOSS,
+  XP_RANGED_HIT,
+  veteranDamageMultiplier,
 } from '@/config/combatBalance';
 
 /** Round cadence for sieges and territory battles (1 s at TICK_RATE=10). */
@@ -174,6 +176,10 @@ export class BattleSystem {
       unitA.takeDamage(damageToUnitA);
       unitB.takeDamage(damageToUnitB);
 
+      // Ranged attackers earn a bit of XP for landing fire (damageToUnitB is dealt by unitA, etc.).
+      if (damageToUnitB > 0 && usesRangedAttack(unitA, orderA)) unitA.addXP(XP_RANGED_HIT);
+      if (damageToUnitA > 0 && usesRangedAttack(unitB, orderB)) unitB.addXP(XP_RANGED_HIT);
+
       const moraleHitA = Math.ceil(damageToUnitA / unitA.getStats().maxHealth * MORALE_DAMAGE_SCALAR);
       const moraleHitB = Math.ceil(damageToUnitB / unitB.getStats().maxHealth * MORALE_DAMAGE_SCALAR);
       unitA.setMorale(unitA.getMorale() - moraleHitA);
@@ -293,7 +299,8 @@ export class BattleSystem {
     const rawBase = useRanged ? Math.max(stats.rangedDamage, stats.meleeDamage * 0.7) : stats.meleeDamage;
     const isSiege = attacker.getUnitType() === 'CATAPULT' || attacker.getUnitType() === 'TREBUCHET';
     const kinematicsBonus = attackerHasKinematics && useRanged && isSiege ? 3 : 0;
-    const baseDamage = rawBase + weaponTierDamageBonus(attackerDeposits) + kinematicsBonus;
+    const baseDamage = (rawBase + weaponTierDamageBonus(attackerDeposits) + kinematicsBonus)
+      * veteranDamageMultiplier(attacker.getVeteranLevel());
     const hpFactor = healthFactor(attacker.getHealth(), stats.maxHealth);
     const orderFactor = getOrderAttackFactor(order, attacker.getUnitType());
     const matchupFactor = getMatchupAttackFactor(attacker.getUnitType(), defender.getUnitType(), defender.getStats().armorType, useRanged);
@@ -589,6 +596,12 @@ function getMatchupMitigation(unitType: UnitType, attackerType: UnitType, order:
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+/** Whether a unit attacks at range this round (same rule used by the damage formula). */
+function usesRangedAttack(unit: Unit, order: BattleOrder): boolean {
+  const stats = unit.getStats();
+  return stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'ADVANCE';
 }
 
 function effectiveBattleOrder(unit: Unit): BattleOrder {

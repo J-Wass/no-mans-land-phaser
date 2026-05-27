@@ -23,6 +23,8 @@ import { VisionSystem } from '@/systems/vision/VisionSystem';
 import { RegionSystem } from '@/systems/regions/RegionSystem';
 import { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import { MusicManager } from '@/managers/MusicManager';
+import { TutorialManager } from '@/systems/tutorial/TutorialManager';
+import { TutorialOverlay } from '@/ui/TutorialOverlay';
 
 const WATER_BORDER = 0;
 import type { GameSetup, GameSaveData } from '@/types/gameSetup';
@@ -94,6 +96,12 @@ export class GameScene extends Phaser.Scene {
   private bridge!: PhaserUIBridge;
   private musicManager!: MusicManager;
 
+  // Tutorial (active only on the tutorial scenario)
+  private tutorialManager: TutorialManager | null = null;
+  private tutorialGraphic!: Phaser.GameObjects.Graphics;
+  private tutorialHighlightTile: GridCoordinates | null = null;
+  private isTutorialMode = false;
+
   // Double-click detection for city/territory menus
   private lastClickMs     = 0;
   private lastClickTarget = '';
@@ -159,6 +167,8 @@ export class GameScene extends Phaser.Scene {
     this.diplomacySystem  = new DiplomacySystem(this.gameState, this.eventBus);
     this.visionSystem     = new VisionSystem();
     const isSandbox = this.setup.gameMode === 'sandbox';
+    this.isTutorialMode =
+      this.setup.gameMode === 'scenario' && !!getScenarioById(this.setup.scenarioId)?.isTutorial;
     this.commandProcessor = new CommandProcessor(
       this.gameState, this.movementSystem, this.eventBus, this.diplomacySystem, isSandbox,
     );
@@ -188,6 +198,7 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.musicManager.destroy();
       this.subs.disposeAll();
+      this.tutorialManager?.dispose();
     });
 
     const sceneData = this.scene.settings.data as GameSceneData;
@@ -216,6 +227,18 @@ export class GameScene extends Phaser.Scene {
     this.healthBarGraphic = this.add.graphics().setDepth(90); // below fog
     this.pathGraphic      = this.add.graphics().setDepth(92); // below fog
     this.selectionGraphic = this.add.graphics().setDepth(200);
+    this.tutorialGraphic  = this.add.graphics().setDepth(210); // above selection ring
+
+    if (this.isTutorialMode && !sceneData.saveData) {
+      const overlay = new TutorialOverlay();
+      this.tutorialManager = new TutorialManager({
+        eventBus:      this.eventBus,
+        gameState:     this.gameState,
+        ui:            overlay,
+        highlightTile: (coords) => { this.tutorialHighlightTile = coords; },
+        onBackToMenu:  () => this.bridge.goToMenu(),
+      });
+    }
 
     this.createUnitAnimations();
     this.createCitySprites();
@@ -439,6 +462,7 @@ export class GameScene extends Phaser.Scene {
     this.updateUnitAnimations();
     this.drawPaths();
     this.drawSelection();
+    this.drawTutorialHighlight();
     this.drawUnitHealthBars();
     this.drawCityHealthBars();
     this.drawConquestOverlay();
@@ -762,7 +786,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateFog(): void {
-    if (this.setup.gameMode === 'sandbox') {
+    if (this.setup.gameMode === 'sandbox' || this.isTutorialMode) {
       this.updateFogDisabled();
     } else {
       this.updateFogWithVision();
@@ -1034,10 +1058,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private shouldShowLiveUnitOverlay(unit: Unit, localNationId: string | null): boolean {
-    if (this.setup.gameMode === 'sandbox') return true;
+    if (this.setup.gameMode === 'sandbox' || this.isTutorialMode) return true;
     if (!localNationId) return true;
     if (unit.getOwnerId() === localNationId) return true;
     return this.currentVisible.has(`${unit.position.row},${unit.position.col}`);
+  }
+
+  /** Pulsing ring drawn over the tile the tutorial is currently pointing at. */
+  private drawTutorialHighlight(): void {
+    if (!this.tutorialGraphic) return;
+    this.tutorialGraphic.clear();
+    const tile = this.tutorialHighlightTile;
+    if (!tile) return;
+    const pulse = 0.5 + 0.5 * Math.sin(this.time.now / 250);
+    const x = tile.col * TILE_SIZE;
+    const y = tile.row * TILE_SIZE;
+    this.tutorialGraphic.lineStyle(3, 0x7bd4ff, 0.4 + 0.5 * pulse);
+    this.tutorialGraphic.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
   }
 
   private handleLeftClick(worldX: number, worldY: number): void {

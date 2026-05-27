@@ -15,6 +15,7 @@ import { Infantry } from '@/entities/units/Infantry';
 import { Scout } from '@/entities/units/Scout';
 import { UnitType } from '@/entities/units/Unit';
 import { City } from '@/entities/cities/City';
+import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
@@ -184,11 +185,11 @@ export class BootScene extends Phaser.Scene {
         const u = cfg.units[j]!;
         if (u.type === 'INFANTRY') {
           const unit = new Infantry(`unit-inf-${serial}`, nationId, { row: u.row, col: u.col });
-          unit.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY));
+          unit.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY, nationId));
           gameState.addUnit(unit);
         } else {
           const unit = new Scout(`unit-scout-${serial}`, nationId, { row: u.row, col: u.col });
-          unit.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT));
+          unit.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT, nationId));
           gameState.addUnit(unit);
         }
       }
@@ -197,7 +198,12 @@ export class BootScene extends Phaser.Scene {
         const cd = cfg.cities[j]!;
         const cityId = `city-${serial}-${j + 1}`;
         const pos: GridCoordinates = { row: cd.row, col: cd.col };
-        gameState.addCity(new City(cityId, cd.name, nationId, pos));
+        const city = new City(cityId, cd.name, nationId, pos);
+        for (const b of cd.buildings ?? []) {
+          const buildingType = CityBuildingType[b as keyof typeof CityBuildingType];
+          if (buildingType !== undefined) city.addBuilding(buildingType);
+        }
+        gameState.addCity(city);
         cityPositions.push(pos);
       }
 
@@ -288,8 +294,8 @@ function seedNation(
 ): GridCoordinates[] {
   const infantry = new Infantry(`unit-inf-${serial}`, nationId, pair.infantry);
   const scout    = new Scout(`unit-scout-${serial}`, nationId, pair.scout);
-  infantry.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY));
-  scout.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT));
+  infantry.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY, nationId));
+  scout.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT, nationId));
 
   takenPositions.push(pair.infantry, pair.scout);
 

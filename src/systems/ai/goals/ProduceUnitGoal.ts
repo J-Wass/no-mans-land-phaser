@@ -48,7 +48,7 @@ export class ProduceUnitGoal implements AIGoal {
         const entry = PRODUCTION_CATALOG.find(e => e.id === `unit:${unitType}`);
         if (!entry) continue;
         if (!entry.requiresTechs.every(t => nation.hasResearched(t))) continue;
-        if (entry.requiresBuilding && !city.hasBuilding(entry.requiresBuilding)) continue;
+        if (entry.requiresBuilding && city.getBuildingLevel(entry.requiresBuilding) < entry.requiresBuildingLevel) continue;
         if (entry.requiresDeposit && !deposits.has(entry.requiresDeposit)) continue;
         if (entry.requiresAnyDeposit && !entry.requiresAnyDeposit.some(d => deposits.has(d))) continue;
         if (!nation.getTreasury().hasResources(entry.cost)) continue;

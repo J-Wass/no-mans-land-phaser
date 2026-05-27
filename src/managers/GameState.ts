@@ -39,7 +39,10 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   private defeatedNations:  Map<EntityId, DefeatedNationData>;
   private currentTurn:      number;
   private activeNationId:   EntityId | null;
-  /** Next serial number to assign per unit type (starts at 100 → first serial = 101). */
+  /**
+   * Next serial number to assign per (nation, unit type) — starts at 100 → first serial = 101.
+   * Keyed by `${nationId}:${unitType}` so each nation has its own "101st Infantry" sequence.
+   */
   private unitTypeCounters: Map<string, number>;
   /** Tiles each nation has ever had line-of-sight on. */
   private discoveredTiles:  Map<EntityId, Set<string>>;
@@ -71,11 +74,12 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   /** The authoritative deterministic RNG. All simulation randomness must draw from this. */
   public getRng(): Rng { return this.rng; }
 
-  /** Increment and return the next ordinal serial number for a unit type. */
-  public nextUnitSerial(type: string): number {
-    const current = this.unitTypeCounters.get(type) ?? 100;
+  /** Increment and return the next ordinal serial number for a unit type, scoped to a nation. */
+  public nextUnitSerial(type: string, nationId: EntityId): number {
+    const key = `${nationId}:${type}`;
+    const current = this.unitTypeCounters.get(key) ?? 100;
     const next = current + 1;
-    this.unitTypeCounters.set(type, next);
+    this.unitTypeCounters.set(key, next);
     return next;
   }
 
@@ -415,6 +419,9 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
         buildings?: CityBuildingType[];
         buildingLevels?: Partial<Record<CityBuildingType, number>>;
         currentHealth?: number;
+        razing?: boolean;
+        razeCountdown?: number;
+        pendingRemoval?: { building: CityBuildingType; ticksRemaining: number } | null;
       };
       if (cdAny.buildings) city.setBuildings(cdAny.buildings);
       if (cdAny.buildingLevels) {
@@ -423,6 +430,9 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
         }
       }
       if (typeof cdAny.currentHealth === 'number') city.setHealth(cdAny.currentHealth);
+      if (cdAny.razing !== undefined || cdAny.pendingRemoval !== undefined) {
+        city.restoreDecayState(cdAny.razing ?? false, cdAny.razeCountdown ?? 0, cdAny.pendingRemoval ?? null);
+      }
       const savedQueue = (cd as { productionQueue?: ProductionOrder[] }).productionQueue;
       if (savedQueue?.length) city.restoreQueue(savedQueue);
       state.addCity(city);
@@ -438,12 +448,13 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
         state.unitTypeCounters.set(type, count);
       }
     } else {
-      // Derive counters from max serial on existing units
+      // Derive counters from max serial on existing units (keyed per nation + type)
       for (const unit of state.units.values()) {
         const s = unit.getUnitSerial();
         if (s > 0) {
-          const cur = state.unitTypeCounters.get(unit.getUnitType()) ?? 100;
-          if (s > cur) state.unitTypeCounters.set(unit.getUnitType(), s);
+          const key = `${unit.getOwnerId()}:${unit.getUnitType()}`;
+          const cur = state.unitTypeCounters.get(key) ?? 100;
+          if (s > cur) state.unitTypeCounters.set(key, s);
         }
       }
     }

@@ -15,13 +15,15 @@ function createNation(id: string, isAI = false): Nation {
 }
 
 describe('GameState', () => {
-  it('increments unit serials independently per unit type', () => {
+  it('increments unit serials independently per nation and unit type', () => {
     const state = new GameState({ rows: 4, cols: 4 });
 
-    expect(state.nextUnitSerial('INFANTRY')).toBe(101);
-    expect(state.nextUnitSerial('INFANTRY')).toBe(102);
-    expect(state.nextUnitSerial('CAVALRY')).toBe(101);
-    expect(state.nextUnitSerial('INFANTRY')).toBe(103);
+    expect(state.nextUnitSerial('INFANTRY', 'nation-1')).toBe(101);
+    expect(state.nextUnitSerial('INFANTRY', 'nation-1')).toBe(102);
+    expect(state.nextUnitSerial('CAVALRY', 'nation-1')).toBe(101);
+    // A different nation keeps its own "101st" sequence.
+    expect(state.nextUnitSerial('INFANTRY', 'nation-2')).toBe(101);
+    expect(state.nextUnitSerial('INFANTRY', 'nation-1')).toBe(103);
   });
 
   it('keeps the nation->units index consistent across add and remove', () => {
@@ -231,8 +233,8 @@ describe('GameState', () => {
     unit.setRetreatCooldownUntilTick(33);
     state.addUnit(unit);
 
-    state.nextUnitSerial('INFANTRY');
-    state.nextUnitSerial('INFANTRY');
+    state.nextUnitSerial('INFANTRY', nationA.getId());
+    state.nextUnitSerial('INFANTRY', nationA.getId());
     state.markDiscovered(nationA.getId(), ['1,1', '2,2']);
     state.setActiveNation(nationB.getId());
     state.nextTurn();
@@ -263,6 +265,6 @@ describe('GameState', () => {
     expect(restored.getGrid().getTerritory({ row: 2, col: 2 })?.getBuildingLevel(TerritoryBuildingType.WALLS)).toBe(3);
     expect(restored.getGrid().getTerritory({ row: 2, col: 2 })?.getHealth()).toBe(90);
     expect(restored.getDiscoveredTiles(nationA.getId())).toEqual(new Set(['1,1', '2,2']));
-    expect(restored.nextUnitSerial('INFANTRY')).toBe(103);
+    expect(restored.nextUnitSerial('INFANTRY', nationA.getId())).toBe(103);
   });
 });

@@ -28,6 +28,8 @@ import {
   TERRITORY_WALL_MITIGATION,
   TERRITORY_RANGED_COUNTER_FACTOR,
   TERRITORY_RETREAT_REGEN,
+  XP_RANGED_HIT,
+  veteranDamageMultiplier,
 } from '@/config/combatBalance';
 
 export interface TerritoryBattleState {
@@ -139,13 +141,15 @@ export class TerritoryBattleSystem {
       // Unit → territory damage
       const stats     = unit.getStats();
       const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
-      const baseDmg   = useRanged ? stats.rangedDamage : stats.meleeDamage;
+      const baseDmg   = (useRanged ? stats.rangedDamage : stats.meleeDamage)
+        * veteranDamageMultiplier(unit.getVeteranLevel());
       const hpFactor  = healthFactor(unit.getHealth(), stats.maxHealth);
       const wallMit   = (territory.hasBuilding(TerritoryBuildingType.WALLS) && unit.getBattleOrder() !== 'ADVANCE')
         ? TERRITORY_WALL_MITIGATION : 0;
       const damageToTerritory = Math.max(1, Math.round(
         baseDmg * hpFactor * (1 - wallMit) * damageVariance(this.random()),
       ));
+      if (useRanged && damageToTerritory > 0) unit.addXP(XP_RANGED_HIT);
 
       // Territory → unit damage
       const counterFactor = useRanged ? TERRITORY_RANGED_COUNTER_FACTOR : 1.0;

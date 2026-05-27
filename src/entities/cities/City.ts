@@ -5,6 +5,9 @@
 
 export const CITY_QUEUE_MAX = 5;
 
+/** Ticks between automatic level losses while a city is being razed (5s at TICK_RATE=10). */
+export const CITY_RAZE_INTERVAL_TICKS = 50;
+
 import { EntityType } from '@/types/common';
 import type { EntityId, GridCoordinates, GameEntity } from '@/types/common';
 import type { Serializable } from '@/types/serializable';
@@ -12,7 +15,7 @@ import type { ProductionOrder } from '@/systems/production/ProductionOrder';
 import {
   CITY_WALLS_DMG_PER_LEVEL,
   CITY_WALLS_HP_PER_LEVEL,
-  MAX_CITY_WALLS_LEVEL,
+  CITY_BUILDING_MAP,
   CityBuildingType,
 } from '@/systems/territory/CityBuilding';
 
@@ -28,6 +31,12 @@ export interface CityData {
   currentHealth:   number;
   maxHealth:       number;
   meleeDamage:     number;
+  /** When true, a random building loses one level every CITY_RAZE_INTERVAL_TICKS. */
+  razing:          boolean;
+  /** Ticks until the next automatic raze level-loss. */
+  razeCountdown:   number;
+  /** A single targeted level removal in progress (takes CITY_RAZE_INTERVAL_TICKS to resolve). */
+  pendingRemoval:  { building: CityBuildingType; ticksRemaining: number } | null;
 }
 
 export class City implements GameEntity, Serializable<CityData> {
@@ -47,6 +56,9 @@ export class City implements GameEntity, Serializable<CityData> {
       maxHealth:     200,
       currentHealth: 200,
       meleeDamage:   12,
+      razing:        false,
+      razeCountdown: 0,
+      pendingRemoval: null,
     };
   }
 
@@ -150,15 +162,33 @@ export class City implements GameEntity, Serializable<CityData> {
     return this.data.buildings.includes(b);
   }
 
+  /** Max level a building can reach, sourced from the catalog (defaults to 1). */
+  private maxLevelFor(b: CityBuildingType): number {
+    return CITY_BUILDING_MAP.get(b)?.maxLevel ?? 1;
+  }
+
   public addBuilding(b: CityBuildingType): void {
     if (this.hasBuilding(b)) {
-      if (b === CityBuildingType.WALLS) this.upgradeBuildingLevel(b);
+      // Re-building an existing building is the upgrade path (any upgradeable building).
+      this.upgradeBuildingLevel(b);
       return;
     }
 
     this.data.buildings.push(b);
     this.data.buildingLevels = { ...this.data.buildingLevels, [b]: 1 };
     if (b === CityBuildingType.WALLS) this.data.currentHealth = this.getMaxHealth();
+  }
+
+  /** Remove a building entirely (level → 0). City Hall is permanent and never removed. */
+  public removeBuilding(b: CityBuildingType): void {
+    if (b === CityBuildingType.CITY_HALL) return;
+    this.data.buildings = this.data.buildings.filter(x => x !== b);
+    const levels = { ...this.data.buildingLevels };
+    delete levels[b];
+    this.data.buildingLevels = levels;
+    if (b === CityBuildingType.WALLS) {
+      this.data.currentHealth = Math.min(this.data.currentHealth, this.getMaxHealth());
+    }
   }
 
   public setBuildings(buildings: CityBuildingType[]): void {
@@ -179,20 +209,111 @@ export class City implements GameEntity, Serializable<CityData> {
   public setBuildingLevel(b: CityBuildingType, level: number): void {
     if (level <= 0) return;
     if (!this.hasBuilding(b)) this.data.buildings.push(b);
-    const maxLevel = b === CityBuildingType.WALLS ? MAX_CITY_WALLS_LEVEL : 1;
-    const clamped = Math.max(1, Math.min(maxLevel, level));
+    const clamped = Math.max(1, Math.min(this.maxLevelFor(b), level));
     this.data.buildingLevels = { ...this.data.buildingLevels, [b]: clamped };
     this.data.currentHealth = Math.min(this.data.currentHealth, this.getMaxHealth());
   }
 
   public upgradeBuildingLevel(b: CityBuildingType): boolean {
     if (!this.hasBuilding(b)) return false;
-    const maxLevel = b === CityBuildingType.WALLS ? MAX_CITY_WALLS_LEVEL : 1;
     const current = this.getBuildingLevel(b);
-    if (current >= maxLevel) return false;
+    if (current >= this.maxLevelFor(b)) return false;
     this.data.buildingLevels = { ...this.data.buildingLevels, [b]: current + 1 };
     if (b === CityBuildingType.WALLS) this.data.currentHealth = this.getMaxHealth();
     return true;
+  }
+
+  /**
+   * Drop one level off a building. A building at level 1 is removed entirely.
+   * City Hall is exempt. Returns true if anything changed.
+   */
+  private loseOneLevel(b: CityBuildingType): boolean {
+    if (b === CityBuildingType.CITY_HALL || !this.hasBuilding(b)) return false;
+    const current = this.getBuildingLevel(b);
+    if (current <= 1) {
+      this.removeBuilding(b);
+    } else {
+      this.data.buildingLevels = { ...this.data.buildingLevels, [b]: current - 1 };
+      if (b === CityBuildingType.WALLS) {
+        this.data.currentHealth = Math.min(this.data.currentHealth, this.getMaxHealth());
+      }
+    }
+    return true;
+  }
+
+  // ── Conquest / razing ──────────────────────────────────────────────────────
+
+  /** On capture, every non–City-Hall building drops one level (level-1 buildings are destroyed). */
+  public downgradeAllOnConquest(): void {
+    for (const b of [...this.data.buildings]) {
+      this.loseOneLevel(b);
+    }
+    // A captured city is no longer being razed by its previous owner.
+    this.data.razing = false;
+    this.data.pendingRemoval = null;
+  }
+
+  public isRazing(): boolean { return this.data.razing; }
+
+  public setRazing(on: boolean): void {
+    this.data.razing = on;
+    if (on && this.data.razeCountdown <= 0) this.data.razeCountdown = CITY_RAZE_INTERVAL_TICKS;
+  }
+
+  public getPendingRemoval(): Readonly<{ building: CityBuildingType; ticksRemaining: number }> | null {
+    return this.data.pendingRemoval;
+  }
+
+  /** Schedule a single level removal of a specific building (resolves after CITY_RAZE_INTERVAL_TICKS). */
+  public queueLevelRemoval(b: CityBuildingType): boolean {
+    if (b === CityBuildingType.CITY_HALL || !this.hasBuilding(b)) return false;
+    this.data.pendingRemoval = { building: b, ticksRemaining: CITY_RAZE_INTERVAL_TICKS };
+    return true;
+  }
+
+  /** Buildings eligible to lose a level (present, not City Hall). */
+  private razeableBuildings(): CityBuildingType[] {
+    return this.data.buildings.filter(b => b !== CityBuildingType.CITY_HALL);
+  }
+
+  /**
+   * Advance raze / pending-removal timers by one tick.
+   * Returns true if a building lost a level this tick (so callers can emit a refresh event).
+   */
+  public tickDecay(randomFn: () => number): boolean {
+    // Targeted single removal takes priority over background razing.
+    if (this.data.pendingRemoval) {
+      this.data.pendingRemoval.ticksRemaining--;
+      if (this.data.pendingRemoval.ticksRemaining <= 0) {
+        const b = this.data.pendingRemoval.building;
+        this.data.pendingRemoval = null;
+        return this.loseOneLevel(b);
+      }
+      return false;
+    }
+
+    if (this.data.razing) {
+      const targets = this.razeableBuildings();
+      if (targets.length === 0) { this.data.razing = false; return false; }
+      this.data.razeCountdown--;
+      if (this.data.razeCountdown <= 0) {
+        this.data.razeCountdown = CITY_RAZE_INTERVAL_TICKS;
+        const target = targets[Math.floor(randomFn() * targets.length)] ?? targets[0]!;
+        return this.loseOneLevel(target);
+      }
+    }
+    return false;
+  }
+
+  /** Restore raze / pending-removal state from a save snapshot. */
+  public restoreDecayState(
+    razing: boolean,
+    razeCountdown: number,
+    pendingRemoval: { building: CityBuildingType; ticksRemaining: number } | null,
+  ): void {
+    this.data.razing = razing;
+    this.data.razeCountdown = razeCountdown;
+    this.data.pendingRemoval = pendingRemoval ? { ...pendingRemoval } : null;
   }
 
   public getData(): Readonly<CityData> { return this.data; }
@@ -205,6 +326,7 @@ export class City implements GameEntity, Serializable<CityData> {
       productionQueue: this.data.productionQueue.map(o => ({ ...o })),
       buildings:       [...this.data.buildings],
       buildingLevels:  { ...this.data.buildingLevels },
+      pendingRemoval:  this.data.pendingRemoval ? { ...this.data.pendingRemoval } : null,
     };
   }
 }

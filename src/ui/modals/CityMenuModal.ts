@@ -2,7 +2,7 @@ import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import type { City } from '@/entities/cities/City';
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 import type { CatalogEntry } from '@/systems/production/ProductionCatalog';
-import { CITY_BUILDING_CATALOG, CityBuildingType } from '@/systems/territory/CityBuilding';
+import { CITY_BUILDING_CATALOG } from '@/systems/territory/CityBuilding';
 import type { CityBuildingDef } from '@/systems/territory/CityBuilding';
 import type { UnitOrder } from '@/systems/production/ProductionOrder';
 import { CITY_QUEUE_MAX } from '@/entities/cities/City';
@@ -25,7 +25,8 @@ export class CityMenuModal {
   private queueList!: HTMLElement;
   private resourceTexts = new Map<ResourceType, HTMLElement>();
   private unitRows: Array<{ entry: CatalogEntry; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
-  private buildingRows: Array<{ def: CityBuildingDef; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
+  private buildingRows: Array<{ def: CityBuildingDef; btn: HTMLButtonElement; removeBtn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement }> = [];
+  private razeBtn?: HTMLButtonElement;
   private rafId = 0;
   private subs?: EventSubscriptions;
 
@@ -198,6 +199,7 @@ export class CityMenuModal {
   private buildUnitList(): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'col tight';
+    wrap.dataset['tutorial'] = 'produce-unit';
 
     for (const entry of PRODUCTION_CATALOG) {
       const { row, record } = this.buildUnitRow(entry);
@@ -210,6 +212,9 @@ export class CityMenuModal {
   private buildBuildingList(): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'col tight';
+    wrap.dataset['tutorial'] = 'build-building';
+
+    wrap.appendChild(this.buildRazeRow());
 
     for (const def of CITY_BUILDING_CATALOG.filter(d => d.ticks > 0)) {
       const { row, record } = this.buildBuildingRow(def);
@@ -217,6 +222,37 @@ export class CityMenuModal {
       wrap.appendChild(row);
     }
     return wrap;
+  }
+
+  /** Top-of-list control to toggle razing the whole city (random level loss every 5s). */
+  private buildRazeRow(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'list-row';
+
+    const info = document.createElement('div');
+    info.className = 'col tight grow';
+
+    const name = document.createElement('div');
+    name.className = 'text-label text-bold';
+    name.textContent = 'Raze City';
+
+    const desc = document.createElement('div');
+    desc.className = 'text-caption text-dim text-wrap';
+    desc.style.fontSize = '10px';
+    desc.textContent = 'Destroys a random building level every 5s until none remain.';
+
+    info.appendChild(name);
+    info.appendChild(desc);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-danger btn-sm';
+    btn.textContent = 'RAZE';
+    btn.addEventListener('click', () => { void this.toggleRaze(); });
+    this.razeBtn = btn;
+
+    row.appendChild(info);
+    row.appendChild(btn);
+    return row;
   }
 
   private buildUnitRow(entry: CatalogEntry): { row: HTMLElement; record: { entry: CatalogEntry; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement } } {
@@ -255,7 +291,7 @@ export class CityMenuModal {
     return { row, record: { entry, btn, costLbl, statusLbl } };
   }
 
-  private buildBuildingRow(def: CityBuildingDef): { row: HTMLElement; record: { def: CityBuildingDef; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement } } {
+  private buildBuildingRow(def: CityBuildingDef): { row: HTMLElement; record: { def: CityBuildingDef; btn: HTMLButtonElement; removeBtn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement } } {
     const row = document.createElement('div');
     row.className = 'list-row';
 
@@ -286,15 +322,28 @@ export class CityMenuModal {
     info.appendChild(costLbl);
     info.appendChild(statusLbl);
 
+    const actions = document.createElement('div');
+    actions.className = 'col tight';
+    actions.style.flexShrink = '0';
+
     const btn = document.createElement('button');
     btn.className = 'btn btn-primary btn-sm';
     btn.textContent = 'BUILD';
     btn.addEventListener('click', () => void this.buildCityBuilding(def));
 
-    row.appendChild(info);
-    row.appendChild(btn);
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'btn btn-warning btn-sm';
+    removeBtn.textContent = '−1 LVL';
+    removeBtn.title = 'Remove one level (takes 5s)';
+    removeBtn.addEventListener('click', () => { void this.removeBuildingLevel(def); });
 
-    return { row, record: { def, btn, costLbl, statusLbl } };
+    actions.appendChild(btn);
+    actions.appendChild(removeBtn);
+
+    row.appendChild(info);
+    row.appendChild(actions);
+
+    return { row, record: { def, btn, removeBtn, costLbl, statusLbl } };
   }
 
   private switchTab(tab: Tab): void {
@@ -314,6 +363,7 @@ export class CityMenuModal {
     const tick = () => {
       this.updateProduction();
       this.updateResources();
+      this.refreshBuildButtons();
       this.rafId = requestAnimationFrame(tick);
     };
     this.rafId = requestAnimationFrame(tick);
@@ -378,7 +428,8 @@ export class CityMenuModal {
     for (const row of this.unitRows) {
       const canAfford   = treasury?.hasResources(row.entry.cost) ?? false;
       const techsOk     = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
-      const buildingOk  = !row.entry.requiresBuilding || this.city.hasBuilding(row.entry.requiresBuilding);
+      const buildingOk  = !row.entry.requiresBuilding
+        || this.city.getBuildingLevel(row.entry.requiresBuilding) >= row.entry.requiresBuildingLevel;
       const depositOk   = (!row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit))
         && (!row.entry.requiresAnyDeposit || row.entry.requiresAnyDeposit.some(d => deposits.has(d)));
       const enabled     = !queueFull && canAfford && techsOk && buildingOk && depositOk;
@@ -396,7 +447,7 @@ export class CityMenuModal {
     for (const row of this.buildingRows) {
       const alreadyBuilt = this.city.hasBuilding(row.def.type);
       const currentLevel = this.city.getBuildingLevel(row.def.type);
-      const canUpgrade   = row.def.type === CityBuildingType.WALLS && alreadyBuilt && currentLevel < row.def.maxLevel;
+      const canUpgrade   = alreadyBuilt && currentLevel < row.def.maxLevel;
       const techOk       = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
       const cost         = canUpgrade ? row.def.upgradeCost : row.def.cost;
       const canAfford    = treasury?.hasResources(cost) ?? false;
@@ -413,6 +464,21 @@ export class CityMenuModal {
       row.costLbl.style.color = canAfford ? 'var(--color-dim)' : '#d19393';
       row.statusLbl.textContent = this.getLockReasonForBuilding(row.def);
       row.statusLbl.style.color = enabled ? 'var(--color-dim)' : '#d5a0a0';
+
+      // Remove-one-level control: only for built buildings; shows the 5s countdown while pending.
+      const pending = this.city.getPendingRemoval();
+      const removalPending = pending?.building === row.def.type;
+      row.removeBtn.style.display = alreadyBuilt ? '' : 'none';
+      row.removeBtn.disabled = !alreadyBuilt || removalPending;
+      row.removeBtn.textContent = removalPending
+        ? `−1 LVL ${(pending!.ticksRemaining / TICK_RATE).toFixed(0)}s`
+        : '−1 LVL';
+    }
+
+    if (this.razeBtn) {
+      const razing = this.city.isRazing();
+      this.razeBtn.textContent = razing ? 'STOP' : 'RAZE';
+      this.razeBtn.className = `btn btn-sm ${razing ? 'btn-warning' : 'btn-danger'}`;
     }
   }
 
@@ -421,8 +487,12 @@ export class CityMenuModal {
     if (this.city.isQueueFull()) return `Queue full (max ${CITY_QUEUE_MAX} items).`;
     const missing = entry.requiresTechs.filter(t => !nation?.hasResearched(t));
     if (missing.length) return `Requires research: ${missing.map(t => t.replace(/_/g, ' ')).join(', ')}.`;
-    if (entry.requiresBuilding !== null && !this.city.hasBuilding(entry.requiresBuilding))
-      return `Requires ${entry.requiresBuilding.replace(/_/g, ' ').toLowerCase()} in this city.`;
+    if (entry.requiresBuilding !== null) {
+      const lvl = this.city.getBuildingLevel(entry.requiresBuilding);
+      const name = entry.requiresBuilding.replace(/_/g, ' ').toLowerCase();
+      if (lvl <= 0) return `Requires ${name} in this city.`;
+      if (lvl < entry.requiresBuildingLevel) return `Requires ${name} level ${entry.requiresBuildingLevel}.`;
+    }
     if (entry.requiresDeposit) {
       const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
       if (!deposits.has(entry.requiresDeposit))
@@ -441,7 +511,7 @@ export class CityMenuModal {
     if (this.city.isQueueFull()) return `Queue full (max ${CITY_QUEUE_MAX} items).`;
     if (this.city.hasBuilding(def.type)) {
       const level = this.city.getBuildingLevel(def.type);
-      if (def.type !== CityBuildingType.WALLS || level >= def.maxLevel) return 'Already built.';
+      if (level >= def.maxLevel) return def.maxLevel > 1 ? 'Already at max level.' : 'Already built.';
       const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
       if (!nation?.getTreasury().hasResources(def.upgradeCost)) return 'Insufficient resources.';
       return `Ready to upgrade to level ${level + 1}.`;
@@ -479,6 +549,32 @@ export class CityMenuModal {
     if (result.success) this.refresh();
   }
 
+  private async toggleRaze(): Promise<void> {
+    const lp = this.bridge.gameState.getLocalPlayer();
+    if (!lp) return;
+    const result = await this.bridge.networkAdapter.sendCommand({
+      type: 'RAZE_CITY',
+      playerId: lp.getId(),
+      cityId: this.city.id,
+      enabled: !this.city.isRazing(),
+      issuedAtTick: 0,
+    });
+    if (result.success) this.refresh();
+  }
+
+  private async removeBuildingLevel(def: CityBuildingDef): Promise<void> {
+    const lp = this.bridge.gameState.getLocalPlayer();
+    if (!lp) return;
+    const result = await this.bridge.networkAdapter.sendCommand({
+      type: 'REMOVE_CITY_BUILDING_LEVEL',
+      playerId: lp.getId(),
+      cityId: this.city.id,
+      building: def.type,
+      issuedAtTick: 0,
+    });
+    if (result.success) this.refresh();
+  }
+
   /** Cancel the active order, or a queued item when `queueIndex` is given. */
   private async cancelProduction(queueIndex?: number): Promise<void> {
     const lp = this.bridge.gameState.getLocalPlayer();
@@ -498,6 +594,7 @@ export class CityMenuModal {
     this.subs = new EventSubscriptions(this.bridge.eventBus);
     this.subs.on('city:unit-spawned',       onRefresh);
     this.subs.on('city:building-built',      onRefresh);
+    this.subs.on('city:buildings-changed',   onRefresh);
     this.subs.on('city:production-complete', onRefresh);
     this.subs.on('nation:research-complete', onRefresh);
   }

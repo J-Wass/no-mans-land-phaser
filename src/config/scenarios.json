@@ -126,6 +126,46 @@
         {"nation1": 2, "nation2": 3, "status": "WAR"}
       ],
       "victoryCondition": { "type": "eliminate_all" }
+    },
+    {
+      "id": "tutorial",
+      "name": "Tutorial",
+      "isTutorial": true,
+      "description": "Learn the ropes: move units, run a city, research, and conquer a neighbouring hold. The enemy stays passive so you can take your time.",
+      "deposits": [
+        {"row": 13, "col": 10, "type": "COPPER"}
+      ],
+      "nations": [
+        {
+          "name": "Rivervale",
+          "color": "#4a8fc2",
+          "isPlayer": true,
+          "cities": [
+            {"name": "Rivervale", "row": 15, "col": 8, "buildings": ["BARRACKS"]}
+          ],
+          "units": [
+            {"type": "INFANTRY", "row": 16, "col": 8},
+            {"type": "SCOUT",    "row": 15, "col": 9}
+          ],
+          "resources": {"GOLD": 300, "FOOD": 1200, "RAW_MATERIAL": 800, "RESEARCH": 300},
+          "startingTechs": ["masonry", "writing"]
+        },
+        {
+          "name": "Greyhold",
+          "color": "#5c3d7a",
+          "isPlayer": false,
+          "cities": [
+            {"name": "Greyhold", "row": 8, "col": 14}
+          ],
+          "units": [],
+          "resources": {"GOLD": 10},
+          "startingTechs": []
+        }
+      ],
+      "diplomacy": [
+        {"nation1": 0, "nation2": 1, "status": "WAR"}
+      ],
+      "victoryCondition": { "type": "eliminate_all" }
     }
   ]
 }
