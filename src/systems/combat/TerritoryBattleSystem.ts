@@ -31,6 +31,11 @@ import {
   XP_RANGED_HIT,
   veteranDamageMultiplier,
 } from '@/config/combatBalance';
+import {
+  applyCombatMoraleHit,
+  applyAdvancePenalty,
+  effectiveBattleOrder,
+} from '@/systems/morale/moraleRules';
 
 export interface TerritoryBattleState {
   id:              string;
@@ -132,19 +137,20 @@ export class TerritoryBattleSystem {
       battle.ticksUntilRound = BATTLE_ROUND_TICKS;
       battle.roundsElapsed++;
 
+      const order = effectiveBattleOrder(unit);
       // FALL_BACK — unit always disengages
-      if (unit.getBattleOrder() === 'FALL_BACK') {
+      if (order === 'FALL_BACK') {
         this.finishBattle(battle, posKey, gameState, movementSystem, eventBus, currentTick, unit, 'retreat');
         continue;
       }
 
       // Unit → territory damage
       const stats     = unit.getStats();
-      const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
+      const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'ADVANCE';
       const baseDmg   = (useRanged ? stats.rangedDamage : stats.meleeDamage)
         * veteranDamageMultiplier(unit.getVeteranLevel());
       const hpFactor  = healthFactor(unit.getHealth(), stats.maxHealth);
-      const wallMit   = (territory.hasBuilding(TerritoryBuildingType.WALLS) && unit.getBattleOrder() !== 'ADVANCE')
+      const wallMit   = (territory.hasBuilding(TerritoryBuildingType.WALLS) && order !== 'ADVANCE')
         ? TERRITORY_WALL_MITIGATION : 0;
       const damageToTerritory = Math.max(1, Math.round(
         baseDmg * hpFactor * (1 - wallMit) * damageVariance(this.random()),
@@ -159,6 +165,8 @@ export class TerritoryBattleSystem {
 
       territory.takeDamage(damageToTerritory);
       unit.takeDamage(damageToUnit);
+      applyCombatMoraleHit(unit, damageToUnit);
+      if (order === 'ADVANCE') applyAdvancePenalty(unit);
 
       // Emit progress (progress = HP lost, needed = max HP — reuses conquest overlay)
       eventBus.emit('territory:conquest-progress', {
@@ -175,8 +183,12 @@ export class TerritoryBattleSystem {
       }
 
       if (!unit.isAlive()) {
+        const pos = { ...unit.position };
+        const owner = unit.getOwnerId();
         gameState.removeUnit(unit.id);
-        eventBus.emit('unit:destroyed', { unitId: unit.id, byUnitId: null, tick: currentTick });
+        eventBus.emit('unit:destroyed', {
+          unitId: unit.id, byUnitId: null, ownerNationId: owner, position: pos, tick: currentTick,
+        });
         this.finishBattle(battle, posKey, gameState, movementSystem, eventBus, currentTick, null);
         continue;
       }

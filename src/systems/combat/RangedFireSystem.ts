@@ -22,6 +22,7 @@ import type { TerritoryResourceType } from '@/systems/resources/TerritoryResourc
 import { weaponTierDamageBonus, fireManaDamageFactor } from '@/systems/resources/ResourceBonuses';
 import { manhattan } from '@/systems/grid/geometry';
 import { healthFactor, damageVariance } from '@/config/combatBalance';
+import { applyCombatMoraleHit } from '@/systems/morale/moraleRules';
 
 /** Ticks between consecutive shots from a stationary ranged unit (2 s at TICK_RATE=10). */
 export const RANGED_FIRE_INTERVAL_TICKS = 20;
@@ -52,6 +53,7 @@ export class RangedFireSystem {
 
       if (target.type === 'unit') {
         target.unit.takeDamage(damage);
+        applyCombatMoraleHit(target.unit, damage);
         eventBus.emit('ranged:fired', {
           unitId:     unit.id,
           targetId:   target.unit.id,
@@ -62,9 +64,12 @@ export class RangedFireSystem {
           tick: currentTick,
         });
         if (!target.unit.isAlive()) {
+          const pos = { ...target.unit.position };
+          const owner = target.unit.getOwnerId();
           gameState.removeUnit(target.unit.id);
           eventBus.emit('unit:destroyed', {
-            unitId: target.unit.id, byUnitId: unit.id, tick: currentTick,
+            unitId: target.unit.id, byUnitId: unit.id,
+            ownerNationId: owner, position: pos, tick: currentTick,
           });
         }
       } else {
@@ -74,7 +79,9 @@ export class RangedFireSystem {
         const cityDist = manhattan(unit.position, target.city.position);
         if (cityDist <= 3) {
           const cityHealthFactor = healthFactor(target.city.getHealth(), target.city.getMaxHealth());
-          unit.takeDamage(Math.max(1, Math.round(target.city.getMeleeDamage() * cityHealthFactor)));
+          const counterDamage = Math.max(1, Math.round(target.city.getMeleeDamage() * cityHealthFactor));
+          unit.takeDamage(counterDamage);
+          applyCombatMoraleHit(unit, counterDamage);
         }
         eventBus.emit('ranged:fired', {
           unitId:     unit.id,
@@ -86,9 +93,12 @@ export class RangedFireSystem {
           tick: currentTick,
         });
         if (!unit.isAlive()) {
+          const pos = { ...unit.position };
+          const owner = unit.getOwnerId();
           gameState.removeUnit(unit.id);
           eventBus.emit('unit:destroyed', {
-            unitId: unit.id, byUnitId: null, tick: currentTick,
+            unitId: unit.id, byUnitId: null,
+            ownerNationId: owner, position: pos, tick: currentTick,
           });
         }
       }

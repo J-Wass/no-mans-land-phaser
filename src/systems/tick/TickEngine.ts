@@ -14,6 +14,14 @@ import { RangedFireSystem } from '@/systems/combat/RangedFireSystem';
 import { ProductionSystem } from '@/systems/production/ProductionSystem';
 import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { MAX_MORALE } from '@/entities/units/Unit';
+import { MoraleSystem } from '@/systems/morale/MoraleSystem';
+import {
+  RECOVERY_ENEMY,
+  RECOVERY_NEUTRAL,
+  RECOVERY_FRIENDLY,
+  RECOVERY_CITY,
+  RECOVERY_CEILING,
+} from '@/config/moraleBalance';
 import { waterManaRegenBonus } from '@/systems/resources/ResourceBonuses';
 import { TICK_RATE } from '@/config/constants';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
@@ -30,11 +38,10 @@ const CITY_HEAL_INTERVAL_TICKS = TICK_RATE;
 /** Fraction of max HP restored per pulse. */
 const CITY_HEAL_RATE = 0.05;
 
-/** Morale recovery per second (per TICK_RATE ticks) outside combat. */
-const MORALE_RECOVERY_ENEMY    = 1;
-const MORALE_RECOVERY_NEUTRAL  = 2;
-const MORALE_RECOVERY_FRIENDLY = 3;
-const MORALE_RECOVERY_CITY     = 5;
+// Per-territory morale recovery rates are now defined in moraleBalance.ts
+// (RECOVERY_ENEMY, RECOVERY_NEUTRAL, RECOVERY_FRIENDLY, RECOVERY_CITY).
+// Field recovery is capped at RECOVERY_CEILING (= 80) so only positive events
+// (battle wins, conquests, witness victories) can push a unit into INSPIRED.
 
 export class TickEngine {
   private currentTick = 0;
@@ -43,6 +50,7 @@ export class TickEngine {
   private readonly citySiegeSystem:         CitySiegeSystem;
   private readonly rangedFireSystem:        RangedFireSystem;
   private readonly territoryBattleSystem:   TerritoryBattleSystem;
+  private readonly moraleSystem:            MoraleSystem;
 
   constructor(
     private gameState: GameState,
@@ -56,6 +64,9 @@ export class TickEngine {
     this.citySiegeSystem       = new CitySiegeSystem(random);
     this.rangedFireSystem      = new RangedFireSystem(random);
     this.territoryBattleSystem = new TerritoryBattleSystem(random);
+    // MoraleSystem subscribes to game events in its constructor; we only need
+    // to call its tick() so it can emit `morale:band-changed` for the UI.
+    this.moraleSystem          = new MoraleSystem(gameState, eventBus);
   }
 
   /** Advance one tick. Returns the new tick count. */
@@ -78,6 +89,7 @@ export class TickEngine {
     if (this.currentTick % WATER_MANA_HEAL_INTERVAL_TICKS === 0) {
       this.healUnitsWithWaterMana();
     }
+    this.moraleSystem.tick(this.currentTick);
     this.eventBus.emit('game:tick', { tick: this.currentTick });
     return this.currentTick;
   }
@@ -90,10 +102,14 @@ export class TickEngine {
   private sweepDeadUnits(): void {
     for (const unit of this.gameState.getAllUnits()) {
       if (!unit.isAlive()) {
+        const pos = { ...unit.position };
+        const owner = unit.getOwnerId();
         this.gameState.removeUnit(unit.id);
         this.eventBus.emit('unit:destroyed', {
           unitId: unit.id,
           byUnitId: null,
+          ownerNationId: owner,
+          position: pos,
           tick: this.currentTick,
         });
       }
@@ -249,7 +265,14 @@ export class TickEngine {
     }
   }
 
-  /** Recover morale for units outside combat, based on territory type. */
+  /**
+   * Recover morale for units outside combat, based on territory type.
+   * Field recovery is gated:
+   *   - It cannot push morale above RECOVERY_CEILING (= 80); reaching INSPIRED
+   *     requires a positive event (a win, a conquest, a witness moment).
+   *   - For 30 ticks after losing a battle, the loser's recovery is halved
+   *     (rounded down). Stored on the unit as moraleRecoveryCooldownUntilTick.
+   */
   private recoverMorale(): void {
     const grid = this.gameState.getGrid();
     for (const unit of this.gameState.getAllUnits()) {
@@ -265,15 +288,23 @@ export class TickEngine {
       if (ctrl === unit.getOwnerId()) {
         const city = cityId ? this.gameState.getCity(cityId) : null;
         recovery = (city && city.getOwnerId() === unit.getOwnerId())
-          ? MORALE_RECOVERY_CITY
-          : MORALE_RECOVERY_FRIENDLY;
+          ? RECOVERY_CITY
+          : RECOVERY_FRIENDLY;
       } else if (!ctrl) {
-        recovery = MORALE_RECOVERY_NEUTRAL;
+        recovery = RECOVERY_NEUTRAL;
       } else {
-        recovery = MORALE_RECOVERY_ENEMY;
+        recovery = RECOVERY_ENEMY;
       }
 
-      unit.setMorale(unit.getMorale() + recovery);
+      // Post-battle cooldown halves the loser's recovery for a short window.
+      if (this.currentTick < unit.getMoraleRecoveryCooldownUntilTick()) {
+        recovery = Math.floor(recovery / 2);
+      }
+      if (recovery <= 0) continue;
+
+      // Field recovery cannot push above the ceiling — only events can.
+      const ceilinged = Math.min(unit.getMorale() + recovery, RECOVERY_CEILING);
+      if (ceilinged > unit.getMorale()) unit.setMorale(ceilinged);
     }
   }
 

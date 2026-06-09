@@ -6,6 +6,12 @@ import { EntityType } from '@/types/common';
 import type { EntityId, GridCoordinates, GameEntity } from '@/types/common';
 import type { ResourceCost } from '@/systems/resources/ResourceType';
 import type { Serializable } from '@/types/serializable';
+import {
+  DEFAULT_MORALE,
+  MAX_MORALE,
+  MORALE_ADVANCE_BLOCK_AT_OR_BELOW,
+  MORALE_ROUT_AT_OR_BELOW,
+} from '@/config/moraleBalance';
 
 export enum UnitType {
   INFANTRY       = 'INFANTRY',
@@ -33,10 +39,12 @@ export interface UnitStats {
   upkeep: ResourceCost;
 }
 
-export const DEFAULT_MORALE    = 80;
-export const MAX_MORALE        = 100;
-export const MORALE_LOW        = 30;   // refuses ADVANCE below this
-export const MORALE_ROUT       = 10;   // collapses to HOLD below this
+// Re-exported with their legacy names so existing imports keep working.
+// The new band-based system lives in src/config/moraleBalance.ts and
+// src/systems/morale/moraleRules.ts.
+export { DEFAULT_MORALE, MAX_MORALE };
+export { MORALE_ADVANCE_BLOCK_AT_OR_BELOW as MORALE_LOW };
+export { MORALE_ROUT_AT_OR_BELOW as MORALE_ROUT };
 
 export const XP_VETERAN = 5;
 export const XP_ELITE   = 15;
@@ -104,6 +112,8 @@ export interface UnitData {
   veteranLevel: number;       // 0=Recruit, 1=Veteran, 2=Elite
   unitSerial: number;         // ordinal number (101, 102, …); 0 = no serial
   retreatCooldownUntilTick: number;
+  /** Ticks until this unit's morale recovery rate returns to normal after losing a battle. */
+  moraleRecoveryCooldownUntilTick: number;
 }
 
 export abstract class Unit implements GameEntity, Serializable<UnitData> {
@@ -136,6 +146,7 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
       veteranLevel: 0,
       unitSerial: 0,
       retreatCooldownUntilTick: 0,
+      moraleRecoveryCooldownUntilTick: 0,
     };
   }
 
@@ -319,6 +330,12 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
 
   public setRetreatCooldownUntilTick(tick: number): void {
     this.data.retreatCooldownUntilTick = tick;
+  }
+
+  public getMoraleRecoveryCooldownUntilTick(): number { return this.data.moraleRecoveryCooldownUntilTick; }
+
+  public setMoraleRecoveryCooldownUntilTick(tick: number): void {
+    this.data.moraleRecoveryCooldownUntilTick = tick;
   }
 
   /** Per-tick-interval upkeep cost. Deducted by ProductionSystem every UPKEEP_INTERVAL ticks. */

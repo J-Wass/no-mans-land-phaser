@@ -16,13 +16,20 @@ import type { TechId } from '@/systems/research/TechTree';
 import type { Unit } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
 import type { Difficulty } from '@/types/gameSetup';
+import type { MoraleBand } from '@/config/moraleBalance';
+
+export type MoraleGainSource =
+  | 'win' | 'kill' | 'witness' | 'conquest' | 'rally' | 'territory' | 'siege';
+
+export type MoraleLossSource =
+  | 'damage' | 'advance' | 'allied-death' | 'city-lost' | 'battle-lost';
 
 export type GameEventMap = {
   'unit:step-complete':        { unitId: EntityId; from: GridCoordinates; to: GridCoordinates; tick: number };
   'unit:move-complete':        { unitId: EntityId; destination: GridCoordinates; tick: number };
   'unit:move-ordered':         { unitId: EntityId; path: GridCoordinates[]; playerId: PlayerId };
   'unit:move-cancelled':       { unitId: EntityId };
-  'unit:destroyed':            { unitId: EntityId; byUnitId: EntityId | null; tick: number };
+  'unit:destroyed':            { unitId: EntityId; byUnitId: EntityId | null; ownerNationId: EntityId; position: GridCoordinates; tick: number };
   'unit:battle-order-changed': { unitId: EntityId; battleOrder: BattleOrder; tick: number };
   'battle:started':            { battleId: string; unitAId: EntityId; unitBId: EntityId; position: GridCoordinates; tick: number };
   'battle:round-resolved':     {
@@ -46,8 +53,8 @@ export type GameEventMap = {
   'city:siege-started':        { siegeId: string; unitId: EntityId; cityId: EntityId; position: GridCoordinates; tick: number };
   /** One round of city siege resolved. */
   'city:siege-round':          { siegeId: string; unitId: EntityId; cityId: EntityId; damageToCity: number; damageToUnit: number; cityHealth: number; tick: number };
-  /** A city was captured by an attacking nation. */
-  'city:conquered':            { cityId: EntityId; byUnitId: EntityId; byNationId: EntityId; position: GridCoordinates; tick: number };
+  /** A city was captured by an attacking nation. `fromNationId` is the previous owner. */
+  'city:conquered':            { cityId: EntityId; byUnitId: EntityId; byNationId: EntityId; fromNationId: EntityId; position: GridCoordinates; tick: number };
   /** A ranged unit fired at a target from distance. */
   'ranged:fired':              { unitId: EntityId; targetId: EntityId; targetType: 'unit' | 'city'; damage: number; from: GridCoordinates; to: GridCoordinates; tick: number };
   /** A war has been declared between two nations (auto or manual). */
@@ -86,6 +93,12 @@ export type GameEventMap = {
   'nation:research-queue-updated': { nationId: EntityId; queue: TechId[] };
   /** A nation was eliminated from active play. */
   'nation:defeated':           { nationId: EntityId; name: string; tick: number };
+  /** A unit's morale crossed a band threshold. UI uses this for toasts. */
+  'morale:band-changed':       { unitId: EntityId; oldBand: MoraleBand; newBand: MoraleBand; value: number; tick: number };
+  /** A unit gained morale from a discrete event (not per-tick recovery). UI uses this for floaters. */
+  'morale:gained':             { unitId: EntityId; amount: number; source: MoraleGainSource; tick: number };
+  /** A unit lost morale from a discrete event (not per-round damage). UI uses this for floaters. */
+  'morale:lost':               { unitId: EntityId; amount: number; source: MoraleLossSource; tick: number };
   /** TickEngine completed one game tick. */
   'game:tick':                 { tick: number };
   /** A nation dominates a geographic region (controls ≥66% of its tiles). */

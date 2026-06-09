@@ -1,6 +1,6 @@
 import type { EntityId, GridCoordinates } from '@/types/common';
 import type { Unit, BattleOrder, UnitType } from '@/entities/units/Unit';
-import { MORALE_LOW, MORALE_ROUT } from '@/entities/units/Unit';
+import { MORALE_ROUT } from '@/entities/units/Unit';
 import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
@@ -16,7 +16,6 @@ import {
 import {
   healthFactor,
   damageVariance,
-  MORALE_DAMAGE_SCALAR,
   ADVANCE_PACE_FACTOR,
   MITIGATION_CAP,
   WITHDRAW_BASE_CHANCE,
@@ -30,6 +29,14 @@ import {
   XP_RANGED_HIT,
   veteranDamageMultiplier,
 } from '@/config/combatBalance';
+import {
+  applyCombatMoraleHit,
+  applyAdvancePenalty,
+  effectiveBattleOrder,
+  getMoraleDamageMultiplier,
+  getMoraleMitigationDelta,
+} from '@/systems/morale/moraleRules';
+import { LOSS_BATTLE_LOST, SHAKEN_WITHDRAW_BONUS, BAND_SHAKEN_MIN, BAND_WAVERING_MIN } from '@/config/moraleBalance';
 
 /** Round cadence for sieges and territory battles (1 s at TICK_RATE=10). */
 export const BATTLE_ROUND_TICKS = 1 * TICK_RATE;
@@ -191,10 +198,10 @@ export class BattleSystem {
       if (damageToUnitB > 0 && usesRangedAttack(unitA, orderA)) unitA.addXP(XP_RANGED_HIT);
       if (damageToUnitA > 0 && usesRangedAttack(unitB, orderB)) unitB.addXP(XP_RANGED_HIT);
 
-      const moraleHitA = Math.ceil(damageToUnitA / unitA.getStats().maxHealth * MORALE_DAMAGE_SCALAR);
-      const moraleHitB = Math.ceil(damageToUnitB / unitB.getStats().maxHealth * MORALE_DAMAGE_SCALAR);
-      unitA.setMorale(unitA.getMorale() - moraleHitA);
-      unitB.setMorale(unitB.getMorale() - moraleHitB);
+      applyCombatMoraleHit(unitA, damageToUnitA);
+      applyCombatMoraleHit(unitB, damageToUnitB);
+      if (orderA === 'ADVANCE') applyAdvancePenalty(unitA);
+      if (orderB === 'ADVANCE') applyAdvancePenalty(unitB);
 
       eventBus.emit('battle:round-resolved', {
         battleId: battle.id,
@@ -341,9 +348,10 @@ export class BattleSystem {
     const matchupFactor = getMatchupAttackFactor(attacker.getUnitType(), defender.getUnitType(), defender.getStats().armorType, useRanged);
     const terrainFactor = getTerrainAttackFactor(attacker.getUnitType(), terrain, order, useRanged);
     const fireFactor = fireManaDamageFactor(attackerDeposits, attackerCounts);
+    const moraleFactor = getMoraleDamageMultiplier(attacker.getMorale());
     const randomness = damageVariance(this.random());
 
-    return baseDamage * hpFactor * orderFactor * matchupFactor * terrainFactor * fireFactor * battlePaceFactor * randomness;
+    return baseDamage * hpFactor * orderFactor * matchupFactor * terrainFactor * fireFactor * moraleFactor * battlePaceFactor * randomness;
   }
 
   /**
@@ -367,7 +375,8 @@ export class BattleSystem {
     const terrainBonus = getTerrainMitigation(defender.getUnitType(), terrain, order);
     const matchupBonus = getMatchupMitigation(defender.getUnitType(), attacker.getUnitType(), order);
     const earthBonus = earthManaHPFactor(defenderDeposits, defenderCounts) - 1.0;
-    return clamp(base + terrainBonus + matchupBonus + earthBonus, 0, MITIGATION_CAP);
+    const moraleBonus = getMoraleMitigationDelta(defender.getMorale());
+    return clamp(base + terrainBonus + matchupBonus + earthBonus + moraleBonus, 0, MITIGATION_CAP);
   }
 
   /**
@@ -406,8 +415,11 @@ export class BattleSystem {
     const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
     const counts = gameState.getNationActiveDepositCounts(unit.getOwnerId());
     const speedDelta = unit.getStats().speed - opponent.getStats().speed;
+    // SHAKEN units (morale 15-39) flee more readily.
+    const shakenBonus = unit.getMorale() >= BAND_SHAKEN_MIN && unit.getMorale() < BAND_WAVERING_MIN
+      ? SHAKEN_WITHDRAW_BONUS : 0;
     const chance = clamp(
-      WITHDRAW_BASE_CHANCE + speedDelta * WITHDRAW_SPEED_WEIGHT + shadowManaWithdrawBonus(deposits, counts),
+      WITHDRAW_BASE_CHANCE + speedDelta * WITHDRAW_SPEED_WEIGHT + shadowManaWithdrawBonus(deposits, counts) + shakenBonus,
       WITHDRAW_CHANCE_MIN,
       WITHDRAW_CHANCE_MAX,
     );
@@ -451,10 +463,23 @@ export class BattleSystem {
       }
     }
 
+    // Surviving losers take an extra morale hit on top of the round-by-round drain.
+    if (loser?.isAlive() && (reason === 'WITHDRAW' || reason === 'ROUT')) {
+      loser.setMorale(loser.getMorale() - LOSS_BATTLE_LOST);
+      eventBus.emit('morale:lost', {
+        unitId: loser.id, amount: LOSS_BATTLE_LOST, source: 'battle-lost', tick: currentTick,
+      });
+    }
+
     if (loser) {
       if (!loser.isAlive()) {
+        const loserPosition = { ...loser.position };
+        const loserOwner = loser.getOwnerId();
         gameState.removeUnit(loser.id);
-        eventBus.emit('unit:destroyed', { unitId: loser.id, byUnitId: winner?.id ?? null, tick: currentTick });
+        eventBus.emit('unit:destroyed', {
+          unitId: loser.id, byUnitId: winner?.id ?? null,
+          ownerNationId: loserOwner, position: loserPosition, tick: currentTick,
+        });
       } else {
         const retreatTarget = this.findRetreatTarget(gameState, loser, winner, battle);
         if (retreatTarget) {
@@ -473,15 +498,25 @@ export class BattleSystem {
             tick: currentTick,
           });
         } else {
+          const loserPosition = { ...loser.position };
+          const loserOwner = loser.getOwnerId();
           gameState.removeUnit(loser.id);
-          eventBus.emit('unit:destroyed', { unitId: loser.id, byUnitId: winner?.id ?? null, tick: currentTick });
+          eventBus.emit('unit:destroyed', {
+            unitId: loser.id, byUnitId: winner?.id ?? null,
+            ownerNationId: loserOwner, position: loserPosition, tick: currentTick,
+          });
         }
       }
     }
 
     if (winner && !winner.isAlive()) {
+      const winnerPosition = { ...winner.position };
+      const winnerOwner = winner.getOwnerId();
       gameState.removeUnit(winner.id);
-      eventBus.emit('unit:destroyed', { unitId: winner.id, byUnitId: loser?.id ?? null, tick: currentTick });
+      eventBus.emit('unit:destroyed', {
+        unitId: winner.id, byUnitId: loser?.id ?? null,
+        ownerNationId: winnerOwner, position: winnerPosition, tick: currentTick,
+      });
       winner = null;
     }
 
@@ -764,17 +799,5 @@ function usesRangedAttack(unit: Unit, order: BattleOrder): boolean {
   return stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'ADVANCE';
 }
 
-/**
- * Morale can override the player's chosen stance:
- *   ≤ MORALE_ROUT: troops break — only FALL_BACK is honored; anything else
- *                  collapses to HOLD (paralyzed in place).
- *   ≤ MORALE_LOW:  too shaken to ADVANCE; downgraded to HOLD.
- *   Otherwise:     the chosen order stands.
- */
-function effectiveBattleOrder(unit: Unit): BattleOrder {
-  const morale = unit.getMorale();
-  const order = unit.getBattleOrder();
-  if (morale <= MORALE_ROUT) return order === 'FALL_BACK' ? 'FALL_BACK' : 'HOLD';
-  if (morale <= MORALE_LOW && order === 'ADVANCE') return 'HOLD';
-  return order;
-}
+// effectiveBattleOrder now lives in src/systems/morale/moraleRules.ts so every
+// combat system can consult the same morale-aware stance.

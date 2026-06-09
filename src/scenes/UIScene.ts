@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import type { Unit, BattleOrder } from '@/entities/units/Unit';
-import { MORALE_LOW } from '@/entities/units/Unit';
+import { effectiveBattleOrder, getMoraleBand } from '@/systems/morale/moraleRules';
+import { MoraleBand } from '@/config/moraleBalance';
 import type { City } from '@/entities/cities/City';
 import type { GameState } from '@/managers/GameState';
 import type { GameSetup } from '@/types/gameSetup';
@@ -57,6 +58,26 @@ const STANCE_ORDERS: Array<{ order: BattleOrder; label: string }> = [
   { order: 'HOLD', label: 'HOLD' },
   { order: 'ADVANCE', label: 'ADVANCE' },
 ];
+
+/** Ordinal rank of each morale band — lower index = worse — used to detect worsening transitions. */
+const MORALE_BAND_ORDER: Record<MoraleBand, number> = {
+  [MoraleBand.BROKEN]:   0,
+  [MoraleBand.SHAKEN]:   1,
+  [MoraleBand.WAVERING]: 2,
+  [MoraleBand.STEADY]:   3,
+  [MoraleBand.INSPIRED]: 4,
+};
+
+/** Fill color for the morale bar by band. */
+function moraleBandFill(band: MoraleBand): number {
+  switch (band) {
+    case MoraleBand.INSPIRED: return 0xf0c040;  // gold
+    case MoraleBand.STEADY:   return 0x4488ff;  // blue
+    case MoraleBand.WAVERING: return 0xffaa22;  // amber
+    case MoraleBand.SHAKEN:   return 0xff6622;  // orange
+    case MoraleBand.BROKEN:   return 0xff4444;  // red
+  }
+}
 const RESOURCE_BUTTONS: ResourceType[] = [
   ResourceType.FOOD,
   ResourceType.RAW_MATERIAL,
@@ -194,11 +215,11 @@ export class UIScene extends Phaser.Scene {
 
     if (this.moraleFillRect && this.moraleText) {
       const morale = this.selectedUnit.getMorale();
+      const band = getMoraleBand(morale);
       const width = Math.max(1, Math.round(this.hpBarWidth * morale / 100));
-      const color = morale > 50 ? 0x4488ff : morale > 30 ? 0xffaa22 : 0xff4444;
-      this.moraleFillRect.setSize(width, this.moraleFillRect.height).setFillStyle(color);
+      this.moraleFillRect.setSize(width, this.moraleFillRect.height).setFillStyle(moraleBandFill(band));
       this.moraleText.setText(`${morale}`);
-      this.moraleWarnText?.setText(morale <= MORALE_LOW && this.selectedUnit.getBattleOrder() === 'ADVANCE' ? 'LOW MORALE' : '');
+      this.moraleWarnText?.setText(band === MoraleBand.STEADY || band === MoraleBand.INSPIRED ? '' : band);
     }
 
     if (this.infoLineText) {
@@ -359,6 +380,18 @@ export class UIScene extends Phaser.Scene {
       dominatedNotified.add(regionId);
       const region = this.gameState.getRegionSystem()?.getRegion(regionId);
       if (region) this.pushNotification(`You now dominate the ${region.name}! Bonus resources granted.`);
+    });
+
+    // Morale band crossings — toast only for player-owned units and only when
+    // entering a worse band, or recovering all the way to STEADY/INSPIRED.
+    this.subs.on('morale:band-changed', ({ unitId, oldBand, newBand }) => {
+      const unit = this.gameState.getUnit(unitId);
+      if (!unit || !this.isLocalNation(unit.getOwnerId())) return;
+      const worsening = MORALE_BAND_ORDER[newBand] < MORALE_BAND_ORDER[oldBand];
+      const reachedGood = newBand === MoraleBand.STEADY || newBand === MoraleBand.INSPIRED;
+      if (worsening || reachedGood) {
+        this.pushNotification(`${unitDisplayName(unit)}: ${newBand}.`);
+      }
     });
   }
 
@@ -830,7 +863,9 @@ export class UIScene extends Phaser.Scene {
     STANCE_ORDERS.forEach(({ order, label }, index) => {
       const bx = x + pad + index * (btnW + gap) + btnW / 2;
       const active = unit.getBattleOrder() === order;
-      const disabled = order === 'ADVANCE' && unit.getMorale() <= MORALE_LOW && !active;
+      // Block ADVANCE selection when the morale-aware effective order would override it.
+      const wouldBeBlocked = order === 'ADVANCE' && effectiveBattleOrder(unit) !== 'ADVANCE';
+      const disabled = wouldBeBlocked && !active;
       const fill = active ? 0x34558e : disabled ? 0x1b2230 : 0x182235;
       const border = active ? 0x8cb4ff : disabled ? 0x344155 : 0x47628d;
       const bg = this.track(this.add.rectangle(bx, rowY, btnW, btnH, fill)

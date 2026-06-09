@@ -35,6 +35,7 @@ import {
   TERRAIN_TEXTURE, TERRAIN_CYCLE, DEPOSIT_ICON, DEPOSIT_INFO,
   unitInitial, stanceShortLabel, stanceBadgeColor,
 } from './gameSceneHelpers';
+import { effectiveBattleOrder } from '@/systems/morale/moraleRules';
 
 interface GameSceneData {
   gameState?: GameState;
@@ -1573,9 +1574,7 @@ export class GameScene extends Phaser.Scene {
       badge.setPosition(wx, wy);
       badge.setScale(1 / zoom);
 
-      const order = unit.getBattleOrder();
-      const morale = unit.getMorale();
-      const effective = morale <= 30 && order === 'ADVANCE' ? 'HOLD' : order;
+      const effective = effectiveBattleOrder(unit);
       const txt = badge.getAt(1) as Phaser.GameObjects.Text;
       txt.setText(stanceShortLabel(effective));
       txt.setColor(stanceBadgeColor(effective));

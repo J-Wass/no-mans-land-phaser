@@ -32,6 +32,11 @@ import {
   XP_RANGED_HIT,
   veteranDamageMultiplier,
 } from '@/config/combatBalance';
+import {
+  applyCombatMoraleHit,
+  applyAdvancePenalty,
+  effectiveBattleOrder,
+} from '@/systems/morale/moraleRules';
 
 interface SiegeState extends SavedSiegeState {}
 
@@ -119,21 +124,22 @@ export class CitySiegeSystem {
       siege.ticksUntilRound = BATTLE_ROUND_TICKS;
       siege.roundsElapsed++;
 
+      const order = effectiveBattleOrder(unit);
       // FALL_BACK — unit always disengages from a city siege successfully
-      if (unit.getBattleOrder() === 'FALL_BACK') {
+      if (order === 'FALL_BACK') {
         this.finishSiege(siege, gameState, movementSystem, eventBus, currentTick, unit, 'retreat');
         continue;
       }
 
       // Compute unit → city damage
       const stats    = unit.getStats();
-      const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && unit.getBattleOrder() !== 'ADVANCE';
+      const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'ADVANCE';
       const baseDmg  = (useRanged ? stats.rangedDamage : stats.meleeDamage)
         * veteranDamageMultiplier(unit.getVeteranLevel());
       const unitHealthFactor = healthFactor(unit.getHealth(), stats.maxHealth);
       const wallLevel = city.getBuildingLevel(CityBuildingType.WALLS);
       const baseWallMitigation = Math.min(0.5, wallLevel * WALL_MITIGATION_PER_LEVEL);
-      const wallMitigation = unit.getBattleOrder() === 'ADVANCE'
+      const wallMitigation = order === 'ADVANCE'
         ? baseWallMitigation * ADVANCE_MITIGATION_FACTOR
         : baseWallMitigation;
       // Siege weapons (Catapult/Trebuchet) are purpose-built to crack walls.
@@ -152,6 +158,8 @@ export class CitySiegeSystem {
 
       city.takeDamage(damageToCity);
       unit.takeDamage(damageToUnit);
+      applyCombatMoraleHit(unit, damageToUnit);
+      if (order === 'ADVANCE') applyAdvancePenalty(unit);
 
       eventBus.emit('city:siege-round', {
         siegeId:    siege.id,
@@ -170,8 +178,12 @@ export class CitySiegeSystem {
       }
 
       if (!unit.isAlive()) {
+        const pos = { ...unit.position };
+        const owner = unit.getOwnerId();
         gameState.removeUnit(unit.id);
-        eventBus.emit('unit:destroyed', { unitId: unit.id, byUnitId: null, tick: currentTick });
+        eventBus.emit('unit:destroyed', {
+          unitId: unit.id, byUnitId: null, ownerNationId: owner, position: pos, tick: currentTick,
+        });
         this.finishSiege(siege, gameState, movementSystem, eventBus, currentTick, null);
         continue;
       }
@@ -229,7 +241,8 @@ export class CitySiegeSystem {
     if (reason === 'conquered' && victor) {
       const city = gameState.getCity(siege.cityId);
       if (city) {
-        const byNationId = victor.getOwnerId();
+        const byNationId   = victor.getOwnerId();
+        const fromNationId = city.getOwnerId();
         city.setOwnerId(byNationId);
         city.cancelOrder();
         // Capturing a city damages its infrastructure: every building drops one level
@@ -244,6 +257,7 @@ export class CitySiegeSystem {
           cityId:     city.id,
           byUnitId:   victor.id,
           byNationId,
+          fromNationId,
           position:   { ...city.position },
           tick:       currentTick,
         });

@@ -82,7 +82,7 @@ describe('TutorialManager', () => {
     expect(ui.view?.phase).toBe('objective'); // conquer still outstanding
 
     emit(bus, 'city:conquered', {
-      cityId: 'enemy', byUnitId: 'u1', byNationId: 'nation-1', position: { row: 8, col: 14 }, tick: 10,
+      cityId: 'enemy', byUnitId: 'u1', byNationId: 'nation-1', fromNationId: 'nation-2', position: { row: 8, col: 14 }, tick: 10,
     });
     expect(ui.view?.phase).toBe('complete');
   });
@@ -94,7 +94,7 @@ describe('TutorialManager', () => {
     emit(bus, 'city:production-started', { cityId: 'c1', unitType: 'INFANTRY' as never, tick: 1 });
 
     emit(bus, 'city:conquered', {
-      cityId: 'enemy', byUnitId: 'x', byNationId: 'nation-2', position: { row: 8, col: 14 }, tick: 10,
+      cityId: 'enemy', byUnitId: 'x', byNationId: 'nation-2', fromNationId: 'nation-1', position: { row: 8, col: 14 }, tick: 10,
     });
     const conquer = ui.view?.objectives?.items.find(i => i.id === 'conquer-city');
     expect(conquer?.done).toBe(false);
@@ -110,7 +110,7 @@ describe('TutorialManager', () => {
     emit(bus, 'ui:modal-opened', { modal: 'diplomacy' });
     emit(bus, 'city:building-built', { cityId: 'c1', building: 'BARRACKS' as never, tick: 3 });
     emit(bus, 'city:conquered', {
-      cityId: 'enemy', byUnitId: 'u1', byNationId: 'nation-1', position: { row: 8, col: 14 }, tick: 10,
+      cityId: 'enemy', byUnitId: 'u1', byNationId: 'nation-1', fromNationId: 'nation-2', position: { row: 8, col: 14 }, tick: 10,
     });
     expect(ui.view?.phase).toBe('complete'); // finished without razing
   });
