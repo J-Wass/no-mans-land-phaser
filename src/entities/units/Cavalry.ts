@@ -5,7 +5,7 @@ import { ResourceType } from '@/systems/resources/ResourceType';
 export class Cavalry extends Unit {
   constructor(id: EntityId, ownerId: EntityId, position: GridCoordinates) {
     super(id, UnitType.CAVALRY, ownerId, position, {
-      maxHealth: 250,
+      maxHealth: 160,
       meleeDamage: 40,
       rangedDamage: 0,
       armorType: 'heavy',

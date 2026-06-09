@@ -136,8 +136,11 @@ export class CitySiegeSystem {
       const wallMitigation = unit.getBattleOrder() === 'ADVANCE'
         ? baseWallMitigation * ADVANCE_MITIGATION_FACTOR
         : baseWallMitigation;
+      // Siege weapons (Catapult/Trebuchet) are purpose-built to crack walls.
+      const isSiege = unit.getUnitType() === 'CATAPULT' || unit.getUnitType() === 'TREBUCHET';
+      const siegeCityBonus = isSiege ? 1.30 : 1.0;
       const damageToCity = Math.max(1, Math.round(
-        baseDmg * unitHealthFactor * (1 - wallMitigation) * damageVariance(this.random()),
+        baseDmg * unitHealthFactor * siegeCityBonus * (1 - wallMitigation) * damageVariance(this.random()),
       ));
       if (useRanged && damageToCity > 0) unit.addXP(XP_RANGED_HIT);
 

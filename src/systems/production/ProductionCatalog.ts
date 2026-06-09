@@ -83,7 +83,7 @@ export const PRODUCTION_CATALOG: CatalogEntry[] = [
 
   unit(UnitType.CAVALRY,
     'Cavalry',
-    'HP 250  ATK 40  RNG 1  SPD 3  VIS 1  UPKEEP F2 M1  REQ COPPER',
+    'HP 160  ATK 40  RNG 1  SPD 3  VIS 1  UPKEEP F2 M1  REQ COPPER',
     { [ResourceType.GOLD]: 80, [ResourceType.FOOD]: 700, [ResourceType.RAW_MATERIAL]: 500 },
     100, ['animal_domestication'], CityBuildingType.BARRACKS, 2, null, [TerritoryResourceType.COPPER, TerritoryResourceType.IRON, TerritoryResourceType.FIRE_GLASS]),
 

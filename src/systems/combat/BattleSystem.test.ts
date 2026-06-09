@@ -7,6 +7,7 @@ import { GameEventBus } from '@/systems/events/GameEventBus';
 import { Infantry } from '@/entities/units/Infantry';
 import { Cavalry } from '@/entities/units/Cavalry';
 import { HeavyInfantry } from '@/entities/units/HeavyInfantry';
+import { Crossbowman } from '@/entities/units/Crossbowman';
 
 describe('BattleSystem', () => {
   let gameState: GameState;
@@ -123,5 +124,37 @@ describe('BattleSystem', () => {
     const heavyHoldHealth = heavy.getHealth();
 
     expect(heavyHoldHealth).toBeGreaterThan(170);
+  });
+
+  it('heavy infantry on HOLD beats charging cavalry to the death', () => {
+    const heavy = new HeavyInfantry('heavy', 'nation-a', { row: 3, col: 3 });
+    const cavalry = new Cavalry('cav', 'nation-b', { row: 3, col: 3 });
+    heavy.setBattleOrder('HOLD');
+    cavalry.setBattleOrder('ADVANCE');
+    gameState.addUnit(heavy);
+    gameState.addUnit(cavalry);
+    battleSystem.startBattle(heavy, cavalry, { row: 3, col: 2 }, { row: 3, col: 3 }, 0, movementSystem, eventBus);
+
+    // Run until the battle resolves (max ~15 rounds is plenty).
+    tickRounds(15);
+
+    expect(heavy.isAlive()).toBe(true);
+    expect(cavalry.isAlive()).toBe(false);
+  });
+
+  it('cavalry slightly wins 1v1 against a holding crossbowman', () => {
+    const crossbow = new Crossbowman('cross', 'nation-a', { row: 3, col: 3 });
+    const cavalry = new Cavalry('cav', 'nation-b', { row: 3, col: 3 });
+    crossbow.setBattleOrder('HOLD');
+    cavalry.setBattleOrder('ADVANCE');
+    gameState.addUnit(crossbow);
+    gameState.addUnit(cavalry);
+    battleSystem.startBattle(cavalry, crossbow, { row: 3, col: 2 }, { row: 3, col: 3 }, 0, movementSystem, eventBus);
+    tickRounds(15);
+
+    // Cavalry survives but takes a real beating — crossbow bolts should leave it bloodied.
+    expect(crossbow.isAlive()).toBe(false);
+    expect(cavalry.isAlive()).toBe(true);
+    expect(cavalry.getHealth()).toBeLessThan(150);
   });
 });

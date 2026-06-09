@@ -63,6 +63,11 @@ export class BattleSystem {
 
   constructor(private readonly random: () => number = Math.random) {}
 
+  /**
+   * Engage two enemy units in a battle. Returns the new battle id, or null if
+   * either is dead, already fighting, on retreat cooldown, or same-owner.
+   * The first round resolves UNIT_BATTLE_ROUND_TICKS ticks from now.
+   */
   public startBattle(
     attacker: Unit,
     defender: Unit,
@@ -109,6 +114,12 @@ export class BattleSystem {
     return battleId;
   }
 
+  /**
+   * Per-tick heartbeat for all active battles. When a battle's round timer
+   * expires, both units deal damage to each other simultaneously, lose morale
+   * proportional to wounds taken, then the battle ends if either dies,
+   * withdraws, or routs (checked in that order).
+   */
   public tick(
     gameState: GameState,
     movementSystem: MovementSystem,
@@ -219,6 +230,7 @@ export class BattleSystem {
     }
   }
 
+  /** The battle this unit is currently engaged in, or null. Returns a deep copy. */
   public getBattleForUnit(unitId: EntityId): SavedBattleState | null {
     for (const battle of this.battles.values()) {
       if (battle.unitAId === unitId || battle.unitBId === unitId) return { ...battle };
@@ -226,6 +238,7 @@ export class BattleSystem {
     return null;
   }
 
+  /** Serialize all active battles for save-game (deep-copies coordinates). */
   public toSavedStates(): SavedBattleState[] {
     return Array.from(this.battles.values()).map(battle => ({
       ...battle,
@@ -235,6 +248,11 @@ export class BattleSystem {
     }));
   }
 
+  /**
+   * Rehydrate battles from a save. Skips entries whose units no longer exist,
+   * re-marks survivors as engaged, and advances the serial counter so freshly
+   * started battles get unique ids.
+   */
   public restore(saved: SavedBattleState[], gameState: GameState): void {
     this.battles.clear();
     this.battleSerial = 0;
@@ -258,6 +276,12 @@ export class BattleSystem {
     }
   }
 
+  /**
+   * One-round damage one unit deals to the other.
+   * Formula: max(1, round(offense × (1 - mitigation))). The floor of 1 means
+   * even a perfectly-mitigated attack still chips a sliver of HP, so battles
+   * can't stall forever.
+   */
   private calculateDamage(
     attacker: Unit,
     defender: Unit,
@@ -284,6 +308,17 @@ export class BattleSystem {
     return Math.max(1, Math.round(offense * (1 - mitigation)));
   }
 
+  /**
+   * Pre-mitigation outgoing damage, built as a multiplicative chain:
+   *   baseDamage (ranged unless ADVANCEing; + weapon-tier + Kinematics; × veteran)
+   *   × hpFactor       (wounded units hit softer; range [0.55, 1.0])
+   *   × orderFactor    (ADVANCE: 1.5× Cavalry, 1.25× others)
+   *   × matchupFactor  (armor and siege adjustments — no unit counters)
+   *   × terrainFactor  (unit-type × tile)
+   *   × fireFactor     (Fire Mana bonus)
+   *   × battlePaceFactor (any ADVANCEr speeds the exchange up)
+   *   × randomness     (±10% per round)
+   */
   private getOffenseScore(
     attacker: Unit,
     defender: Unit,
@@ -311,6 +346,15 @@ export class BattleSystem {
     return baseDamage * hpFactor * orderFactor * matchupFactor * terrainFactor * fireFactor * battlePaceFactor * randomness;
   }
 
+  /**
+   * Damage-reduction percentage applied to incoming offense. Components are
+   * ADDED (not multiplied):
+   *   base order mitigation (FALL_BACK 0.16, HOLD 0.22, ADVANCE 0.04)
+   *   + terrain mitigation (forest cover, snow dig-in, etc.)
+   *   + matchup mitigation (e.g. Heavy Infantry HOLD +0.16)
+   *   + Earth Mana bonus
+   * Clamped to [0, MITIGATION_CAP] so a defender can never become unkillable.
+   */
   private getMitigationScore(
     defender: Unit,
     attacker: Unit,
@@ -326,6 +370,11 @@ export class BattleSystem {
     return clamp(base + terrainBonus + matchupBonus + earthBonus, 0, MITIGATION_CAP);
   }
 
+  /**
+   * After damage resolves, both sides roll independently to flee. The battle
+   * ends via WITHDRAW only if exactly one succeeds — neither/both succeeding
+   * means the fight continues another round.
+   */
   private resolveWithdraw(
     gameState: GameState,
     battle: BattleState,
@@ -340,6 +389,12 @@ export class BattleSystem {
     return null;
   }
 
+  /**
+   * A flee attempt requires effective order = FALL_BACK. Probability =
+   * WITHDRAW_BASE_CHANCE + (own speed − opponent speed) × WITHDRAW_SPEED_WEIGHT
+   * + Shadow Mana bonus, clamped to [MIN, MAX]. The roll only counts if a
+   * valid retreat tile exists to fall back to.
+   */
   private didWithdrawSucceed(
     gameState: GameState,
     battle: BattleState,
@@ -361,6 +416,12 @@ export class BattleSystem {
     return this.findRetreatTarget(gameState, unit, opponent, battle) !== null;
   }
 
+  /**
+   * End-of-battle cleanup: clear engaged flags, cancel queued movement, award
+   * XP (kill / win / loss), set a retreat cooldown on the loser, then either
+   * remove the dead or move the loser to a retreat tile. A loser with no
+   * valid retreat tile is killed in place.
+   */
   private finishBattle(
     battle: BattleState,
     gameState: GameState,
@@ -434,6 +495,17 @@ export class BattleSystem {
     });
   }
 
+  /**
+   * Pick the tile the loser flees to. Priority order:
+   *   1. Two tiles back along the loser's incoming direction (and the diagonals
+   *      of that direction).
+   *   2. Chebyshev-distance-2 ring around the battle, sorted to maximize
+   *      distance from the winner.
+   *   3. Expanding rings of radius 3..6 (findFallbackRetreatRing).
+   * Prefers friendly or neutral territory; falls back to any unoccupied
+   * passable tile (water and mountain excluded). Returns null if nothing
+   * is reachable, in which case the caller kills the unit instead.
+   */
   private findRetreatTarget(
     gameState: GameState,
     loser: Unit,
@@ -501,6 +573,11 @@ export class BattleSystem {
     return null;
   }
 
+  /**
+   * Last-resort retreat candidates: every tile on the Chebyshev rings of
+   * radius 3 through 6 around the battle, sorted nearest-to-origin first
+   * (i.e. "run toward home" when there's nowhere safer to go).
+   */
   private findFallbackRetreatRing(position: GridCoordinates, origin: GridCoordinates): GridCoordinates[] {
     const candidates: GridCoordinates[] = [];
     for (let radius = 3; radius <= 6; radius++) {
@@ -520,11 +597,20 @@ export class BattleSystem {
   }
 }
 
+/**
+ * ADVANCE-stance attack multiplier. Cavalry uniquely gets 1.5× (the only
+ * unit-type bonus hardcoded into offense); everyone else gets 1.25×.
+ * HOLD and FALL_BACK pay their dues in mitigation, not here.
+ */
 function getOrderAttackFactor(order: BattleOrder, unitType: UnitType): number {
   if (order !== 'ADVANCE') return 1;
   return unitType === 'CAVALRY' ? 1.5 : 1.25;
 }
 
+/**
+ * Baseline damage reduction by stance, before terrain and matchup bonuses.
+ * FALL_BACK 0.16, HOLD 0.22, ADVANCE 0.04 — pressing forward leaves you exposed.
+ */
 function getOrderMitigation(order: BattleOrder): number {
   switch (order) {
     case 'FALL_BACK': return 0.16;
@@ -533,6 +619,26 @@ function getOrderMitigation(order: BattleOrder): number {
   }
 }
 
+/**
+ * Per-attack matchup modifier. Combines universal armor rules with unit-specific
+ * rock-paper-scissors counters. All effects stack additively.
+ *
+ * Universal armor:
+ *   ranged volley vs heavy armor:        +12%  (arrows punch plate)
+ *   melee swing  vs heavy armor:          -6%  (sword glances off plate)
+ *
+ * Siege in close combat:
+ *   siege attacker in melee:             -30%  (catapults can't brawl)
+ *   anything else hitting siege in melee: +8%  (catapults can't dodge)
+ *
+ * Unit-specific counters (offense):
+ *   Heavy Infantry vs Cavalry:           +35%  (spear-wall / pike anti-cavalry)
+ *   Heavy Infantry vs light armor:       +15%  (armored line crushes skirmishers)
+ *   Crossbowman   vs heavy armor:        +10%  (armor-piercing bolts; stacks with the +12% ranged-vs-heavy)
+ *   Crossbowman   vs Cavalry:            +35%  (well-aimed shots into the charge; stacks with the heavy-armor bonuses)
+ *   Catapult / Trebuchet vs heavy armor: +20%  (boulders ignore plate)
+ *   Catapult / Trebuchet vs light armor: -25%  (slow projectiles miss fast targets)
+ */
 function getMatchupAttackFactor(
   attackerType: UnitType,
   defenderType: UnitType,
@@ -541,14 +647,41 @@ function getMatchupAttackFactor(
 ): number {
   let factor = 1;
 
+  // Universal armor rules
   if (useRanged && defenderArmor === 'heavy') factor += 0.12;
   if (!useRanged && defenderArmor === 'heavy') factor -= 0.06;
+
+  // Siege is helpless in melee, and easy prey when shoved into one
   if ((attackerType === 'CATAPULT' || attackerType === 'TREBUCHET') && !useRanged) factor -= 0.3;
   if ((defenderType === 'CATAPULT' || defenderType === 'TREBUCHET') && !useRanged) factor += 0.08;
+
+  // Heavy Infantry: spear-wall anti-cavalry; also crushes light skirmishers
+  if (attackerType === 'HEAVY_INFANTRY' && defenderType === 'CAVALRY') factor += 0.35;
+  if (attackerType === 'HEAVY_INFANTRY' && defenderArmor === 'light') factor += 0.15;
+
+  // Crossbowman: armor-piercing bolts (stacks with the universal ranged-vs-heavy)
+  if (attackerType === 'CROSSBOWMAN' && defenderArmor === 'heavy') factor += 0.10;
+
+  // Crossbowman vs Cavalry: extra punishment for cavalry that closes on a crossbow line.
+  // Stacks with the heavy-armor bonuses above for a total of +57% offense.
+  if (attackerType === 'CROSSBOWMAN' && defenderType === 'CAVALRY') factor += 0.35;
+
+  // Siege weapons: anti-armor specialists, hopeless against fast/light units
+  if ((attackerType === 'CATAPULT' || attackerType === 'TREBUCHET') && useRanged) {
+    if (defenderArmor === 'heavy') factor += 0.20;
+    if (defenderArmor === 'light') factor -= 0.25;
+  }
 
   return factor;
 }
 
+/**
+ * Attacker's tile-specific multiplier.
+ *   FOREST:      Cavalry crippled 0.82×; ranged 0.94×; melee 1.08×.
+ *   SNOW_FOREST: ranged +12%; HOLD +5% — favors dug-in shooters.
+ *   DESERT:      Cavalry +6%; Heavy Infantry 0.95× (plate broils).
+ *   PLAINS:      Cavalry +12% on ADVANCE — their signature charge bonus.
+ */
 function getTerrainAttackFactor(
   unitType: UnitType,
   terrain: TerrainType,
@@ -576,6 +709,11 @@ function getTerrainAttackFactor(
   }
 }
 
+/**
+ * Defender's terrain bonus. Forest cover +6% for everyone except Cavalry
+ * (can't hide a horse). Snow-forest dug-in (HOLD/FALL_BACK) +8%. Charging
+ * Cavalry on plains takes a -4% defensive hit — the cost of momentum.
+ */
 function getTerrainMitigation(unitType: UnitType, terrain: TerrainType, order: BattleOrder): number {
   let bonus = 0;
   if (terrain === TerrainType.FOREST && unitType !== 'CAVALRY') bonus += 0.06;
@@ -584,6 +722,19 @@ function getTerrainMitigation(unitType: UnitType, terrain: TerrainType, order: B
   return bonus;
 }
 
+/**
+ * Defensive bonuses tied to specific unit+stance combos:
+ *   Heavy Infantry HOLD:               +16% (shield wall — its signature bonus)
+ *   Crossbowman    FALL_BACK:          +12% (kiting tax on pursuers)
+ *   Siege hit in melee by non-siege:    -8% (sitting ducks if shoved up close)
+ *
+ * Anti-cavalry mitigation (applies in any stance, mitigation is clamped at MITIGATION_CAP):
+ *   Heavy Infantry being hit by Cavalry: +50% (planted spears soak the charge)
+ *   Crossbowman    being hit by Cavalry: +55% (stakes / pavise behind the line)
+ * These bonuses are intentionally large because base order mitigation keys off the
+ * ATTACKER's stance, so a defending unit's own stance contributes nothing to its
+ * survival when an ADVANCing cavalryman pins them.
+ */
 function getMatchupMitigation(unitType: UnitType, attackerType: UnitType, order: BattleOrder): number {
   let bonus = 0;
   if (unitType === 'HEAVY_INFANTRY' && order === 'HOLD') bonus += 0.16;
@@ -591,6 +742,11 @@ function getMatchupMitigation(unitType: UnitType, attackerType: UnitType, order:
   if ((unitType === 'CATAPULT' || unitType === 'TREBUCHET') && attackerType !== 'CATAPULT' && attackerType !== 'TREBUCHET') {
     bonus -= 0.08;
   }
+
+  // Anti-cavalry defensive counters
+  if (unitType === 'HEAVY_INFANTRY' && attackerType === 'CAVALRY') bonus += 0.50;
+  if (unitType === 'CROSSBOWMAN'    && attackerType === 'CAVALRY') bonus += 0.55;
+
   return bonus;
 }
 
@@ -598,12 +754,23 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-/** Whether a unit attacks at range this round (same rule used by the damage formula). */
+/**
+ * A unit fires at range when it has reach (range > 1) and a ranged stat — EXCEPT
+ * when ADVANCEing, which forces melee even for ranged units. Shared by the
+ * damage formula and the XP system so they agree on the same condition.
+ */
 function usesRangedAttack(unit: Unit, order: BattleOrder): boolean {
   const stats = unit.getStats();
   return stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'ADVANCE';
 }
 
+/**
+ * Morale can override the player's chosen stance:
+ *   ≤ MORALE_ROUT: troops break — only FALL_BACK is honored; anything else
+ *                  collapses to HOLD (paralyzed in place).
+ *   ≤ MORALE_LOW:  too shaken to ADVANCE; downgraded to HOLD.
+ *   Otherwise:     the chosen order stands.
+ */
 function effectiveBattleOrder(unit: Unit): BattleOrder {
   const morale = unit.getMorale();
   const order = unit.getBattleOrder();
