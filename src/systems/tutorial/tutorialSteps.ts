@@ -63,6 +63,21 @@ function enemyCityTile(ctx: TutorialResolveCtx): GridCoordinates | null {
   return enemy?.position ?? null;
 }
 
+/** First undeveloped resource deposit (used by the bonus mine objective). */
+function depositTile(ctx: TutorialResolveCtx): GridCoordinates | null {
+  const grid = ctx.gameState.getGrid();
+  const { rows, cols } = grid.getSize();
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const t = grid.getTerritory({ row: r, col: c });
+      if (t?.getResourceDeposit()) return { row: r, col: c };
+    }
+  }
+  return null;
+}
+
+const MINE_BUILDINGS = new Set(['COPPER_MINE', 'IRON_MINE', 'FIRE_GLASS_MINE', 'MANA_MINE']);
+
 // ── Typed payload helpers (the events list guarantees the shape) ────────────
 
 const isModal = (modal: GameEventMap['ui:modal-opened']['modal']) =>
@@ -100,10 +115,21 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
 
   // ── Objective phase (any order) ─────────────────────────────────────────────
   {
+    id: 'build-mine',
+    phase: 'objective',
+    title: 'Bonus: build a mine on a deposit',
+    body: 'March a unit onto a resource deposit, build an Outpost there, then a Mine to unlock its weapons or mana perks.',
+    events: ['territory:building-built'],
+    bonus: true,
+    match: (payload) =>
+      MINE_BUILDINGS.has((payload as GameEventMap['territory:building-built']).building),
+    highlight: { tile: depositTile },
+  },
+  {
     id: 'build-building',
     phase: 'objective',
     title: 'Construct a building',
-    body: 'In a city menu, switch to the Buildings tab and build or upgrade a building.',
+    body: 'In a city menu, switch to the Buildings tab — or build an Outpost/Walls/Farms on a tile you control.',
     events: ['city:building-built', 'territory:building-built', 'territory:building-upgraded'],
   },
   {
@@ -117,14 +143,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'set-stance',
     phase: 'objective',
     title: 'Set a battle stance',
-    body: 'Select a unit, then use the stance buttons (Advance / Hold / Fall back) in the bottom bar.',
+    body: 'Select a unit and try its stance buttons — Advance presses the enemy (and bleeds morale), Hold tightens defense, Withdraw pulls out of a losing fight.',
     events: ['unit:battle-order-changed'],
   },
   {
     id: 'conquer-city',
     phase: 'objective',
     title: 'Conquer Greyhold',
-    body: 'March your units onto the enemy city to lay siege and capture it.',
+    body: 'March your units onto the enemy city to lay siege and capture it. Conquering a city rallies your nearby troops with a morale spike.',
     events: ['city:conquered'],
     match: (payload, ctx) =>
       (payload as GameEventMap['city:conquered']).byNationId === ctx.localNationId,
