@@ -68,11 +68,14 @@ export class Minimap {
     this.layout();
   }
 
-  /** Recompute size/position (call on resize). */
-  layout(): void {
+  /**
+   * Recompute size/position (call on resize).
+   * `topOffset` is the y where the minimap should start — pass the bottom of the HUD
+   * top bar so the minimap doesn't sit on top of the resource row when the bar is tall.
+   */
+  layout(topOffset = 58): void {
     const sw = this.scene.scale.width;
     const pad = 10;
-    const topOffset = 58; // sit just below the HUD top bar
     this.mapW = Math.min(190, Math.max(120, Math.round(sw * 0.2)));
     this.cell = this.mapW / this.cols;
     this.mapH = this.cell * this.rows;

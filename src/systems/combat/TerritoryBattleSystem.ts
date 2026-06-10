@@ -138,8 +138,8 @@ export class TerritoryBattleSystem {
       battle.roundsElapsed++;
 
       const order = effectiveBattleOrder(unit);
-      // FALL_BACK — unit always disengages
-      if (order === 'FALL_BACK') {
+      // WITHDRAW — unit always disengages
+      if (order === 'WITHDRAW') {
         this.finishBattle(battle, posKey, gameState, movementSystem, eventBus, currentTick, unit, 'retreat');
         continue;
       }

@@ -33,9 +33,9 @@ import type { Unit } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
 import {
   TERRAIN_TEXTURE, TERRAIN_CYCLE, DEPOSIT_ICON, DEPOSIT_INFO,
-  unitInitial, stanceShortLabel, stanceBadgeColor,
+  unitInitial, stanceShortLabel, stanceBadgeColor, moraleBandFill,
 } from './gameSceneHelpers';
-import { effectiveBattleOrder } from '@/systems/morale/moraleRules';
+import { effectiveBattleOrder, getMoraleBand } from '@/systems/morale/moraleRules';
 
 interface GameSceneData {
   gameState?: GameState;
@@ -992,21 +992,34 @@ export class GameScene extends Phaser.Scene {
         const nation = this.gameState.getNation(unit.getOwnerId());
         const teamColor = parseInt((nation?.getColor() ?? '#ffffff').replace('#', ''), 16);
         const maxHealth = unit.getStats().maxHealth;
-        const ratio = maxHealth > 0 ? unit.getHealth() / maxHealth : 0;
+        const hpRatio   = maxHealth > 0 ? unit.getHealth() / maxHealth : 0;
 
-        const barWidth  = 24;
-        const barHeight = 4;
-        const x = unit.position.col * TILE_SIZE + TILE_SIZE / 2 - barWidth / 2;
-        const y = unit.position.row * TILE_SIZE - 10 - index * 14; // 14px spacing to fit 2 bars
+        const barWidth   = 24;
+        const barHeight  = 4;
+        const barGap     = 1;
+        const stackPitch = barHeight * 2 + barGap + 5; // HP + morale + gap + 5px between stacked units
+        const x  = unit.position.col * TILE_SIZE + TILE_SIZE / 2 - barWidth / 2;
+        const yHp = unit.position.row * TILE_SIZE - 12 - index * stackPitch;
+        const yMo = yHp + barHeight + barGap;
 
-        // HP bar
+        // HP bar — fill is the unit's team color
         this.healthBarGraphic.fillStyle(0x000000, 1);
-        this.healthBarGraphic.fillRect(x, y, barWidth, barHeight);
+        this.healthBarGraphic.fillRect(x, yHp, barWidth, barHeight);
         this.healthBarGraphic.fillStyle(teamColor, 1);
-        this.healthBarGraphic.fillRect(x, y, Math.max(0, Math.round(barWidth * ratio)), barHeight);
+        this.healthBarGraphic.fillRect(x, yHp, Math.max(0, Math.round(barWidth * hpRatio)), barHeight);
         this.healthBarGraphic.lineStyle(1, 0x000000, 1);
-        this.healthBarGraphic.strokeRect(x, y, barWidth, barHeight);
+        this.healthBarGraphic.strokeRect(x, yHp, barWidth, barHeight);
 
+        // Morale bar — fill is the morale band color
+        const morale     = unit.getMorale();
+        const moraleRatio = Math.max(0, Math.min(1, morale / 100));
+        const moraleFill  = moraleBandFill(getMoraleBand(morale));
+        this.healthBarGraphic.fillStyle(0x000000, 1);
+        this.healthBarGraphic.fillRect(x, yMo, barWidth, barHeight);
+        this.healthBarGraphic.fillStyle(moraleFill, 1);
+        this.healthBarGraphic.fillRect(x, yMo, Math.max(0, Math.round(barWidth * moraleRatio)), barHeight);
+        this.healthBarGraphic.lineStyle(1, 0x000000, 1);
+        this.healthBarGraphic.strokeRect(x, yMo, barWidth, barHeight);
       });
     }
   }

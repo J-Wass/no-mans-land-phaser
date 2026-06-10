@@ -91,15 +91,15 @@ describe('moraleRules pure functions', () => {
     expect(effectiveBattleOrder(unit)).toBe('ADVANCE');
   });
 
-  it('effectiveBattleOrder collapses to HOLD/FALL_BACK when BROKEN', () => {
+  it('effectiveBattleOrder collapses to HOLD/WITHDRAW when BROKEN', () => {
     const unit = new Infantry('u1', 'nation-a', { row: 0, col: 0 });
     unit.setMorale(10);
     unit.setBattleOrder('ADVANCE');
     expect(effectiveBattleOrder(unit)).toBe('HOLD');
     unit.setBattleOrder('HOLD');
     expect(effectiveBattleOrder(unit)).toBe('HOLD');
-    unit.setBattleOrder('FALL_BACK');
-    expect(effectiveBattleOrder(unit)).toBe('FALL_BACK');
+    unit.setBattleOrder('WITHDRAW');
+    expect(effectiveBattleOrder(unit)).toBe('WITHDRAW');
   });
 });
 

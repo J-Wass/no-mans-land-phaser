@@ -62,7 +62,7 @@ export function applyAdvancePenalty(unit: Unit): void {
 
 /**
  * Morale can override the player's chosen stance:
- *   ≤ MORALE_ROUT_AT_OR_BELOW (14): troops break — only FALL_BACK is honored;
+ *   ≤ MORALE_ROUT_AT_OR_BELOW (14): troops break — only WITHDRAW is honored;
  *                                   anything else collapses to HOLD.
  *   ≤ MORALE_ADVANCE_BLOCK_AT_OR_BELOW (59): too shaken to charge;
  *                                   ADVANCE is downgraded to HOLD.
@@ -71,7 +71,7 @@ export function applyAdvancePenalty(unit: Unit): void {
 export function effectiveBattleOrder(unit: Unit): BattleOrder {
   const morale = unit.getMorale();
   const order  = unit.getBattleOrder();
-  if (morale <= MORALE_ROUT_AT_OR_BELOW) return order === 'FALL_BACK' ? 'FALL_BACK' : 'HOLD';
+  if (morale <= MORALE_ROUT_AT_OR_BELOW) return order === 'WITHDRAW' ? 'WITHDRAW' : 'HOLD';
   if (morale <= MORALE_ADVANCE_BLOCK_AT_OR_BELOW && order === 'ADVANCE') return 'HOLD';
   return order;
 }

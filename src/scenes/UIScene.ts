@@ -25,6 +25,7 @@ import { DiplomaticStatus } from '@/types/diplomacy';
 import { TICK_RATE } from '@/config/constants';
 import type { TechId } from '@/systems/research/TechTree';
 import { getFont, getFontSizeScale } from '@/config/accessibility';
+import { moraleBandFill } from './gameSceneHelpers';
 
 interface UISceneData {
   setup: GameSetup;
@@ -54,7 +55,7 @@ const TERRAIN_DISPLAY_NAME: Record<string, string> = {
   [TerrainType.WATER]:       'Water',
 };
 const STANCE_ORDERS: Array<{ order: BattleOrder; label: string }> = [
-  { order: 'FALL_BACK', label: 'FALLBACK' },
+  { order: 'WITHDRAW', label: 'WITHDRAW' },
   { order: 'HOLD', label: 'HOLD' },
   { order: 'ADVANCE', label: 'ADVANCE' },
 ];
@@ -68,16 +69,6 @@ const MORALE_BAND_ORDER: Record<MoraleBand, number> = {
   [MoraleBand.INSPIRED]: 4,
 };
 
-/** Fill color for the morale bar by band. */
-function moraleBandFill(band: MoraleBand): number {
-  switch (band) {
-    case MoraleBand.INSPIRED: return 0xf0c040;  // gold
-    case MoraleBand.STEADY:   return 0x4488ff;  // blue
-    case MoraleBand.WAVERING: return 0xffaa22;  // amber
-    case MoraleBand.SHAKEN:   return 0xff6622;  // orange
-    case MoraleBand.BROKEN:   return 0xff4444;  // red
-  }
-}
 const RESOURCE_BUTTONS: ResourceType[] = [
   ResourceType.FOOD,
   ResourceType.RAW_MATERIAL,
@@ -235,15 +226,43 @@ export class UIScene extends Phaser.Scene {
     }
 
     if (this.stanceHintText) {
-      this.stanceHintText.setText(this.selectedUnit.getUnitType() === 'CAVALRY'
-        ? 'Advance acts as Charge: +50% damage.'
-        : 'Advance quickens the clash: +25% damage on both sides.');
+      const morale = this.selectedUnit.getMorale();
+      const band   = getMoraleBand(morale);
+      const eff    = effectiveBattleOrder(this.selectedUnit);
+      const chosen = this.selectedUnit.getBattleOrder();
+      if (band === MoraleBand.BROKEN) {
+        this.stanceHintText.setColor('#ff8888');
+        this.stanceHintText.setText('BROKEN: only WITHDRAW honored — unit will HOLD otherwise.');
+      } else if (chosen === 'ADVANCE' && eff !== 'ADVANCE') {
+        // ADVANCE is the chosen stance but morale is overriding it.
+        this.stanceHintText.setColor('#ffaa44');
+        this.stanceHintText.setText(`Morale ${band}: ADVANCE downgraded to HOLD until morale recovers.`);
+      } else if (eff !== 'ADVANCE' && band !== MoraleBand.STEADY && band !== MoraleBand.INSPIRED) {
+        // ADVANCE not chosen, but morale would block it — show why the button is grey.
+        this.stanceHintText.setColor('#d7c7a0');
+        this.stanceHintText.setText(`Morale ${band}: ADVANCE locked.`);
+      } else {
+        this.stanceHintText.setColor('#d7c7a0');
+        this.stanceHintText.setText(this.selectedUnit.getUnitType() === 'CAVALRY'
+          ? 'Advance acts as Charge: +50% damage.'
+          : 'Advance quickens the clash: +25% damage on both sides.');
+      }
     }
   }
 
   private setupEventListeners(): void {
     this.subs.on('game:tick', ({ tick }) => {
+      const prevWidth = this.tickText?.width ?? 0;
       this.tickText?.setText(formatGameTime(tick));
+      // The day counter widens as it rolls over digits ("Day 9" → "Day 10" → "Day 100").
+      // When the width grows, the SPEED button placement that flowed past this text is
+      // now stale, so re-layout once. Comparing widths is cheap and only triggers on a
+      // genuine grow event.
+      const newWidth = this.tickText?.width ?? 0;
+      if (newWidth > prevWidth + 0.5) {
+        this.rebuildHUD();
+        return;
+      }
       this.refreshResources();
     });
 
@@ -398,7 +417,14 @@ export class UIScene extends Phaser.Scene {
   private rebuildHUD(): void {
     MONO = { fontFamily: getFont() };
     // Keep the persistent minimap sized/positioned to the current viewport.
-    this.minimap?.layout();
+    // Pass the actual top-bar height so the minimap sits below it instead of on top
+    // of the resource row when the bar wraps to two lines in skinny mode.
+    const W = this.scale.width;
+    const H = this.scale.height;
+    const scale = uiScale(H);
+    const skinnyBar = W < 1100;
+    const barH = Math.round((skinnyBar ? 88 : 52) * scale);
+    this.minimap?.layout(barH + Math.round(6 * scale));
     for (const obj of this.hudObjects) {
       if (obj.active) obj.destroy();
     }
@@ -418,10 +444,6 @@ export class UIScene extends Phaser.Scene {
     this.stanceHintText = null;
     this.hpBarWidth = 0;
 
-    const W = this.scale.width;
-    const H = this.scale.height;
-    const scale = uiScale(H);
-
     this.buildTopBar(W, scale);
     this.buildNotificationToasts(scale);
     this.buildResourceBreakdownPanel(scale);
@@ -433,7 +455,8 @@ export class UIScene extends Phaser.Scene {
   }
 
   private buildTopBar(W: number, scale: number): void {
-    const skinny = W < 960;
+    // Bumped from 960 — at 960-1100 the resource row used to crowd the alerts button on row 1.
+    const skinny = W < 1100;
     const widthFactor = skinny ? Phaser.Math.Clamp(W / 620, 0.62, 1) : 1;
     const barH = Math.round((skinny ? 88 : 52) * scale);
     const pad = Math.round((skinny ? 8 : 10) * scale);
@@ -453,12 +476,18 @@ export class UIScene extends Phaser.Scene {
     // Place the difficulty label after the measured width of the time label so the
     // two never overlap regardless of "Day N HH:00" length or font scaling.
     const difficultyX = pad + this.tickText.width + gap;
-    this.track(this.add.text(difficultyX, midY, this.setup.difficulty.toUpperCase(), {
+    const difficultyText = this.track(this.add.text(difficultyX, midY, this.setup.difficulty.toUpperCase(), {
       ...MONO, fontSize: fs(skinny ? 10 : 12, scale), color: difficultyColor(this.setup.difficulty), fontStyle: 'bold',
-    }).setOrigin(0, 0.5));
+    }).setOrigin(0, 0.5)) as Phaser.GameObjects.Text;
 
-    const speedX = pad + Math.round((skinny ? 142 : 196) * scale * widthFactor);
-    this.makeButton(speedX, midY, Math.round(60 * scale * widthFactor), btnH, speedLabel(this.gameSpeed), scale, () => {
+    // Flow the SPEED button past the actual end of the difficulty text, so it
+    // never gets covered as the day counter grows or fonts scale up. Keep a
+    // sane minimum offset so the layout still looks consistent at game start.
+    const speedBtnW   = Math.round(60 * scale * widthFactor);
+    const leftFlowEnd = difficultyX + difficultyText.width;
+    const minSpeedX   = pad + Math.round((skinny ? 142 : 196) * scale * widthFactor);
+    const speedX      = Math.max(minSpeedX, leftFlowEnd + gap + speedBtnW / 2);
+    this.makeButton(speedX, midY, speedBtnW, btnH, speedLabel(this.gameSpeed), scale, () => {
       const idx = SPEED_CYCLE.indexOf(this.gameSpeed);
       this.gameSpeed = SPEED_CYCLE[(idx + 1) % SPEED_CYCLE.length]!;
       this.speedBtnText?.setText(speedLabel(this.gameSpeed));
@@ -466,8 +495,11 @@ export class UIScene extends Phaser.Scene {
     }, 0x1b2442);
     this.speedBtnText = this.hudObjects[this.hudObjects.length - 1] as Phaser.GameObjects.Text;
 
+    // Flow ALERTS button immediately after the SPEED button.
     const alertsLabel = skinny ? `A ${this.notifications.length}` : `ALERTS ${this.notifications.length}`;
-    this.makeButton(speedX + Math.round(88 * scale * widthFactor), midY, Math.round((skinny ? 58 : 92) * scale * widthFactor), btnH, alertsLabel, scale, () => {
+    const alertsBtnWFlow = Math.round((skinny ? 58 : 92) * scale * widthFactor);
+    const alertsX = speedX + speedBtnW / 2 + gap + alertsBtnWFlow / 2;
+    this.makeButton(alertsX, midY, alertsBtnWFlow, btnH, alertsLabel, scale, () => {
       this.showAlertHistory = !this.showAlertHistory;
       this.rebuildHUD();
     }, this.showAlertHistory ? 0x3c2a5e : 0x241c36);
@@ -483,9 +515,22 @@ export class UIScene extends Phaser.Scene {
       this.makeResourceButton(x, resourceY, resourceW, btnH, scale, resource);
     });
 
-    const menuX = W - pad - btnW / 2;
-    const saveX = W - pad - (btnW + gap) - btnW / 2;
-    const researchX = W - pad - (btnW + gap) * 2 - btnW / 2;
+    // Clamp the right-side buttons so they can't extend far enough left to draw on top
+    // of the alerts/speed buttons. If the viewport is too narrow for the desired widths,
+    // shrink the three right buttons proportionally (with a readable floor) instead.
+    const alertsRight  = alertsX + alertsBtnWFlow / 2;
+    const idealRightLeft = W - pad - btnW * 3 - gap * 2;
+    const minRightLeft   = alertsRight + gap;
+    const rightLeftEdge  = Math.max(idealRightLeft, minRightLeft);
+    const rightAvailable = Math.max(0, W - pad - rightLeftEdge);
+    const desiredRightW  = btnW * 3 + gap * 2;
+    const rightBtnW      = desiredRightW <= rightAvailable
+      ? btnW
+      : Math.max(Math.round(36 * scale), Math.floor((rightAvailable - gap * 2) / 3));
+
+    const researchX = rightLeftEdge + rightBtnW / 2;
+    const saveX     = researchX + rightBtnW + gap;
+    const menuX     = saveX + rightBtnW + gap;
 
     const nation = this.getLocalNation();
     const currentResearch = nation?.getCurrentResearch();
@@ -493,7 +538,7 @@ export class UIScene extends Phaser.Scene {
       ? currentResearch.techId.replace(/_/g, ' ').toUpperCase().slice(0, skinny ? 6 : 10)
       : (skinny ? 'TECH' : 'RESEARCH');
     const researchBtnFill = currentResearch ? 0x1e2810 : 0x1a1e3c;
-    this.makeButton(researchX, midY, btnW, btnH, researchBtnLabel, scale, () => {
+    this.makeButton(researchX, midY, rightBtnW, btnH, researchBtnLabel, scale, () => {
       if (this.bridge.isResearchOpen()) {
         this.bridge.closeResearch();
       } else {
@@ -504,19 +549,19 @@ export class UIScene extends Phaser.Scene {
     // Thin progress bar across the bottom of the research button
     const barThick = Math.max(3, Math.round(3 * scale));
     this.researchProgressRect = this.track(this.add.rectangle(
-      researchX - btnW / 2,
+      researchX - rightBtnW / 2,
       midY + btnH / 2 - barThick,
       0, barThick, 0x44cc22,
     ).setOrigin(0, 0)) as Phaser.GameObjects.Rectangle;
-    this.researchBtnFullW = btnW;
+    this.researchBtnFullW = rightBtnW;
 
-    this.makeButton(saveX, midY, btnW, btnH, 'SAVE', scale, () => {
+    this.makeButton(saveX, midY, rightBtnW, btnH, 'SAVE', scale, () => {
       this.bridge.saveToSlot(1);
       this.pushNotification('Game saved to Slot 1');
       this.rebuildHUD();
     }, 0x14321e);
 
-    this.makeButton(menuX, midY, btnW, btnH, skinny ? 'MENU' : 'MENU [ESC]', scale, () => {
+    this.makeButton(menuX, midY, rightBtnW, btnH, skinny ? 'MENU' : 'MENU [ESC]', scale, () => {
       this.scene.get('GameScene')?.input.keyboard?.emit('keydown-ESC');
     }, 0x1e2244);
   }

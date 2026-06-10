@@ -100,7 +100,7 @@ describe('BattleSystem', () => {
     battleSystem = new BattleSystem(() => 0.05);
     const withdrawer = new Infantry('fallback', 'nation-a', { row: 3, col: 3 });
     const pursuer = new Infantry('pursuer', 'nation-b', { row: 3, col: 3 });
-    withdrawer.setBattleOrder('FALL_BACK');
+    withdrawer.setBattleOrder('WITHDRAW');
     pursuer.setBattleOrder('HOLD');
     gameState.addUnit(withdrawer);
     gameState.addUnit(pursuer);

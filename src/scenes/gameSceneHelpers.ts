@@ -5,6 +5,7 @@
 
 import { TerrainType } from '@/systems/grid/Territory';
 import type { Unit, BattleOrder } from '@/entities/units/Unit';
+import { MoraleBand } from '@/config/moraleBalance';
 
 /** Terrain → loaded texture key. */
 export const TERRAIN_TEXTURE: Record<TerrainType, string> = {
@@ -69,16 +70,27 @@ export function unitInitial(unit: Unit): string {
 
 export function stanceShortLabel(order: BattleOrder): string {
   switch (order) {
-    case 'FALL_BACK': return 'FALL BACK';
-    case 'HOLD':      return 'HOLD';
-    case 'ADVANCE':   return 'ADVANCE';
+    case 'WITHDRAW': return 'WITHDRAW';
+    case 'HOLD':     return 'HOLD';
+    case 'ADVANCE':  return 'ADVANCE';
   }
 }
 
 export function stanceBadgeColor(order: BattleOrder): string {
   switch (order) {
-    case 'FALL_BACK': return '#ffaa44';
-    case 'HOLD':      return '#aaaacc';
-    case 'ADVANCE':   return '#44ddff';
+    case 'WITHDRAW': return '#ffaa44';
+    case 'HOLD':     return '#aaaacc';
+    case 'ADVANCE':  return '#44ddff';
+  }
+}
+
+/** Fill color (as 0xRRGGBB) for a morale band. Shared between the unit panel and the in-world morale bar. */
+export function moraleBandFill(band: MoraleBand): number {
+  switch (band) {
+    case MoraleBand.INSPIRED: return 0xf0c040;  // gold
+    case MoraleBand.STEADY:   return 0x4488ff;  // blue
+    case MoraleBand.WAVERING: return 0xffaa22;  // amber
+    case MoraleBand.SHAKEN:   return 0xff6622;  // orange
+    case MoraleBand.BROKEN:   return 0xff4444;  // red
   }
 }

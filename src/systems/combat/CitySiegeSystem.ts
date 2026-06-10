@@ -7,7 +7,7 @@
  *   - City counterattacks with garrison fire (reduced vs ranged attackers)
  * When city HP → 0 the city is conquered and ownership transfers.
  * Cities regen HP over time when not under siege.
- * A unit on FALL_BACK order always disengages successfully.
+ * A unit on WITHDRAW order always disengages successfully.
  */
 
 import type { EntityId, GridCoordinates } from '@/types/common';
@@ -125,8 +125,8 @@ export class CitySiegeSystem {
       siege.roundsElapsed++;
 
       const order = effectiveBattleOrder(unit);
-      // FALL_BACK — unit always disengages from a city siege successfully
-      if (order === 'FALL_BACK') {
+      // WITHDRAW — unit always disengages from a city siege successfully
+      if (order === 'WITHDRAW') {
         this.finishSiege(siege, gameState, movementSystem, eventBus, currentTick, unit, 'retreat');
         continue;
       }

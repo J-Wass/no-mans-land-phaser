@@ -25,7 +25,7 @@ export enum UnitType {
 }
 
 export type ArmorType = 'light' | 'heavy';
-export type BattleOrder = 'FALL_BACK' | 'HOLD' | 'ADVANCE';
+export type BattleOrder = 'WITHDRAW' | 'HOLD' | 'ADVANCE';
 
 export interface UnitStats {
   maxHealth: number;

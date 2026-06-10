@@ -37,7 +37,7 @@ export const ADVANCE_PACE_FACTOR = 1.25;
 /** Hard cap on total mitigation so attacks always do meaningful damage. */
 export const MITIGATION_CAP = 0.65;
 
-/** Withdraw (FALL_BACK) success chance model. */
+/** Withdraw success chance model. */
 export const WITHDRAW_BASE_CHANCE = 0.3;
 export const WITHDRAW_SPEED_WEIGHT = 0.07;
 export const WITHDRAW_CHANCE_MIN = 0.15;

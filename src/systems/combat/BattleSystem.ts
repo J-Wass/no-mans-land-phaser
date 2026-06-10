@@ -167,10 +167,11 @@ export class BattleSystem {
       const kinematicsB = gameState.getNation(unitB.getOwnerId())?.hasResearched('kinematics') ?? false;
 
       const damageToUnitA = this.calculateDamage(
-        unitB,
-        unitA,
+        unitB,           // attacker
+        unitA,           // defender
         terrain,
-        orderB,
+        orderB,          // attacker order
+        orderA,          // defender order — used by mitigation
         battlePaceFactor,
         depositsB,
         countsB,
@@ -179,10 +180,11 @@ export class BattleSystem {
         kinematicsB,
       );
       const damageToUnitB = this.calculateDamage(
-        unitA,
-        unitB,
+        unitA,           // attacker
+        unitB,           // defender
         terrain,
-        orderA,
+        orderA,          // attacker order
+        orderB,          // defender order — used by mitigation
         battlePaceFactor,
         depositsA,
         countsA,
@@ -288,12 +290,17 @@ export class BattleSystem {
    * Formula: max(1, round(offense × (1 - mitigation))). The floor of 1 means
    * even a perfectly-mitigated attack still chips a sliver of HP, so battles
    * can't stall forever.
+   *
+   * Each side passes ITS OWN order: the attacker's order drives the offense
+   * chain, the defender's order drives the mitigation chain. Defenders who
+   * brace (HOLD) actually benefit; defenders who charge (ADVANCE) get exposed.
    */
   private calculateDamage(
     attacker: Unit,
     defender: Unit,
     terrain: TerrainType,
-    order: BattleOrder,
+    attackerOrder: BattleOrder,
+    defenderOrder: BattleOrder,
     battlePaceFactor: number,
     attackerDeposits: ReadonlySet<TerritoryResourceType>,
     attackerCounts: ReadonlyMap<TerritoryResourceType, number>,
@@ -305,13 +312,13 @@ export class BattleSystem {
       attacker,
       defender,
       terrain,
-      order,
+      attackerOrder,
       battlePaceFactor,
       attackerDeposits,
       attackerCounts,
       attackerHasKinematics,
     );
-    const mitigation = this.getMitigationScore(defender, attacker, terrain, order, defenderDeposits, defenderCounts);
+    const mitigation = this.getMitigationScore(defender, attacker, terrain, defenderOrder, defenderDeposits, defenderCounts);
     return Math.max(1, Math.round(offense * (1 - mitigation)));
   }
 
@@ -357,11 +364,16 @@ export class BattleSystem {
   /**
    * Damage-reduction percentage applied to incoming offense. Components are
    * ADDED (not multiplied):
-   *   base order mitigation (FALL_BACK 0.16, HOLD 0.22, ADVANCE 0.04)
+   *   base order mitigation (WITHDRAW 0.16, HOLD 0.22, ADVANCE 0.04)
    *   + terrain mitigation (forest cover, snow dig-in, etc.)
    *   + matchup mitigation (e.g. Heavy Infantry HOLD +0.16)
    *   + Earth Mana bonus
+   *   + morale band delta (INSPIRED +0.04 down to BROKEN -0.10)
    * Clamped to [0, MITIGATION_CAP] so a defender can never become unkillable.
+   *
+   * `order` here is the DEFENDER's effective order — so the unit's own choice
+   * of stance controls how much damage it absorbs, and the rule names line up
+   * with their effects ("Heavy Infantry HOLD" means HI itself is HOLDing).
    */
   private getMitigationScore(
     defender: Unit,
@@ -399,7 +411,7 @@ export class BattleSystem {
   }
 
   /**
-   * A flee attempt requires effective order = FALL_BACK. Probability =
+   * A flee attempt requires effective order = WITHDRAW. Probability =
    * WITHDRAW_BASE_CHANCE + (own speed − opponent speed) × WITHDRAW_SPEED_WEIGHT
    * + Shadow Mana bonus, clamped to [MIN, MAX]. The roll only counts if a
    * valid retreat tile exists to fall back to.
@@ -410,7 +422,7 @@ export class BattleSystem {
     unit: Unit,
     opponent: Unit,
   ): boolean {
-    if (effectiveBattleOrder(unit) !== 'FALL_BACK' || !unit.isAlive()) return false;
+    if (effectiveBattleOrder(unit) !== 'WITHDRAW' || !unit.isAlive()) return false;
 
     const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
     const counts = gameState.getNationActiveDepositCounts(unit.getOwnerId());
@@ -635,7 +647,7 @@ export class BattleSystem {
 /**
  * ADVANCE-stance attack multiplier. Cavalry uniquely gets 1.5× (the only
  * unit-type bonus hardcoded into offense); everyone else gets 1.25×.
- * HOLD and FALL_BACK pay their dues in mitigation, not here.
+ * HOLD and WITHDRAW pay their dues in mitigation, not here.
  */
 function getOrderAttackFactor(order: BattleOrder, unitType: UnitType): number {
   if (order !== 'ADVANCE') return 1;
@@ -644,11 +656,11 @@ function getOrderAttackFactor(order: BattleOrder, unitType: UnitType): number {
 
 /**
  * Baseline damage reduction by stance, before terrain and matchup bonuses.
- * FALL_BACK 0.16, HOLD 0.22, ADVANCE 0.04 — pressing forward leaves you exposed.
+ * WITHDRAW 0.16, HOLD 0.22, ADVANCE 0.04 — pressing forward leaves you exposed.
  */
 function getOrderMitigation(order: BattleOrder): number {
   switch (order) {
-    case 'FALL_BACK': return 0.16;
+    case 'WITHDRAW': return 0.16;
     case 'HOLD': return 0.22;
     case 'ADVANCE': return 0.04;
   }
@@ -746,13 +758,13 @@ function getTerrainAttackFactor(
 
 /**
  * Defender's terrain bonus. Forest cover +6% for everyone except Cavalry
- * (can't hide a horse). Snow-forest dug-in (HOLD/FALL_BACK) +8%. Charging
+ * (can't hide a horse). Snow-forest dug-in (HOLD/WITHDRAW) +8%. Charging
  * Cavalry on plains takes a -4% defensive hit — the cost of momentum.
  */
 function getTerrainMitigation(unitType: UnitType, terrain: TerrainType, order: BattleOrder): number {
   let bonus = 0;
   if (terrain === TerrainType.FOREST && unitType !== 'CAVALRY') bonus += 0.06;
-  if (terrain === TerrainType.SNOW_FOREST && (order === 'HOLD' || order === 'FALL_BACK')) bonus += 0.08;
+  if (terrain === TerrainType.SNOW_FOREST && (order === 'HOLD' || order === 'WITHDRAW')) bonus += 0.08;
   if (terrain === TerrainType.PLAINS && unitType === 'CAVALRY' && order === 'ADVANCE') bonus -= 0.04;
   return bonus;
 }
@@ -760,27 +772,27 @@ function getTerrainMitigation(unitType: UnitType, terrain: TerrainType, order: B
 /**
  * Defensive bonuses tied to specific unit+stance combos:
  *   Heavy Infantry HOLD:               +16% (shield wall — its signature bonus)
- *   Crossbowman    FALL_BACK:          +12% (kiting tax on pursuers)
+ *   Crossbowman    WITHDRAW:           +12% (kiting tax on pursuers)
  *   Siege hit in melee by non-siege:    -8% (sitting ducks if shoved up close)
  *
  * Anti-cavalry mitigation (applies in any stance, mitigation is clamped at MITIGATION_CAP):
- *   Heavy Infantry being hit by Cavalry: +50% (planted spears soak the charge)
- *   Crossbowman    being hit by Cavalry: +55% (stakes / pavise behind the line)
- * These bonuses are intentionally large because base order mitigation keys off the
- * ATTACKER's stance, so a defending unit's own stance contributes nothing to its
- * survival when an ADVANCing cavalryman pins them.
+ *   Heavy Infantry being hit by Cavalry: +20% (planted spears soak the charge)
+ *   Crossbowman    being hit by Cavalry: +20% (stakes / pavise behind the line)
+ * These stack with the defender's own stance base (HOLD 0.22, WITHDRAW 0.16) and
+ * the Heavy Infantry / Crossbowman defensive stance bonuses, which now actually
+ * fire for the defender's own stance.
  */
 function getMatchupMitigation(unitType: UnitType, attackerType: UnitType, order: BattleOrder): number {
   let bonus = 0;
   if (unitType === 'HEAVY_INFANTRY' && order === 'HOLD') bonus += 0.16;
-  if (unitType === 'CROSSBOWMAN' && order === 'FALL_BACK') bonus += 0.12;
+  if (unitType === 'CROSSBOWMAN' && order === 'WITHDRAW') bonus += 0.12;
   if ((unitType === 'CATAPULT' || unitType === 'TREBUCHET') && attackerType !== 'CATAPULT' && attackerType !== 'TREBUCHET') {
     bonus -= 0.08;
   }
 
   // Anti-cavalry defensive counters
-  if (unitType === 'HEAVY_INFANTRY' && attackerType === 'CAVALRY') bonus += 0.50;
-  if (unitType === 'CROSSBOWMAN'    && attackerType === 'CAVALRY') bonus += 0.55;
+  if (unitType === 'HEAVY_INFANTRY' && attackerType === 'CAVALRY') bonus += 0.20;
+  if (unitType === 'CROSSBOWMAN'    && attackerType === 'CAVALRY') bonus += 0.20;
 
   return bonus;
 }

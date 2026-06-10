@@ -34,7 +34,7 @@ export const BAND_SHAKEN_MIN   = 15;
 /** Highest morale at which ADVANCE is still downgraded to HOLD (= top of WAVERING). */
 export const MORALE_ADVANCE_BLOCK_AT_OR_BELOW = BAND_STEADY_MIN - 1;   // 59
 
-/** Highest morale at which the unit routs (only FALL_BACK honored). */
+/** Highest morale at which the unit routs (only WITHDRAW honored). */
 export const MORALE_ROUT_AT_OR_BELOW = BAND_SHAKEN_MIN - 1;            // 14
 
 /** Per-band combat effects. damageMultiplier scales offense; mitigationDelta added to mitigation before clamp. */

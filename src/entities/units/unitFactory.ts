@@ -3,8 +3,15 @@
  * Used by GameState.fromJSON() when loading a saved game.
  */
 
-import type { UnitData } from './Unit';
+import type { UnitData, BattleOrder } from './Unit';
 import { UnitType } from './Unit';
+
+/** Maps legacy 'FALL_BACK' from older saves to its new name 'WITHDRAW'. */
+function normalizeBattleOrder(raw: unknown): BattleOrder {
+  if (raw === 'FALL_BACK') return 'WITHDRAW';
+  if (raw === 'WITHDRAW' || raw === 'HOLD' || raw === 'ADVANCE') return raw;
+  return 'HOLD';
+}
 import type { Unit } from './Unit';
 import { Infantry } from './Infantry';
 import { Scout } from './Scout';
@@ -57,7 +64,7 @@ export function createUnitFromData(data: UnitData): Unit {
 
   // Restore mutable state that may differ from the constructor defaults
   unit.setHealth(data.currentHealth);
-  unit.setBattleOrder(data.battleOrder ?? 'HOLD');
+  unit.setBattleOrder(normalizeBattleOrder(data.battleOrder));
   unit.setEngagedInBattle(data.engagedInBattle ?? false);
   if (data.morale              !== undefined) unit.setMorale(data.morale);
   if (data.battlesEngaged      !== undefined) unit.setBattlesEngaged(data.battlesEngaged);
