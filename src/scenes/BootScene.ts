@@ -11,9 +11,8 @@ import Phaser from 'phaser';
 import { GameState } from '@/managers/GameState';
 import { Nation } from '@/entities/nations/Nation';
 import { Player } from '@/entities/players/Player';
-import { Infantry } from '@/entities/units/Infantry';
-import { Scout } from '@/entities/units/Scout';
 import { UnitType } from '@/entities/units/Unit';
+import { spawnUnit } from '@/systems/production/unitSpawnFactory';
 import { City } from '@/entities/cities/City';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerrainType } from '@/systems/grid/Territory';
@@ -183,15 +182,11 @@ export class BootScene extends Phaser.Scene {
 
       for (let j = 0; j < cfg.units.length; j++) {
         const u = cfg.units[j]!;
-        if (u.type === 'INFANTRY') {
-          const unit = new Infantry(`unit-inf-${serial}`, nationId, { row: u.row, col: u.col });
-          unit.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY, nationId));
-          gameState.addUnit(unit);
-        } else {
-          const unit = new Scout(`unit-scout-${serial}`, nationId, { row: u.row, col: u.col });
-          unit.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT, nationId));
-          gameState.addUnit(unit);
-        }
+        const type = UnitType[u.type as keyof typeof UnitType] ?? UnitType.INFANTRY;
+        const id = `unit-${type.toLowerCase()}-${serial}-${j + 1}`;
+        const unit = spawnUnit(type, id, nationId, { row: u.row, col: u.col });
+        unit.setUnitSerial(gameState.nextUnitSerial(type, nationId));
+        gameState.addUnit(unit);
       }
 
       for (let j = 0; j < cfg.cities.length; j++) {
@@ -292,8 +287,8 @@ function seedNation(
   gridSize: number,
   rng: () => number,
 ): GridCoordinates[] {
-  const infantry = new Infantry(`unit-inf-${serial}`, nationId, pair.infantry);
-  const scout    = new Scout(`unit-scout-${serial}`, nationId, pair.scout);
+  const infantry = spawnUnit(UnitType.INFANTRY, `unit-inf-${serial}`, nationId, pair.infantry);
+  const scout    = spawnUnit(UnitType.SCOUT,    `unit-scout-${serial}`, nationId, pair.scout);
   infantry.setUnitSerial(gameState.nextUnitSerial(UnitType.INFANTRY, nationId));
   scout.setUnitSerial(gameState.nextUnitSerial(UnitType.SCOUT, nationId));
 

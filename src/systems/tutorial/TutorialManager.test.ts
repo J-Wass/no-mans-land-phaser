@@ -1,14 +1,18 @@
 import { GameEventBus, type GameEventMap } from '@/systems/events/GameEventBus';
 import type { GameState } from '@/managers/GameState';
 import { TutorialManager, type TutorialUI, type TutorialViewModel } from './TutorialManager';
+import type { TutorialStep } from './tutorialSteps';
 
-/** Minimal GameState stub — resolvers only need these four methods. */
+/** Minimal GameState stub — resolvers only need these methods. */
 function stubGameState(): GameState {
   return {
     getLocalPlayer: () => ({ getControlledNationId: () => 'nation-1' }),
     getUnitsByNation: () => [],
     getCitiesByNation: () => [],
     getAllCities: () => [],
+    getAllUnits: () => [],
+    getGrid: () => ({ getSize: () => ({ rows: 0, cols: 0 }), getTerritory: () => null }),
+    getUnit: () => null,
   } as unknown as GameState;
 }
 
@@ -20,108 +24,103 @@ class StubUI implements TutorialUI {
   dispose(): void { this.disposed = true; }
 }
 
-function setup() {
+function setup(steps?: TutorialStep[]) {
   const bus = new GameEventBus();
   const ui = new StubUI();
-  const highlighted: Array<{ row: number; col: number } | null> = [];
   let backToMenu = 0;
   const manager = new TutorialManager({
     eventBus: bus,
     gameState: stubGameState(),
     ui,
-    highlightTile: (c) => highlighted.push(c),
+    highlightTile: () => {},
     onBackToMenu: () => { backToMenu++; },
+    ...(steps ? { steps } : {}),
   });
-  return { bus, ui, manager, highlighted, getBackToMenu: () => backToMenu };
+  return { bus, ui, manager, getBackToMenu: () => backToMenu };
 }
 
-// Helper that emits with the event-map type relaxed (payload shapes are valid).
 function emit<K extends keyof GameEventMap>(bus: GameEventBus, event: K, payload: GameEventMap[K]) {
   bus.emit(event, payload);
 }
 
-describe('TutorialManager', () => {
-  it('starts in the guided phase on the first step', () => {
+describe('TutorialManager (linear flow)', () => {
+  it('starts in guided phase on the first required step', () => {
     const { ui } = setup();
     expect(ui.view?.phase).toBe('guided');
-    expect(ui.view?.guided?.index).toBe(0);
-    expect(ui.view?.guided?.total).toBe(3);
+    expect(ui.view?.step?.index).toBe(0);
+    expect(ui.view?.step?.total).toBeGreaterThan(0);
   });
 
-  it('advances guided steps only in order, ignoring non-matching events', () => {
-    const { bus, ui } = setup();
+  it('advances strictly one step at a time, ignoring out-of-order events', () => {
+    // Custom 2-step list to make the test independent of the live step content.
+    const steps: TutorialStep[] = [
+      { id: 'a', title: 'A', body: 'a', events: ['ui:camera-panned'] },
+      { id: 'b', title: 'B', body: 'b', events: ['ui:modal-opened'] },
+    ];
+    const { bus, ui } = setup(steps);
+    expect(ui.view?.step?.index).toBe(0);
 
-    // Wrong modal during the "open city" step must not advance past move first.
-    emit(bus, 'unit:move-ordered', { unitId: 'u1', path: [], playerId: 'player-1' });
-    expect(ui.view?.guided?.index).toBe(1); // now on "open city"
+    // Wrong event first → no advance.
+    emit(bus, 'ui:modal-opened', { modal: 'cityMenu' });
+    expect(ui.view?.step?.index).toBe(0);
 
-    // A research modal is not a city menu → no advance.
-    emit(bus, 'ui:modal-opened', { modal: 'research' });
-    expect(ui.view?.guided?.index).toBe(1);
+    emit(bus, 'ui:camera-panned', {});
+    expect(ui.view?.step?.index).toBe(1);
 
     emit(bus, 'ui:modal-opened', { modal: 'cityMenu' });
-    expect(ui.view?.guided?.index).toBe(2); // now on "train unit"
-
-    emit(bus, 'city:production-started', { cityId: 'c1', unitType: 'INFANTRY' as never, tick: 1 });
-    expect(ui.view?.phase).toBe('objective');
-  });
-
-  it('completes objectives in any order and finishes when all required are done', () => {
-    const { bus, ui } = setup();
-    // Burn through the guided phase.
-    emit(bus, 'unit:move-ordered', { unitId: 'u1', path: [], playerId: 'player-1' });
-    emit(bus, 'ui:modal-opened', { modal: 'cityMenu' });
-    emit(bus, 'city:production-started', { cityId: 'c1', unitType: 'INFANTRY' as never, tick: 1 });
-    expect(ui.view?.phase).toBe('objective');
-
-    // Out-of-order completion.
-    emit(bus, 'unit:battle-order-changed', { unitId: 'u1', battleOrder: 'HOLD' as never, tick: 2 });
-    emit(bus, 'nation:research-started', { nationId: 'nation-1', techId: 'writing' as never });
-    emit(bus, 'ui:modal-opened', { modal: 'diplomacy' });
-    emit(bus, 'city:building-built', { cityId: 'c1', building: 'BARRACKS' as never, tick: 3 });
-    expect(ui.view?.phase).toBe('objective'); // conquer still outstanding
-
-    emit(bus, 'city:conquered', {
-      cityId: 'enemy', byUnitId: 'u1', byNationId: 'nation-1', fromNationId: 'nation-2', position: { row: 8, col: 14 }, tick: 10,
-    });
     expect(ui.view?.phase).toBe('complete');
   });
 
-  it('does not complete conquer for another nation', () => {
-    const { bus, ui } = setup();
-    emit(bus, 'unit:move-ordered', { unitId: 'u1', path: [], playerId: 'player-1' });
-    emit(bus, 'ui:modal-opened', { modal: 'cityMenu' });
-    emit(bus, 'city:production-started', { cityId: 'c1', unitType: 'INFANTRY' as never, tick: 1 });
+  it('enters bonus phase when required steps finish but bonuses remain', () => {
+    const steps: TutorialStep[] = [
+      { id: 'req', title: 'Req', body: '', events: ['ui:camera-panned'] },
+      { id: 'bo',  title: 'Bo',  body: '', events: ['ui:modal-opened'], bonus: true },
+    ];
+    const { bus, ui } = setup(steps);
+    emit(bus, 'ui:camera-panned', {});
+    expect(ui.view?.phase).toBe('bonus');
+    expect(ui.view?.bonus?.items.length).toBe(1);
+    expect(ui.view?.bonus?.items[0]?.done).toBe(false);
 
-    emit(bus, 'city:conquered', {
-      cityId: 'enemy', byUnitId: 'x', byNationId: 'nation-2', fromNationId: 'nation-1', position: { row: 8, col: 14 }, tick: 10,
-    });
-    const conquer = ui.view?.objectives?.items.find(i => i.id === 'conquer-city');
-    expect(conquer?.done).toBe(false);
+    emit(bus, 'ui:modal-opened', { modal: 'cityMenu' });
+    expect(ui.view?.bonus?.items[0]?.done).toBe(true);
   });
 
-  it('treats raze as bonus: completion does not require it', () => {
-    const { bus, ui } = setup();
-    emit(bus, 'unit:move-ordered', { unitId: 'u1', path: [], playerId: 'player-1' });
+  it('does not require bonus steps to reach completion', () => {
+    const steps: TutorialStep[] = [
+      { id: 'req', title: 'Req', body: '', events: ['ui:camera-panned'] },
+      { id: 'bo',  title: 'Bo',  body: '', events: ['ui:modal-opened'], bonus: true },
+    ];
+    const { bus, ui } = setup(steps);
+    emit(bus, 'ui:camera-panned', {});
+    // Required chain done → in bonus phase, but not 'complete' until UI dismiss.
+    expect(ui.view?.phase).toBe('bonus');
+  });
+
+  it('match predicates filter events', () => {
+    const steps: TutorialStep[] = [
+      {
+        id: 'a', title: 'A', body: '', events: ['ui:modal-opened'],
+        match: (p) => (p as GameEventMap['ui:modal-opened']).modal === 'diplomacy',
+      },
+    ];
+    const { bus, ui } = setup(steps);
     emit(bus, 'ui:modal-opened', { modal: 'cityMenu' });
-    emit(bus, 'city:production-started', { cityId: 'c1', unitType: 'INFANTRY' as never, tick: 1 });
-    emit(bus, 'unit:battle-order-changed', { unitId: 'u1', battleOrder: 'HOLD' as never, tick: 2 });
-    emit(bus, 'nation:research-started', { nationId: 'nation-1', techId: 'writing' as never });
+    expect(ui.view?.phase).toBe('guided');
     emit(bus, 'ui:modal-opened', { modal: 'diplomacy' });
-    emit(bus, 'city:building-built', { cityId: 'c1', building: 'BARRACKS' as never, tick: 3 });
-    emit(bus, 'city:conquered', {
-      cityId: 'enemy', byUnitId: 'u1', byNationId: 'nation-1', fromNationId: 'nation-2', position: { row: 8, col: 14 }, tick: 10,
-    });
-    expect(ui.view?.phase).toBe('complete'); // finished without razing
+    expect(ui.view?.phase).toBe('complete');
   });
 
   it('dispose() unsubscribes and tears down the UI', () => {
-    const { bus, ui, manager } = setup();
+    const steps: TutorialStep[] = [
+      { id: 'a', title: 'A', body: '', events: ['ui:camera-panned'] },
+    ];
+    const { bus, ui, manager } = setup(steps);
     manager.dispose();
     expect(ui.disposed).toBe(true);
 
     const before = ui.view;
-    emit(bus, 'unit:move-ordered', { unitId: 'u1', path: [], playerId: 'player-1' });
-    expect(ui.view).toBe(before); // no further updates after dispose
+    emit(bus, 'ui:camera-panned', {});
+    expect(ui.view).toBe(before);
   });
 });

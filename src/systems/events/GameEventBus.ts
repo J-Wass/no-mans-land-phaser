@@ -113,6 +113,8 @@ export type GameEventMap = {
   'territory:highlighted':     { position: GridCoordinates | null };
   /** A UIScene interactive element consumed a click — GameScene should ignore it. */
   'ui:click-consumed':         Record<string, never>;
+  /** Player panned the camera (right-click drag) — used by the tutorial mouse-controls primer. */
+  'ui:camera-panned':          Record<string, never>;
   /** A full-screen DOM menu/modal was opened (used by the tutorial to detect player navigation). */
   'ui:modal-opened':           { modal: 'cityMenu' | 'territoryMenu' | 'research' | 'diplomacy' };
   /** Sandbox toolbar: player changed AI difficulty (or 'sandbox' = off). */

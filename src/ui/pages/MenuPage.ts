@@ -16,6 +16,9 @@ export class MenuPage {
   private diffBtns: Array<{ btn: HTMLButtonElement; value: Difficulty }> = [];
   private scenarioBtns: Array<{ btn: HTMLButtonElement; value: string }> = [];
   private summaryEl!: HTMLElement;
+  private scenarioNameEl: HTMLElement | null = null;
+  private scenarioDescEl: HTMLElement | null = null;
+  private scenarioStartBtn: HTMLButtonElement | null = null;
 
   private get standardDifficulty(): Difficulty {
     return this.setup.difficulty === 'sandbox' ? 'medium' : this.setup.difficulty;
@@ -158,6 +161,7 @@ export class MenuPage {
     const name = document.createElement('div');
     name.className = 'text-heading text-bold text-wrap';
     name.textContent = scenario?.name ?? 'No scenario configured';
+    this.scenarioNameEl = name;
 
     card.appendChild(lbl);
     card.appendChild(name);
@@ -187,19 +191,13 @@ export class MenuPage {
     const desc = document.createElement('div');
     desc.className = 'text-body text-dim text-wrap';
     desc.style.flex = '1';
-    if (scenario) {
-      const player = scenario.nations.find(n => n.isPlayer);
-      const aiNames = scenario.nations.filter(n => !n.isPlayer).map(n => n.name).join(', ');
-      desc.textContent = `${scenario.description}\nPlayer: ${player?.name ?? '?'} vs ${aiNames}`;
-    } else {
-      desc.textContent = 'Add a scenario preset in src/config/scenarios.json to enable scenario mode.';
-    }
+    desc.style.whiteSpace = 'pre-line';
+    this.scenarioDescEl = desc;
     card.appendChild(desc);
 
     const startBtn = document.createElement('button');
     startBtn.className = `btn btn-primary btn-full${enabled ? '' : ' disabled'}`;
     startBtn.disabled = !enabled;
-    startBtn.textContent = enabled ? 'START SCENARIO' : 'SCENARIO UNAVAILABLE';
     startBtn.addEventListener('click', () => {
       const chosen = getScenarioById(this.setup.scenarioId);
       this.startGame({ setup: {
@@ -211,6 +209,7 @@ export class MenuPage {
         ...(chosen?.isTutorial ? { difficulty: 'sandbox' as const } : {}),
       } });
     });
+    this.scenarioStartBtn = startBtn;
     card.appendChild(startBtn);
 
     return card;
@@ -380,6 +379,27 @@ export class MenuPage {
   private refreshScenarioBtns(): void {
     for (const { btn, value } of this.scenarioBtns) {
       btn.className = `btn btn-sm btn-full ${value === (this.setup.scenarioId ?? DEFAULT_SCENARIO_ID) ? 'btn-primary active' : 'btn-secondary'}`;
+    }
+    const scenario = getScenarioById(this.setup.scenarioId);
+    if (this.scenarioNameEl) {
+      this.scenarioNameEl.textContent = scenario?.name ?? 'No scenario configured';
+    }
+    if (this.scenarioDescEl) {
+      if (scenario) {
+        const player = scenario.nations.find(n => n.isPlayer);
+        const aiNames = scenario.nations.filter(n => !n.isPlayer).map(n => n.name).join(', ');
+        this.scenarioDescEl.textContent = `${scenario.description}\nPlayer: ${player?.name ?? '?'} vs ${aiNames}`;
+      } else {
+        this.scenarioDescEl.textContent = 'Add a scenario preset in src/config/scenarios.json to enable scenario mode.';
+      }
+    }
+    if (this.scenarioStartBtn) {
+      const enabled = scenario !== null;
+      this.scenarioStartBtn.disabled = !enabled;
+      this.scenarioStartBtn.className = `btn btn-primary btn-full${enabled ? '' : ' disabled'}`;
+      this.scenarioStartBtn.textContent = enabled
+        ? (scenario.isTutorial ? 'START TUTORIAL' : 'START SCENARIO')
+        : 'SCENARIO UNAVAILABLE';
     }
   }
 }

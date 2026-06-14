@@ -54,10 +54,10 @@ const TERRAIN_DISPLAY_NAME: Record<string, string> = {
   [TerrainType.DESERT]:      'Desert',
   [TerrainType.WATER]:       'Water',
 };
-const STANCE_ORDERS: Array<{ order: BattleOrder; label: string }> = [
-  { order: 'WITHDRAW', label: 'WITHDRAW' },
-  { order: 'HOLD', label: 'HOLD' },
-  { order: 'ADVANCE', label: 'ADVANCE' },
+const STANCE_ORDERS: Array<{ order: BattleOrder; label: string; tooltip: string }> = [
+  { order: 'WITHDRAW', label: 'WITHDRAW', tooltip: 'Disengage from combat — moves away from enemies when threatened. Use to save a wounded unit.' },
+  { order: 'HOLD',     label: 'HOLD',     tooltip: 'Stand ground — best mitigation, no advance. Great for defenders, terrain, and walls.' },
+  { order: 'ADVANCE',  label: 'ADVANCE',  tooltip: 'Press the enemy — higher offense, weaker mitigation, costs morale per round. Use to push.' },
 ];
 
 /** Ordinal rank of each morale band — lower index = worse — used to detect worsening transitions. */
@@ -150,6 +150,7 @@ export class UIScene extends Phaser.Scene {
   private moraleWarnText: Phaser.GameObjects.Text | null = null;
   private infoLineText: Phaser.GameObjects.Text | null = null;
   private stanceHintText: Phaser.GameObjects.Text | null = null;
+  private stanceTooltip: Phaser.GameObjects.Container | null = null;
   private hpBarWidth = 0;
 
   private activeResourceBreakdown: ResourceType | null = null;
@@ -442,6 +443,8 @@ export class UIScene extends Phaser.Scene {
     this.moraleWarnText = null;
     this.infoLineText = null;
     this.stanceHintText = null;
+    this.stanceTooltip?.destroy();
+    this.stanceTooltip = null;
     this.hpBarWidth = 0;
 
     this.buildTopBar(W, scale);
@@ -904,8 +907,13 @@ export class UIScene extends Phaser.Scene {
     // Outpost construction lives in the territory buildings menu now (double-click
     // an unclaimed tile adjacent to your land), not on the unit panel.
     const rowY = y + panelH - pad - btnH;
+    const labelY = rowY - Math.round(14 * scale);
 
-    STANCE_ORDERS.forEach(({ order, label }, index) => {
+    this.track(this.add.text(x + pad, labelY, 'STANCE', {
+      ...MONO, fontSize: fs(10, scale), color: '#8fa6d8', fontStyle: 'bold',
+    }).setOrigin(0, 0.5));
+
+    STANCE_ORDERS.forEach(({ order, label, tooltip }, index) => {
       const bx = x + pad + index * (btnW + gap) + btnW / 2;
       const active = unit.getBattleOrder() === order;
       // Block ADVANCE selection when the morale-aware effective order would override it.
@@ -919,8 +927,11 @@ export class UIScene extends Phaser.Scene {
         ...MONO, fontSize: fs(10, scale), color: disabled ? '#59657a' : '#f0f5ff',
       }).setOrigin(0.5));
 
+      bg.setInteractive({ useHandCursor: !disabled });
+      bg.on('pointerover', () => this.showStanceTooltip(bx, rowY - btnH / 2 - 6, tooltip, scale));
+      bg.on('pointerout', () => this.hideStanceTooltip());
+
       if (!disabled) {
-        bg.setInteractive({ useHandCursor: true });
         bg.on('pointerup', () => {
           void this.networkAdapter.sendCommand({
             type: 'SET_UNIT_BATTLE_ORDER',
@@ -932,6 +943,33 @@ export class UIScene extends Phaser.Scene {
         });
       }
     });
+  }
+
+  /** Show the stance hover tooltip above a button (screen coords; UI scene has no zoom). */
+  private showStanceTooltip(x: number, y: number, text: string, scale: number): void {
+    if (!this.stanceTooltip) {
+      const bg = this.add.rectangle(0, 0, 10, 10, 0x0a0e1e, 0.96)
+        .setStrokeStyle(1, 0x5a6cc0).setOrigin(0.5, 1);
+      const label = this.add.text(0, 0, '', {
+        ...MONO, fontSize: fs(10, scale), color: '#e6ecff',
+        wordWrap: { width: Math.round(260 * scale) },
+      }).setOrigin(0.5, 1);
+      this.stanceTooltip = this.add.container(0, 0, [bg, label]).setDepth(2000);
+    }
+    const bg = this.stanceTooltip.getAt(0) as Phaser.GameObjects.Rectangle;
+    const label = this.stanceTooltip.getAt(1) as Phaser.GameObjects.Text;
+    label.setText(text);
+    const padX = 8;
+    const padY = 6;
+    bg.setSize(label.width + padX * 2, label.height + padY * 2);
+    label.setPosition(0, -padY);
+    bg.setPosition(0, 0);
+    this.stanceTooltip.setPosition(x, y);
+    this.stanceTooltip.setVisible(true);
+  }
+
+  private hideStanceTooltip(): void {
+    this.stanceTooltip?.setVisible(false);
   }
 
   private buildCityPanel(H: number, scale: number): void {

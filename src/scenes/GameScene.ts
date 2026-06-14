@@ -108,6 +108,11 @@ export class GameScene extends Phaser.Scene {
   private lastClickTarget = '';
   private readonly DOUBLE_CLICK_MS = 350;
 
+  // Drag-to-paint a custom path for the selected unit (left-click hold + drag).
+  private leftDragActive = false;
+  private leftDragWaypoints: GridCoordinates[] = [];
+  private leftDragPreview!: Phaser.GameObjects.Graphics;
+
   constructor() {
     super({ key: 'GameScene' });
   }
@@ -228,10 +233,11 @@ export class GameScene extends Phaser.Scene {
     this.healthBarGraphic = this.add.graphics().setDepth(90); // below fog
     this.pathGraphic      = this.add.graphics().setDepth(92); // below fog
     this.selectionGraphic = this.add.graphics().setDepth(200);
+    this.leftDragPreview  = this.add.graphics().setDepth(201);
     this.tutorialGraphic  = this.add.graphics().setDepth(210); // above selection ring
 
     if (this.isTutorialMode && !sceneData.saveData) {
-      const overlay = new TutorialOverlay();
+      const overlay = new TutorialOverlay(() => this.currentHighlightViewportRect());
       this.tutorialManager = new TutorialManager({
         eventBus:      this.eventBus,
         gameState:     this.gameState,
@@ -481,27 +487,46 @@ export class GameScene extends Phaser.Scene {
     let hasPanned = false;
 
     this.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
-      if (activePanPtr || ptr.button !== 2) return;
-      const cam = this.cameras.main;
-      activePanPtr = ptr;
-      panStart = { x: ptr.x, y: ptr.y, scrollX: cam.scrollX, scrollY: cam.scrollY };
-      hasPanned = false;
+      if (ptr.button === 2 && !activePanPtr) {
+        const cam = this.cameras.main;
+        activePanPtr = ptr;
+        panStart = { x: ptr.x, y: ptr.y, scrollX: cam.scrollX, scrollY: cam.scrollY };
+        hasPanned = false;
+        return;
+      }
+      // Left-click on a selected unit's owner starts a drag-to-paint-path session.
+      if (ptr.button === 0 && this.selectedUnitId && !this.tileEditActive) {
+        const tile = this.worldToTile(ptr.worldX, ptr.worldY);
+        if (!tile) return;
+        this.leftDragActive = true;
+        this.leftDragWaypoints = [tile];
+      }
     });
 
-    this.input.on('pointermove', () => {
-      if (!activePanPtr || !panStart || !activePanPtr.isDown) return;
-
-      const dx = activePanPtr.x - panStart.x;
-      const dy = activePanPtr.y - panStart.y;
-      if (!hasPanned && Math.hypot(dx, dy) > PAN_THRESHOLD) hasPanned = true;
-
-      if (!hasPanned) return;
-
-      const cam = this.cameras.main;
-      cam.setScroll(
-        panStart.scrollX - dx / cam.zoom,
-        panStart.scrollY - dy / cam.zoom,
-      );
+    this.input.on('pointermove', (ptr: Phaser.Input.Pointer) => {
+      // Pan (right-click drag).
+      if (activePanPtr && panStart && activePanPtr.isDown) {
+        const dx = activePanPtr.x - panStart.x;
+        const dy = activePanPtr.y - panStart.y;
+        if (!hasPanned && Math.hypot(dx, dy) > PAN_THRESHOLD) hasPanned = true;
+        if (hasPanned) {
+          const cam = this.cameras.main;
+          cam.setScroll(
+            panStart.scrollX - dx / cam.zoom,
+            panStart.scrollY - dy / cam.zoom,
+          );
+        }
+      }
+      // Drag-to-paint-path (left-click drag).
+      if (this.leftDragActive && ptr.isDown && ptr.leftButtonDown()) {
+        const tile = this.worldToTile(ptr.worldX, ptr.worldY);
+        if (!tile) return;
+        const last = this.leftDragWaypoints[this.leftDragWaypoints.length - 1];
+        if (!last || tile.row !== last.row || tile.col !== last.col) {
+          this.leftDragWaypoints.push(tile);
+          this.drawLeftDragPreview();
+        }
+      }
     });
 
     this.input.on('pointerup', (ptr: Phaser.Input.Pointer) => {
@@ -513,9 +538,17 @@ export class GameScene extends Phaser.Scene {
         hasPanned = false;
       }
 
-      if (wasPan) return;
+      if (wasPan) { this.eventBus.emit('ui:camera-panned', {}); return; }
 
       if (ptr.button === 0) {
+        const dragWaypoints = this.leftDragActive ? this.leftDragWaypoints : [];
+        this.leftDragActive = false;
+        this.leftDragWaypoints = [];
+        this.leftDragPreview.clear();
+        if (dragWaypoints.length > 1) {
+          this.dispatchDragPath(dragWaypoints);
+          return;
+        }
         this.handleLeftClick(ptr.worldX, ptr.worldY);
       } else if (ptr.button === 2) {
         this.handleRightClick();
@@ -1078,6 +1111,24 @@ export class GameScene extends Phaser.Scene {
     return this.currentVisible.has(`${unit.position.row},${unit.position.col}`);
   }
 
+  /** Convert the current tutorial-highlight tile to a viewport-space rect, or null. */
+  private currentHighlightViewportRect(): { left: number; top: number; width: number; height: number } | null {
+    const tile = this.tutorialHighlightTile;
+    if (!tile) return null;
+    const cam = this.cameras.main;
+    const canvas = this.game.canvas;
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width / canvas.width;
+    const scaleY = canvasRect.height / canvas.height;
+    const worldX = tile.col * TILE_SIZE;
+    const worldY = tile.row * TILE_SIZE;
+    const cssX = (worldX - cam.scrollX) * cam.zoom * scaleX + canvasRect.left;
+    const cssY = (worldY - cam.scrollY) * cam.zoom * scaleY + canvasRect.top;
+    const cssW = TILE_SIZE * cam.zoom * scaleX;
+    const cssH = TILE_SIZE * cam.zoom * scaleY;
+    return { left: cssX, top: cssY, width: cssW, height: cssH };
+  }
+
   /** Pulsing ring drawn over the tile the tutorial is currently pointing at. */
   private drawTutorialHighlight(): void {
     if (!this.tutorialGraphic) return;
@@ -1203,6 +1254,72 @@ export class GameScene extends Phaser.Scene {
       void clickedTerritory;
       if (isDoubleClick) { this.selectTerritory(target); }
       else               { this.highlightTerritory(target); }
+    }
+  }
+
+  /** Convert world-space pixels to a tile coordinate, or null if off-grid. */
+  private worldToTile(worldX: number, worldY: number): GridCoordinates | null {
+    const col = Math.floor(worldX / TILE_SIZE);
+    const row = Math.floor(worldY / TILE_SIZE);
+    const t = { row, col };
+    return this.gameState.getGrid().isValidCoordinate(t) ? t : null;
+  }
+
+  /** Build a path by routing pathfinder between consecutive drag waypoints. */
+  private dispatchDragPath(waypoints: GridCoordinates[]): void {
+    if (!this.selectedUnitId) return;
+    const unit = this.gameState.getUnit(this.selectedUnitId);
+    const lp = this.gameState.getLocalPlayer();
+    if (!unit || !lp) return;
+    if (unit.getOwnerId() !== lp.getControlledNationId()) return;
+
+    // Drop the first waypoint if it's the unit's current tile — pathfinder paths exclude origin.
+    const start = unit.position;
+    const pts = waypoints.filter((w, i) => i === 0 ? !(w.row === start.row && w.col === start.col) : true);
+    if (pts.length === 0) return;
+
+    const fullPath: GridCoordinates[] = [];
+    let cursor = start;
+    for (const wp of pts) {
+      if (wp.row === cursor.row && wp.col === cursor.col) continue;
+      const seg = this.pathfinder.findPath(
+        cursor, wp, unit.getUnitType(), unit.getStats(),
+        unit.getOwnerId(), this.gameState,
+      );
+      if (!seg || seg.length === 0) continue; // skip unreachable waypoint
+      fullPath.push(...seg);
+      cursor = wp;
+    }
+    if (fullPath.length === 0) return;
+    this.dispatchMoveWithWarCheck(lp.getId(), unit.id, fullPath);
+  }
+
+  /** Render the live drag-path waypoints as a faint dotted preview. */
+  private drawLeftDragPreview(): void {
+    this.leftDragPreview.clear();
+    if (this.leftDragWaypoints.length < 2) return;
+    this.leftDragPreview.lineStyle(2, 0xffd060, 0.7);
+    const first = this.leftDragWaypoints[0]!;
+    this.leftDragPreview.beginPath();
+    this.leftDragPreview.moveTo(
+      first.col * TILE_SIZE + TILE_SIZE / 2,
+      first.row * TILE_SIZE + TILE_SIZE / 2,
+    );
+    for (let i = 1; i < this.leftDragWaypoints.length; i++) {
+      const p = this.leftDragWaypoints[i]!;
+      this.leftDragPreview.lineTo(
+        p.col * TILE_SIZE + TILE_SIZE / 2,
+        p.row * TILE_SIZE + TILE_SIZE / 2,
+      );
+    }
+    this.leftDragPreview.strokePath();
+    this.leftDragPreview.fillStyle(0xffd060, 0.9);
+    for (const p of this.leftDragWaypoints) {
+      this.leftDragPreview.fillCircle(
+        p.col * TILE_SIZE + TILE_SIZE / 2,
+        p.row * TILE_SIZE + TILE_SIZE / 2,
+        3,
+      );
     }
   }
 

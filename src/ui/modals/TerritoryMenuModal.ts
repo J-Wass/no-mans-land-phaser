@@ -5,6 +5,16 @@ import type { TerritoryBuildingDef } from '@/systems/territory/TerritoryBuilding
 import { MAX_WALLS_LEVEL, TerrainType } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { formatCost } from '@/utils/uiHelpers';
+import { TICK_RATE } from '@/config/constants';
+
+/** Format a construction tick count as a human-readable duration ("12s", "1m 5s"). */
+function ticksToDuration(ticks: number): string {
+  const seconds = Math.max(1, Math.round(ticks / TICK_RATE));
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s === 0 ? `${m}m` : `${m}m ${s}s`;
+}
 
 const MINE_TYPES = new Set([
   TerritoryBuildingType.COPPER_MINE,
@@ -215,7 +225,7 @@ export class TerritoryMenuModal {
     costLbl.className = 'text-caption text-mono';
     costLbl.style.flex = '1';
     costLbl.style.color = 'var(--color-dim)';
-    costLbl.textContent = formatCost(def.cost as Record<string, number>);
+    costLbl.textContent = `${formatCost(def.cost as Record<string, number>)}  · ${ticksToDuration(def.ticks)}`;
 
     const reqText = def.requiresTech ?? (def.requires ? def.requires : '—');
     const reqLbl = document.createElement('div');
@@ -320,7 +330,7 @@ export class TerritoryMenuModal {
       building: def.type,
       issuedAtTick: 0,
     });
-    if (result.success) this.showFeedback(`Built: ${def.label}`, '#44dd99');
+    if (result.success) this.showFeedback(`Started: ${def.label} (${ticksToDuration(def.ticks)})`, '#44dd99');
     else this.showFeedback(result.reason ?? 'Cannot build', '#cc4444');
     this.refreshButtons();
   }
@@ -335,9 +345,7 @@ export class TerritoryMenuModal {
       building: def.type,
       issuedAtTick: 0,
     });
-    const territory = this.bridge.gameState.getGrid().getTerritory(this.position);
-    const lvl = territory?.getBuildingLevel(def.type) ?? 1;
-    if (result.success) this.showFeedback(`Upgraded: ${def.label} → Lvl ${lvl}`, '#88ffcc');
+    if (result.success) this.showFeedback(`Upgrade started: ${def.label} (${ticksToDuration(def.ticks)})`, '#88ffcc');
     else this.showFeedback(result.reason ?? 'Cannot upgrade', '#cc4444');
     this.refreshButtons();
   }

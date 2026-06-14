@@ -131,7 +131,7 @@
       "id": "tutorial",
       "name": "Tutorial",
       "isTutorial": true,
-      "description": "Learn the ropes: move units, run a city, research, and conquer a neighbouring hold. The enemy stays passive so you can take your time.",
+      "description": "Learn the ropes: mouse controls, upgrade your Barracks and train a Longbowman, then siege the neighbouring hold. The enemy stays passive so you can take your time.",
       "deposits": [
         {"row": 13, "col": 10, "type": "COPPER"}
       ],
@@ -148,7 +148,7 @@
             {"type": "SCOUT",    "row": 15, "col": 9}
           ],
           "resources": {"GOLD": 300, "FOOD": 1200, "RAW_MATERIAL": 800, "RESEARCH": 300},
-          "startingTechs": ["masonry", "writing"]
+          "startingTechs": ["masonry", "writing", "hunting"]
         },
         {
           "name": "Greyhold",
@@ -157,7 +157,9 @@
           "cities": [
             {"name": "Greyhold", "row": 8, "col": 14}
           ],
-          "units": [],
+          "units": [
+            {"type": "INFANTRY", "row": 10, "col": 14}
+          ],
           "resources": {"GOLD": 10},
           "startingTechs": []
         }

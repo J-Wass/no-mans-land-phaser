@@ -1,16 +1,16 @@
 /**
- * Declarative tutorial content — the guided steps and the free-phase objectives.
+ * Declarative tutorial content — a single linear chain of steps.
  *
  * Each entry names the game event(s) whose firing can complete it, an optional
  * `match` predicate, and what to highlight while it is active. The TutorialManager
  * consumes this data; it holds no game logic itself.
+ *
+ * Order: mouse-controls primer → combat → conquest → late-game features → bonus.
  */
 
 import type { GameEventMap } from '@/systems/events/GameEventBus';
 import type { GameState } from '@/managers/GameState';
 import type { GridCoordinates } from '@/types/common';
-
-export type TutorialPhase = 'guided' | 'objective';
 
 /** Context handed to resolvers / predicates so they can read live game state. */
 export interface TutorialResolveCtx {
@@ -30,7 +30,6 @@ export interface TutorialHighlight {
 
 export interface TutorialStep {
   id: string;
-  phase: TutorialPhase;
   title: string;
   body: string;
   /** Any of these events firing (and passing `match`) completes the step. */
@@ -40,7 +39,7 @@ export interface TutorialStep {
   /** Runs once when the step completes — used to stash state for later steps. */
   onComplete?: (payload: unknown, ctx: TutorialResolveCtx) => void;
   highlight?: TutorialHighlight;
-  /** Bonus objectives do not gate overall tutorial completion. */
+  /** Bonus steps appear after the required chain and don't gate completion. */
   bonus?: boolean;
 }
 
@@ -63,7 +62,13 @@ function enemyCityTile(ctx: TutorialResolveCtx): GridCoordinates | null {
   return enemy?.position ?? null;
 }
 
-/** First undeveloped resource deposit (used by the bonus mine objective). */
+function enemyUnitTile(ctx: TutorialResolveCtx): GridCoordinates | null {
+  for (const u of ctx.gameState.getAllUnits()) {
+    if (u.getOwnerId() !== ctx.localNationId && u.isAlive()) return u.position;
+  }
+  return null;
+}
+
 function depositTile(ctx: TutorialResolveCtx): GridCoordinates | null {
   const grid = ctx.gameState.getGrid();
   const { rows, cols } = grid.getSize();
@@ -86,71 +91,92 @@ const isModal = (modal: GameEventMap['ui:modal-opened']['modal']) =>
 // ── Step list ───────────────────────────────────────────────────────────────
 
 export const TUTORIAL_STEPS: TutorialStep[] = [
-  // ── Guided phase ──────────────────────────────────────────────────────────
+  // ── Mouse-controls primer ─────────────────────────────────────────────────
+  {
+    id: 'select-unit',
+    title: 'Select a unit',
+    body: 'Left-click on your unit (the glowing tile) to select it. Selected units show stats and stance buttons in the bottom bar.',
+    events: ['unit:selected'],
+    match: (payload, ctx) => {
+      const u = (payload as GameEventMap['unit:selected']).unit;
+      return !!u && u.getOwnerId() === ctx.localNationId;
+    },
+    highlight: { tile: firstUnitTile },
+  },
   {
     id: 'move-unit',
-    phase: 'guided',
-    title: 'Move a unit',
-    body: 'Left-click your unit to select it, then left-click a nearby tile to march there. Try moving it now.',
+    title: 'Move it with a left-click',
+    body: 'With your unit selected, left-click an empty tile to march there. Tip: left-click and DRAG to paint a custom multi-step path.',
     events: ['unit:move-ordered'],
     highlight: { tile: firstUnitTile },
   },
   {
+    id: 'pan-camera',
+    title: 'Pan the camera',
+    body: 'Hold the RIGHT mouse button and drag to pan around the map. Try it — find the enemy unit to the north.',
+    events: ['ui:camera-panned'],
+  },
+
+  // ── City management: upgrade barracks, train Longbowman ─────────────────
+  {
     id: 'open-city',
-    phase: 'guided',
     title: 'Open your city',
-    body: 'Double-click your city to open its management menu, where you train units and construct buildings.',
+    body: 'Double-click your city (Rivervale) to open its management menu — that\'s where you train units and construct buildings.',
     events: ['ui:modal-opened'],
     match: isModal('cityMenu'),
     highlight: { tile: playerCityTile },
   },
   {
-    id: 'train-unit',
-    phase: 'guided',
-    title: 'Train a unit',
-    body: 'On the Units tab, press BUILD next to a unit to add it to the production queue.',
+    id: 'upgrade-barracks',
+    title: 'Upgrade the Barracks to Lvl 2',
+    body: 'On the Buildings tab, find the Barracks (already built at Lvl 1) and press ▲ UP to upgrade it. Lvl 2 unlocks the Longbowman.',
+    events: ['city:building-built'],
+    match: (payload, ctx) => {
+      const p = payload as GameEventMap['city:building-built'];
+      if (String(p.building) !== 'BARRACKS') return false;
+      const city = ctx.gameState.getCity(p.cityId);
+      if (!city || city.getOwnerId() !== ctx.localNationId) return false;
+      return city.getBuildingLevel(p.building) >= 2;
+    },
+  },
+  {
+    id: 'train-longbowman',
+    title: 'Train a Longbowman',
+    body: 'Back on the Units tab, press BUILD next to the Longbowman. They out-range Infantry, so they\'re your edge against the enemy on the road.',
     events: ['city:production-started'],
+    match: (payload) =>
+      String((payload as GameEventMap['city:production-started']).unitType) === 'LONGBOWMAN',
     highlight: { dom: 'produce-unit' },
   },
 
-  // ── Objective phase (any order) ─────────────────────────────────────────────
+  // ── Combat ────────────────────────────────────────────────────────────────
   {
-    id: 'build-mine',
-    phase: 'objective',
-    title: 'Bonus: build a mine on a deposit',
-    body: 'March a unit onto a resource deposit, build an Outpost there, then a Mine to unlock its weapons or mana perks.',
-    events: ['territory:building-built'],
-    bonus: true,
-    match: (payload) =>
-      MINE_BUILDINGS.has((payload as GameEventMap['territory:building-built']).building),
-    highlight: { tile: depositTile },
+    id: 'defeat-enemy',
+    title: 'Defeat the enemy unit',
+    body: 'Once your Longbowman musters, march it onto the enemy Infantry. Longbowmen out-range Infantry, so they win on open ground.',
+    events: ['unit:destroyed'],
+    match: (payload, ctx) => {
+      const p = payload as GameEventMap['unit:destroyed'];
+      // The killed unit was not ours, and the killer (if any) was ours.
+      if (p.ownerNationId === ctx.localNationId) return false;
+      if (!p.byUnitId) return false;
+      const killer = ctx.gameState.getUnit(p.byUnitId);
+      return !!killer && killer.getOwnerId() === ctx.localNationId;
+    },
+    highlight: { tile: enemyUnitTile },
   },
+
+  // ── Conquest ──────────────────────────────────────────────────────────────
   {
-    id: 'build-building',
-    phase: 'objective',
-    title: 'Construct a building',
-    body: 'In a city menu, switch to the Buildings tab — or build an Outpost/Walls/Farms on a tile you control.',
-    events: ['city:building-built', 'territory:building-built', 'territory:building-upgraded'],
-  },
-  {
-    id: 'research-tech',
-    phase: 'objective',
-    title: 'Research a technology',
-    body: 'Open the Research panel from the bottom bar and start researching a tech.',
-    events: ['nation:research-started'],
-  },
-  {
-    id: 'set-stance',
-    phase: 'objective',
-    title: 'Set a battle stance',
-    body: 'Select a unit and try its stance buttons — Advance presses the enemy (and bleeds morale), Hold tightens defense, Withdraw pulls out of a losing fight.',
-    events: ['unit:battle-order-changed'],
+    id: 'train-more',
+    title: 'Train more units for the siege',
+    body: 'Re-open Rivervale and queue 2 more units. A city is too tough for one unit alone — you\'ll want a small force to take Greyhold.',
+    events: ['city:production-started'],
   },
   {
     id: 'conquer-city',
-    phase: 'objective',
     title: 'Conquer Greyhold',
-    body: 'March your units onto the enemy city to lay siege and capture it. Conquering a city rallies your nearby troops with a morale spike.',
+    body: 'March your units onto the enemy city — multiple attackers will pressure it down. Conquering a city rallies nearby troops with a morale boost.',
     events: ['city:conquered'],
     match: (payload, ctx) =>
       (payload as GameEventMap['city:conquered']).byNationId === ctx.localNationId,
@@ -159,23 +185,39 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     },
     highlight: { tile: enemyCityTile },
   },
+
+  // ── Late-game features ────────────────────────────────────────────────────
+  {
+    id: 'research-tech',
+    title: 'Research a technology',
+    body: 'Open the Research panel from the bottom bar and pick a tech. Better tech unlocks stronger units, mines, and buildings.',
+    events: ['nation:research-started'],
+  },
   {
     id: 'open-diplomacy',
-    phase: 'objective',
     title: 'Review diplomacy',
     body: 'Open the Diplomacy panel from the bottom bar to see relations, declare war, or sue for peace.',
     events: ['ui:modal-opened'],
     match: isModal('diplomacy'),
   },
+
+  // ── Bonus chain (run after the required chain completes) ──────────────────
+  {
+    id: 'build-mine',
+    title: 'Bonus: build a mine on a deposit',
+    body: 'A copper deposit sits north of your city. March a unit onto it, build an Outpost, then a Copper Mine to unlock bronze weapons.',
+    events: ['territory:building-built'],
+    bonus: true,
+    match: (payload) =>
+      MINE_BUILDINGS.has((payload as GameEventMap['territory:building-built']).building),
+    highlight: { tile: depositTile },
+  },
   {
     id: 'raze-city',
-    phase: 'objective',
     title: 'Bonus: raze or downsize a city',
-    body: 'After capturing a city, open it and use RAZE or −1 LVL to tear down its buildings.',
+    body: 'In the captured city\'s menu, use RAZE or −1 LVL to tear down its buildings. Useful if you can\'t hold it.',
     events: ['city:buildings-changed'],
     bonus: true,
-    // Ignore the automatic down-level that fires on the same tick as conquest;
-    // only a later, player-initiated raze/removal counts.
     match: (payload, ctx) => {
       const conqueredTick = ctx.state['conqueredTick'];
       if (typeof conqueredTick !== 'number') return false;
