@@ -2,17 +2,20 @@ import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import { DiplomaticStatus } from '@/types/diplomacy';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TICK_RATE } from '@/config/constants';
+import { MODAL_STRINGS } from '@/i18n/modals';
+
+const STR = MODAL_STRINGS.diplomacy;
 
 const TRADE_RESOURCES = [
-  { type: ResourceType.GOLD,         label: 'Gold',      emoji: '🪙' },
-  { type: ResourceType.RAW_MATERIAL, label: 'Materials', emoji: '🪨' },
-  { type: ResourceType.FOOD,         label: 'Food',      emoji: '🍎' },
+  { type: ResourceType.GOLD,         label: STR.resGold,      emoji: '🪙' },
+  { type: ResourceType.RAW_MATERIAL, label: STR.resMaterials, emoji: '🪨' },
+  { type: ResourceType.FOOD,         label: STR.resFood,      emoji: '🍎' },
 ];
 
 function relationLabel(status: DiplomaticStatus): string {
-  if (status === DiplomaticStatus.ALLY) return 'ALLIED';
-  if (status === DiplomaticStatus.WAR)  return 'AT WAR';
-  return 'AT PEACE';
+  if (status === DiplomaticStatus.ALLY) return STR.relAllied;
+  if (status === DiplomaticStatus.WAR)  return STR.relAtWar;
+  return STR.relAtPeace;
 }
 function relationColor(status: DiplomaticStatus): string {
   if (status === DiplomaticStatus.ALLY) return '#55ff99';
@@ -64,16 +67,16 @@ export class DiplomacyModal {
     titleWrap.className = 'col tight';
     const title = document.createElement('div');
     title.className = 'text-heading text-bold';
-    title.textContent = 'DIPLOMACY';
+    title.textContent = STR.title;
     const subtitle = document.createElement('div');
     subtitle.className = 'text-caption text-dim';
-    subtitle.textContent = 'Known nations';
+    subtitle.textContent = STR.subtitle;
     titleWrap.appendChild(title);
     titleWrap.appendChild(subtitle);
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'btn btn-danger btn-sm';
-    closeBtn.textContent = '✕';
+    closeBtn.textContent = STR.close;
     closeBtn.addEventListener('click', () => this.close());
 
     hdrRow.appendChild(titleWrap);
@@ -84,7 +87,7 @@ export class DiplomacyModal {
       const empty = document.createElement('div');
       empty.className = 'text-body text-dim text-center';
       empty.style.padding = '40px 0';
-      empty.textContent = 'No other nations have been discovered yet.';
+      empty.textContent = STR.noNationsDiscovered;
       panel.appendChild(empty);
       backdrop.appendChild(panel);
       document.addEventListener('keydown', this.escHandler);
@@ -159,10 +162,10 @@ export class DiplomacyModal {
       info.className = 'col tight';
       const nameLbl = document.createElement('div');
       nameLbl.className = 'text-label text-mono';
-      nameLbl.textContent = `RIP ${nation.name}`;
+      nameLbl.textContent = STR.rip(nation.name);
       const statusLbl = document.createElement('div');
       statusLbl.className = 'text-caption text-mono';
-      statusLbl.textContent = 'DEFEATED';
+      statusLbl.textContent = STR.defeated;
       statusLbl.style.color = '#9aa0a8';
 
       info.appendChild(nameLbl);
@@ -200,7 +203,7 @@ export class DiplomacyModal {
       relSection.className = 'panel-alt col tight';
       const relLabel = document.createElement('div');
       relLabel.className = 'section-label';
-      relLabel.textContent = 'RELATIONS';
+      relLabel.textContent = STR.relationsLabel;
 
       const status = localNation.getRelation(targetNation.getId());
       const statusRow = document.createElement('div');
@@ -209,7 +212,7 @@ export class DiplomacyModal {
       const statusText = document.createElement('div');
       statusText.className = 'text-body text-mono text-bold';
       statusText.style.color = relationColor(status);
-      statusText.textContent = `Status: ${relationLabel(status)}`;
+      statusText.textContent = STR.statusLine(relationLabel(status));
 
       statusRow.appendChild(statusText);
 
@@ -221,7 +224,7 @@ export class DiplomacyModal {
         const peaceBtn = document.createElement('button');
         peaceBtn.className = `btn btn-success btn-sm${onCooldown ? ' disabled' : ''}`;
         peaceBtn.disabled = onCooldown;
-        peaceBtn.textContent = onCooldown ? `PEACE (${Math.ceil(cooldown / TICK_RATE)}s)` : 'PROPOSE PEACE';
+        peaceBtn.textContent = onCooldown ? STR.peaceCooldown(Math.ceil(cooldown / TICK_RATE)) : STR.proposePeace;
         peaceBtn.addEventListener('click', () => {
           void (async () => {
             const lp = this.bridge.gameState.getLocalPlayer();
@@ -245,7 +248,7 @@ export class DiplomacyModal {
         warBtn.className = `btn btn-danger btn-sm${canWar ? '' : ' disabled'}`;
         warBtn.disabled = !canWar;
         warBtn.textContent = !canWar && cooldown > 0
-          ? `WAR (${Math.ceil(cooldown / TICK_RATE)}s)` : 'DECLARE WAR';
+          ? STR.warCooldown(Math.ceil(cooldown / TICK_RATE)) : STR.declareWar;
         warBtn.addEventListener('click', () => {
           void (async () => {
             const lp = this.bridge.gameState.getLocalPlayer();
@@ -271,12 +274,12 @@ export class DiplomacyModal {
       tradeSection.className = 'panel-alt col tight';
       const tradeLabel = document.createElement('div');
       tradeLabel.className = 'section-label';
-      tradeLabel.textContent = 'TRADE';
+      tradeLabel.textContent = STR.tradeLabel;
 
       const tradeColHdr = document.createElement('div');
       tradeColHdr.className = 'row';
       tradeColHdr.style.gap = '0';
-      ['', 'YOU GIVE', 'YOU RECEIVE'].forEach((h, i) => {
+      ['', STR.tradeColYouGive, STR.tradeColYouReceive].forEach((h, i) => {
         const cell = document.createElement('div');
         cell.className = 'text-caption text-dim text-center';
         cell.style.flex = i === 0 ? '1' : '0 0 130px';
@@ -300,7 +303,7 @@ export class DiplomacyModal {
         const nameLbl = document.createElement('div');
         nameLbl.style.flex = '1';
         nameLbl.className = 'text-label';
-        nameLbl.textContent = `${res.emoji} ${res.label}`;
+        nameLbl.textContent = STR.resourceRow(res.emoji, res.label);
 
         // Offer controls
         const offerCell = document.createElement('div');
@@ -310,7 +313,7 @@ export class DiplomacyModal {
 
         const minusOffer = document.createElement('button');
         minusOffer.className = 'step-btn';
-        minusOffer.textContent = '-';
+        minusOffer.textContent = STR.stepMinus;
         const offerLbl = document.createElement('span');
         offerLbl.className = 'text-body text-mono text-gold';
         offerLbl.style.minWidth = '30px';
@@ -319,7 +322,7 @@ export class DiplomacyModal {
         offerLbls.set(res.type, offerLbl);
         const plusOffer = document.createElement('button');
         plusOffer.className = 'step-btn';
-        plusOffer.textContent = '+';
+        plusOffer.textContent = STR.stepPlus;
 
         const maxOffer = localTreasury.getAmount(res.type);
         minusOffer.addEventListener('click', () => {
@@ -343,7 +346,7 @@ export class DiplomacyModal {
 
         const minusReq = document.createElement('button');
         minusReq.className = 'step-btn';
-        minusReq.textContent = '-';
+        minusReq.textContent = STR.stepMinus;
         const reqLbl = document.createElement('span');
         reqLbl.className = 'text-body text-mono';
         reqLbl.style.color = '#88ddff';
@@ -353,7 +356,7 @@ export class DiplomacyModal {
         requestLbls.set(res.type, reqLbl);
         const plusReq = document.createElement('button');
         plusReq.className = 'step-btn';
-        plusReq.textContent = '+';
+        plusReq.textContent = STR.stepPlus;
 
         const maxReq = targetTreasury.getAmount(res.type);
         minusReq.addEventListener('click', () => {
@@ -382,7 +385,7 @@ export class DiplomacyModal {
       const tradeBtn = document.createElement('button');
       tradeBtn.className = 'btn btn-secondary btn-sm';
       tradeBtn.style.alignSelf = 'center';
-      tradeBtn.textContent = '⇄ EXECUTE TRADE';
+      tradeBtn.textContent = STR.executeTrade;
       tradeBtn.addEventListener('click', () => {
         void (async () => {
           const lp = this.bridge.gameState.getLocalPlayer();
@@ -396,7 +399,7 @@ export class DiplomacyModal {
             issuedAtTick: currentTick,
           });
           if (result.success) {
-            tradeStatus.textContent = 'Trade accepted!';
+            tradeStatus.textContent = STR.tradeAccepted;
             tradeStatus.style.color = '#88ff88';
             this.tradeOffer = {};
             this.tradeRequest = {};
@@ -405,7 +408,7 @@ export class DiplomacyModal {
               requestLbls.get(res.type)!.textContent = '0';
             }
           } else {
-            tradeStatus.textContent = result.reason ?? 'Trade rejected.';
+            tradeStatus.textContent = result.reason ?? STR.tradeRejected;
             tradeStatus.style.color = '#ff8888';
           }
         })();
@@ -419,12 +422,12 @@ export class DiplomacyModal {
       defeatedPanel.className = 'panel-alt col tight';
       const defeatedTitle = document.createElement('div');
       defeatedTitle.className = 'section-label';
-      defeatedTitle.textContent = 'DEFEATED NATIONS';
+      defeatedTitle.textContent = STR.defeatedNationsLabel;
       defeatedPanel.appendChild(defeatedTitle);
       for (const nation of defeatedNations) {
         const item = document.createElement('div');
         item.className = 'text-body text-mono';
-        item.textContent = `RIP ${nation.name}`;
+        item.textContent = STR.rip(nation.name);
         item.style.color = '#b8bec8';
         defeatedPanel.appendChild(item);
       }

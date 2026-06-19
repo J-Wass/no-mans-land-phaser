@@ -10,7 +10,11 @@ import { ResourceType } from '@/systems/resources/ResourceType';
 import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 import { TICK_RATE } from '@/config/constants';
 import { formatCost } from '@/utils/uiHelpers';
+import { unitFlavorById } from '@/config/flavorText';
 import { EventSubscriptions } from '@/systems/events/EventSubscriptions';
+import { MODAL_STRINGS } from '@/i18n/modals';
+
+const STR = MODAL_STRINGS.cityMenu;
 
 type Tab = 'units' | 'buildings';
 
@@ -79,14 +83,14 @@ export class CityMenuModal {
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
     const owner = document.createElement('div');
     owner.className = 'text-body text-dim text-mono';
-    owner.textContent = nation?.getName() ?? 'Unknown';
+    owner.textContent = nation?.getName() ?? STR.unknownOwner;
 
     info.appendChild(name);
     info.appendChild(owner);
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'btn btn-danger btn-sm';
-    closeBtn.textContent = 'CLOSE';
+    closeBtn.textContent = STR.close;
     closeBtn.addEventListener('click', () => this.close());
 
     row.appendChild(info);
@@ -111,11 +115,11 @@ export class CityMenuModal {
 
     this.orderLabel = document.createElement('div');
     this.orderLabel.className = 'text-caption text-mono grow text-wrap';
-    this.orderLabel.textContent = 'Idle';
+    this.orderLabel.textContent = STR.idle;
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'btn btn-warning btn-sm';
-    cancelBtn.textContent = 'CANCEL';
+    cancelBtn.textContent = STR.cancel;
     cancelBtn.addEventListener('click', () => { void this.cancelProduction(); });
 
     orderRow.appendChild(this.orderLabel);
@@ -182,12 +186,12 @@ export class CityMenuModal {
 
     const unitBtn = document.createElement('button');
     unitBtn.className = 'btn btn-primary tab';
-    unitBtn.textContent = 'UNITS';
+    unitBtn.textContent = STR.tabUnits;
     unitBtn.addEventListener('click', () => this.switchTab('units'));
 
     const bldgBtn = document.createElement('button');
     bldgBtn.className = 'btn btn-secondary tab';
-    bldgBtn.textContent = 'BUILDINGS';
+    bldgBtn.textContent = STR.tabBuildings;
     bldgBtn.addEventListener('click', () => this.switchTab('buildings'));
 
     this.tabBtns = { units: unitBtn, buildings: bldgBtn };
@@ -234,19 +238,19 @@ export class CityMenuModal {
 
     const name = document.createElement('div');
     name.className = 'text-label text-bold';
-    name.textContent = 'Raze City';
+    name.textContent = STR.razeName;
 
     const desc = document.createElement('div');
     desc.className = 'text-caption text-dim text-wrap';
     desc.style.fontSize = '10px';
-    desc.textContent = 'Destroys a random building level every 5s until none remain.';
+    desc.textContent = STR.razeDesc;
 
     info.appendChild(name);
     info.appendChild(desc);
 
     const btn = document.createElement('button');
     btn.className = 'btn btn-danger btn-sm';
-    btn.textContent = 'RAZE';
+    btn.textContent = STR.raze;
     btn.addEventListener('click', () => { void this.toggleRaze(); });
     this.razeBtn = btn;
 
@@ -258,6 +262,8 @@ export class CityMenuModal {
   private buildUnitRow(entry: CatalogEntry): { row: HTMLElement; record: { entry: CatalogEntry; btn: HTMLButtonElement; costLbl: HTMLElement; statusLbl: HTMLElement } } {
     const row = document.createElement('div');
     row.className = 'list-row';
+    const flavor = unitFlavorById(entry.id);
+    if (flavor) row.title = flavor; // hover quote
 
     const info = document.createElement('div');
     info.className = 'col tight grow';
@@ -270,7 +276,7 @@ export class CityMenuModal {
     costLbl.className = 'text-caption text-mono';
     costLbl.style.color = 'var(--color-dim)';
     const secs = (entry.ticks / TICK_RATE).toFixed(1);
-    costLbl.textContent = `${formatCost(entry.cost as Record<string, number>)}  ${secs}s`;
+    costLbl.textContent = STR.unitCostLine(formatCost(entry.cost as Record<string, number>), secs);
 
     const detailLbl = document.createElement('div');
     detailLbl.className = 'text-caption text-wrap';
@@ -288,7 +294,7 @@ export class CityMenuModal {
 
     const btn = document.createElement('button');
     btn.className = 'btn btn-primary btn-sm';
-    btn.textContent = 'BUILD';
+    btn.textContent = STR.build;
     btn.addEventListener('click', () => void this.startProduction(entry));
 
     row.appendChild(info);
@@ -317,7 +323,7 @@ export class CityMenuModal {
     costLbl.className = 'text-caption text-mono';
     costLbl.style.color = 'var(--color-dim)';
     const secs = (def.ticks / TICK_RATE).toFixed(1);
-    costLbl.textContent = `${formatCost(def.cost as Record<string, number>)}  ${secs}s`;
+    costLbl.textContent = STR.unitCostLine(formatCost(def.cost as Record<string, number>), secs);
 
     const statusLbl = document.createElement('div');
     statusLbl.className = 'text-caption text-wrap';
@@ -334,13 +340,13 @@ export class CityMenuModal {
 
     const btn = document.createElement('button');
     btn.className = 'btn btn-primary btn-sm';
-    btn.textContent = 'BUILD';
+    btn.textContent = STR.build;
     btn.addEventListener('click', () => void this.buildCityBuilding(def));
 
     const removeBtn = document.createElement('button');
     removeBtn.className = 'btn btn-warning btn-sm';
-    removeBtn.textContent = '−1 LVL';
-    removeBtn.title = 'Remove one level (takes 5s)';
+    removeBtn.textContent = STR.removeLevel;
+    removeBtn.title = STR.removeLevelTitle;
     removeBtn.addEventListener('click', () => { void this.removeBuildingLevel(def); });
 
     actions.appendChild(btn);
@@ -378,11 +384,11 @@ export class CityMenuModal {
   private updateProduction(): void {
     const order = this.city.getCurrentOrder();
     if (!order) {
-      this.orderLabel.textContent = 'Idle';
+      this.orderLabel.textContent = STR.idle;
       this.orderLabel.style.color = 'var(--color-dim)';
       this.progressFill.style.width = '0%';
     } else {
-      this.orderLabel.textContent = `${order.label}  |  ${(order.ticksRemaining / TICK_RATE).toFixed(1)}s remaining`;
+      this.orderLabel.textContent = STR.orderProgress(order.label, (order.ticksRemaining / TICK_RATE).toFixed(1));
       this.orderLabel.style.color = 'var(--color-gold)';
       this.progressFill.style.width = `${(this.city.getProgressFraction() * 100).toFixed(1)}%`;
     }
@@ -400,13 +406,13 @@ export class CityMenuModal {
 
       const lbl = document.createElement('span');
       lbl.className = 'text-mono';
-      lbl.textContent = `${i + 1}. ${item.label}  (${(item.ticksTotal / TICK_RATE).toFixed(1)}s)`;
+      lbl.textContent = STR.queueItem(i + 1, item.label, (item.ticksTotal / TICK_RATE).toFixed(1));
 
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-warning btn-sm';
       cancelBtn.style.padding = '0 6px';
       cancelBtn.style.fontSize = '10px';
-      cancelBtn.textContent = '✕';
+      cancelBtn.textContent = STR.queueCancel;
       const idx = i;
       cancelBtn.addEventListener('click', () => { void this.cancelProduction(idx); });
 
@@ -441,10 +447,10 @@ export class CityMenuModal {
       const enabled     = !queueFull && canAfford && techsOk && buildingOk && depositOk;
 
       row.btn.disabled    = !enabled;
-      row.btn.textContent = !techsOk || !buildingOk || !depositOk ? 'LOCKED'
-        : queueFull ? 'FULL'
-        : busy ? 'QUEUE'
-        : 'BUILD';
+      row.btn.textContent = !techsOk || !buildingOk || !depositOk ? STR.locked
+        : queueFull ? STR.full
+        : busy ? STR.queue
+        : STR.build;
       row.costLbl.style.color = canAfford ? 'var(--color-dim)' : '#d19393';
       row.statusLbl.textContent = this.getLockReasonForUnit(row.entry);
       row.statusLbl.style.color = enabled ? 'var(--color-dim)' : '#d5a0a0';
@@ -460,12 +466,12 @@ export class CityMenuModal {
       const enabled      = !queueFull && techOk && canAfford && (!alreadyBuilt || canUpgrade);
 
       row.btn.disabled = !enabled;
-      const levelSuffix = row.def.maxLevel > 1 && alreadyBuilt ? ` ${currentLevel}/${row.def.maxLevel}` : '';
+      const levelSuffix = row.def.maxLevel > 1 && alreadyBuilt ? STR.levelSuffix(currentLevel, row.def.maxLevel) : '';
       row.btn.textContent = canUpgrade
-        ? (queueFull ? 'FULL' : busy ? 'QUEUE' : 'UPGRADE')
-        : alreadyBuilt ? `BUILT${levelSuffix}`
-        : techOk ? (queueFull ? 'FULL' : busy ? 'QUEUE' : 'BUILD')
-        : 'LOCKED';
+        ? (queueFull ? STR.full : busy ? STR.queue : STR.upgrade)
+        : alreadyBuilt ? STR.built(levelSuffix)
+        : techOk ? (queueFull ? STR.full : busy ? STR.queue : STR.build)
+        : STR.locked;
       row.costLbl.textContent = formatCost(cost as Record<string, number>);
       row.costLbl.style.color = canAfford ? 'var(--color-dim)' : '#d19393';
       row.statusLbl.textContent = this.getLockReasonForBuilding(row.def);
@@ -477,56 +483,56 @@ export class CityMenuModal {
       row.removeBtn.style.display = alreadyBuilt ? '' : 'none';
       row.removeBtn.disabled = !alreadyBuilt || removalPending;
       row.removeBtn.textContent = removalPending
-        ? `−1 LVL ${(pending!.ticksRemaining / TICK_RATE).toFixed(0)}s`
-        : '−1 LVL';
+        ? STR.removeLevelPending((pending!.ticksRemaining / TICK_RATE).toFixed(0))
+        : STR.removeLevel;
     }
 
     if (this.razeBtn) {
       const razing = this.city.isRazing();
-      this.razeBtn.textContent = razing ? 'STOP' : 'RAZE';
+      this.razeBtn.textContent = razing ? STR.stop : STR.raze;
       this.razeBtn.className = `btn btn-sm ${razing ? 'btn-warning' : 'btn-danger'}`;
     }
   }
 
   private getLockReasonForUnit(entry: CatalogEntry): string {
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
-    if (this.city.isQueueFull()) return `Queue full (max ${CITY_QUEUE_MAX} items).`;
+    if (this.city.isQueueFull()) return STR.queueFull(CITY_QUEUE_MAX);
     const missing = entry.requiresTechs.filter(t => !nation?.hasResearched(t));
-    if (missing.length) return `Requires research: ${missing.map(t => t.replace(/_/g, ' ')).join(', ')}.`;
+    if (missing.length) return STR.requiresResearch(missing.map(t => t.replace(/_/g, ' ')).join(', '));
     if (entry.requiresBuilding !== null) {
       const lvl = this.city.getBuildingLevel(entry.requiresBuilding);
       const name = entry.requiresBuilding.replace(/_/g, ' ').toLowerCase();
-      if (lvl <= 0) return `Requires ${name} in this city.`;
-      if (lvl < entry.requiresBuildingLevel) return `Requires ${name} level ${entry.requiresBuildingLevel}.`;
+      if (lvl <= 0) return STR.requiresBuildingInCity(name);
+      if (lvl < entry.requiresBuildingLevel) return STR.requiresBuildingLevel(name, entry.requiresBuildingLevel);
     }
     if (entry.requiresDeposit) {
       const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
       if (!deposits.has(entry.requiresDeposit))
-        return `Requires active ${entry.requiresDeposit.replace(/_/g, ' ').toLowerCase()} deposit.`;
+        return STR.requiresDeposit(entry.requiresDeposit.replace(/_/g, ' ').toLowerCase());
     }
     if (entry.requiresAnyDeposit) {
       const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
       if (!entry.requiresAnyDeposit.some(d => deposits.has(d)))
-        return `Requires an active ${entry.requiresAnyDeposit.map(d => d.replace(/_/g, ' ').toLowerCase()).join(' / ')} deposit.`;
+        return STR.requiresAnyDeposit(entry.requiresAnyDeposit.map(d => d.replace(/_/g, ' ').toLowerCase()).join(' / '));
     }
-    if (!nation?.getTreasury().hasResources(entry.cost)) return 'Insufficient resources.';
-    return 'Ready to queue.';
+    if (!nation?.getTreasury().hasResources(entry.cost)) return STR.insufficientResources;
+    return STR.readyToQueue;
   }
 
   private getLockReasonForBuilding(def: CityBuildingDef): string {
-    if (this.city.isQueueFull()) return `Queue full (max ${CITY_QUEUE_MAX} items).`;
+    if (this.city.isQueueFull()) return STR.queueFull(CITY_QUEUE_MAX);
     if (this.city.hasBuilding(def.type)) {
       const level = this.city.getBuildingLevel(def.type);
-      if (level >= def.maxLevel) return def.maxLevel > 1 ? 'Already at max level.' : 'Already built.';
+      if (level >= def.maxLevel) return def.maxLevel > 1 ? STR.alreadyAtMaxLevel : STR.alreadyBuilt;
       const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
-      if (!nation?.getTreasury().hasResources(def.upgradeCost)) return 'Insufficient resources.';
-      return `Ready to upgrade to level ${level + 1}.`;
+      if (!nation?.getTreasury().hasResources(def.upgradeCost)) return STR.insufficientResources;
+      return STR.readyToUpgradeToLevel(level + 1);
     }
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
     if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech))
-      return `Requires research: ${def.requiresTech.replace(/_/g, ' ').toLowerCase()}.`;
-    if (!nation?.getTreasury().hasResources(def.cost)) return 'Insufficient resources.';
-    return 'Ready to build.';
+      return STR.requiresResearchBuilding(def.requiresTech.replace(/_/g, ' ').toLowerCase());
+    if (!nation?.getTreasury().hasResources(def.cost)) return STR.insufficientResources;
+    return STR.readyToBuild;
   }
 
   private async startProduction(entry: CatalogEntry): Promise<void> {

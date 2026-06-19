@@ -6,14 +6,17 @@ import { MAX_WALLS_LEVEL, TerrainType } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { formatCost } from '@/utils/uiHelpers';
 import { TICK_RATE } from '@/config/constants';
+import { MODAL_STRINGS } from '@/i18n/modals';
+
+const STR = MODAL_STRINGS.territoryMenu;
 
 /** Format a construction tick count as a human-readable duration ("12s", "1m 5s"). */
 function ticksToDuration(ticks: number): string {
   const seconds = Math.max(1, Math.round(ticks / TICK_RATE));
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return STR.durationSecs(seconds);
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return s === 0 ? `${m}m` : `${m}m ${s}s`;
+  return s === 0 ? STR.durationMin(m) : STR.durationMinSecs(m, s);
 }
 
 const MINE_TYPES = new Set([
@@ -76,7 +79,7 @@ export class TerritoryMenuModal {
     const territory = this.bridge.gameState.getGrid().getTerritory(this.position);
     const ownerId = territory?.getControllingNation() ?? null;
     const nation  = ownerId ? this.bridge.gameState.getNation(ownerId) : null;
-    const terrain = territory?.getTerrainType() ?? 'Unknown';
+    const terrain = territory?.getTerrainType() ?? STR.unknownTerrain;
     const deposit = territory?.getResourceDeposit() ?? null;
 
     // Header
@@ -96,12 +99,12 @@ export class TerritoryMenuModal {
     }
     const locText = document.createElement('span');
     locText.className = 'text-body text-mono text-bold';
-    locText.textContent = `(${this.position.row}, ${this.position.col}) — ${terrain}`;
+    locText.textContent = STR.locLine(this.position.row, this.position.col, terrain);
     locLine.appendChild(locText);
 
     const ownerLine = document.createElement('div');
     ownerLine.className = 'text-caption text-dim';
-    ownerLine.textContent = nation ? nation.getName() : 'Unclaimed';
+    ownerLine.textContent = nation ? nation.getName() : STR.unclaimed;
 
     hdrInfo.appendChild(locLine);
     hdrInfo.appendChild(ownerLine);
@@ -115,7 +118,7 @@ export class TerritoryMenuModal {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'btn btn-danger btn-sm';
-    closeBtn.textContent = '✕';
+    closeBtn.textContent = STR.close;
     closeBtn.addEventListener('click', () => this.close());
 
     hdr.appendChild(hdrInfo);
@@ -130,23 +133,23 @@ export class TerritoryMenuModal {
 
     const builtLabel = document.createElement('div');
     builtLabel.className = 'section-label';
-    builtLabel.textContent = 'BUILT';
+    builtLabel.textContent = STR.built;
 
     const builtVal = document.createElement('div');
     builtVal.className = 'text-caption text-mono';
     builtVal.style.color = '#44dd99';
     builtVal.textContent = buildings.length === 0
-      ? 'None'
+      ? STR.builtNone
       : buildings.map(b => {
           const lvl = territory?.getBuildingLevel(b) ?? 1;
-          const lvlTag = b === TerritoryBuildingType.WALLS ? ` L${lvl}` : '';
-          return `${BUILDING_MAP_ICON[b]} ${b.replace(/_/g, ' ')}${lvlTag}`;
+          const lvlTag = b === TerritoryBuildingType.WALLS ? STR.wallsLevelTag(lvl) : '';
+          return STR.builtEntry(BUILDING_MAP_ICON[b], b.replace(/_/g, ' '), lvlTag);
         }).join('  ');
     if (construction) {
       const pct = construction.ticksTotal > 0
         ? Math.round((1 - construction.ticksRemaining / construction.ticksTotal) * 100)
         : 0;
-      builtVal.textContent += `  |  Building ${construction.label} ${pct}%`;
+      builtVal.textContent += STR.constructionInProgress(construction.label, pct);
     }
 
     builtWrap.appendChild(builtLabel);
@@ -157,7 +160,7 @@ export class TerritoryMenuModal {
     const colHdr = document.createElement('div');
     colHdr.className = 'row';
     colHdr.style.padding = '0 4px';
-    ['BUILDING', 'COST', 'REQ', ''].forEach((label, i) => {
+    [STR.colBuilding, STR.colCost, STR.colReq, ''].forEach((label, i) => {
       const cell = document.createElement('div');
       cell.className = 'section-label';
       cell.style.flex = i === 0 ? '2' : i === 3 ? '0 0 90px' : '1';
@@ -215,7 +218,7 @@ export class TerritoryMenuModal {
     nameCell.style.flex = '2';
     const nameLbl = document.createElement('div');
     nameLbl.className = 'text-label text-mono';
-    nameLbl.textContent = `${BUILDING_MAP_ICON[def.type]} ${def.label}`;
+    nameLbl.textContent = STR.nameWithIcon(BUILDING_MAP_ICON[def.type], def.label);
     const perkLbl = document.createElement('div');
     perkLbl.className = 'text-caption text-dim text-wrap';
     perkLbl.style.fontSize = '10px';
@@ -227,9 +230,9 @@ export class TerritoryMenuModal {
     costLbl.className = 'text-caption text-mono';
     costLbl.style.flex = '1';
     costLbl.style.color = 'var(--color-dim)';
-    costLbl.textContent = `${formatCost(def.cost as Record<string, number>)}  · ${ticksToDuration(def.ticks)}`;
+    costLbl.textContent = STR.costLine(formatCost(def.cost as Record<string, number>), ticksToDuration(def.ticks));
 
-    const reqText = def.requiresTech ?? (def.requires ? def.requires : '—');
+    const reqText = def.requiresTech ?? (def.requires ? def.requires : STR.reqNone);
     const reqLbl = document.createElement('div');
     reqLbl.className = 'text-caption text-mono';
     reqLbl.style.flex = '1';
@@ -241,7 +244,7 @@ export class TerritoryMenuModal {
 
     const btn = document.createElement('button');
     btn.className = 'btn btn-secondary btn-sm btn-full';
-    btn.textContent = 'BUILD';
+    btn.textContent = STR.build;
     btn.addEventListener('click', () => {
       const record = this.buildingRows.find(r => r.def === def);
       if (record?.action === 'upgrade') void this.upgrade(def);
@@ -302,11 +305,11 @@ export class TerritoryMenuModal {
       row.btn.disabled = !enabled;
       row.btn.className = `btn btn-sm btn-full ${enabled ? (canUpgrade ? 'btn-success' : 'btn-secondary') : 'btn-ghost'}`;
 
-      if (construction)             row.btnText.textContent = 'BUSY';
-      else if (alreadyBuilt && atMax)    row.btnText.textContent = 'MAX';
-      else if (alreadyBuilt && canUpgrade) row.btnText.textContent = '▲ UP';
-      else if (alreadyBuilt)        row.btnText.textContent = 'BUILT';
-      else                          row.btnText.textContent = 'BUILD';
+      if (construction)             row.btnText.textContent = STR.busy;
+      else if (alreadyBuilt && atMax)    row.btnText.textContent = STR.max;
+      else if (alreadyBuilt && canUpgrade) row.btnText.textContent = STR.upgradeBtn;
+      else if (alreadyBuilt)        row.btnText.textContent = STR.built;
+      else                          row.btnText.textContent = STR.build;
 
       const costForDisplay = canUpgrade ? row.def.upgradeCost : row.def.cost;
       row.costLbl.textContent = formatCost(costForDisplay as Record<string, number>);
@@ -315,7 +318,7 @@ export class TerritoryMenuModal {
       if (row.levelLbl) {
         row.levelLbl.style.display = alreadyBuilt ? '' : 'none';
         if (alreadyBuilt) {
-          row.levelLbl.textContent = `Lvl ${curLevel}/${maxLevel}`;
+          row.levelLbl.textContent = STR.levelLine(curLevel, maxLevel);
           row.levelLbl.style.color = atMax ? '#88ddcc' : '#aaddaa';
         }
       }
@@ -332,8 +335,8 @@ export class TerritoryMenuModal {
       building: def.type,
       issuedAtTick: 0,
     });
-    if (result.success) this.showFeedback(`Started: ${def.label} (${ticksToDuration(def.ticks)})`, '#44dd99');
-    else this.showFeedback(result.reason ?? 'Cannot build', '#cc4444');
+    if (result.success) this.showFeedback(STR.startedFeedback(def.label, ticksToDuration(def.ticks)), '#44dd99');
+    else this.showFeedback(result.reason ?? STR.cannotBuild, '#cc4444');
     this.refreshButtons();
   }
 
@@ -347,8 +350,8 @@ export class TerritoryMenuModal {
       building: def.type,
       issuedAtTick: 0,
     });
-    if (result.success) this.showFeedback(`Upgrade started: ${def.label} (${ticksToDuration(def.ticks)})`, '#88ffcc');
-    else this.showFeedback(result.reason ?? 'Cannot upgrade', '#cc4444');
+    if (result.success) this.showFeedback(STR.upgradeStartedFeedback(def.label, ticksToDuration(def.ticks)), '#88ffcc');
+    else this.showFeedback(result.reason ?? STR.cannotUpgrade, '#cc4444');
     this.refreshButtons();
   }
 

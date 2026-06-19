@@ -13,6 +13,7 @@ import type { ResourceCost } from '@/systems/resources/ResourceType';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { TechId } from '@/systems/research/TechTree';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
+import { CONTENT_STRINGS } from '@/i18n/content';
 import type { ProductionOrder, UnitOrder } from './ProductionOrder';
 
 /** Each Barracks level above 1 reduces a unit's mobilization (production) time by this fraction. */
@@ -37,8 +38,6 @@ export interface CatalogEntry {
 
 const unit = (
   unitType:         UnitType,
-  label:            string,
-  detail:           string,
   cost:             ResourceCost,
   ticks:            number,
   requiresTechs:    TechId[],
@@ -46,69 +45,56 @@ const unit = (
   requiresBuildingLevel: number = 1,
   requiresDeposit:  TerritoryResourceType | null = null,
   requiresAnyDeposit: TerritoryResourceType[] | null = null,
-): CatalogEntry => ({
-  id: `unit:${unitType}`,
-  label,
-  detail,
-  cost,
-  ticks,
-  requiresTechs,
-  requiresBuilding,
-  requiresBuildingLevel,
-  requiresDeposit,
-  requiresAnyDeposit,
-  makeOrder: (): UnitOrder => ({
-    kind: 'unit', unitType, label, ticksTotal: ticks, ticksRemaining: ticks,
-  }),
-});
+): CatalogEntry => {
+  const { label, detail } = CONTENT_STRINGS.units[unitType];
+  return {
+    id: `unit:${unitType}`,
+    label,
+    detail,
+    cost,
+    ticks,
+    requiresTechs,
+    requiresBuilding,
+    requiresBuildingLevel,
+    requiresDeposit,
+    requiresAnyDeposit,
+    makeOrder: (): UnitOrder => ({
+      kind: 'unit', unitType, label, ticksTotal: ticks, ticksRemaining: ticks,
+    }),
+  };
+};
 
 export const PRODUCTION_CATALOG: CatalogEntry[] = [
   unit(UnitType.INFANTRY,
-    'Infantry',
-    'HP 100  ATK 10  RNG 1  SPD 2  VIS 1  UPKEEP F1 M1  |  CHEAP LINE (loses to specialists)',
     { [ResourceType.GOLD]: 30, [ResourceType.FOOD]: 400, [ResourceType.RAW_MATERIAL]: 300 },
     120, [], CityBuildingType.BARRACKS, 1, null),
 
   unit(UnitType.SCOUT,
-    'Scout',
-    'HP 100  ATK 2  RNG 1  SPD 3  VIS 2  UPKEEP F1 M1  |  RECON (avoid combat)',
     { [ResourceType.GOLD]: 20, [ResourceType.FOOD]: 300 },
     100, [], CityBuildingType.BARRACKS, 1, null),
 
   unit(UnitType.LONGBOWMAN,
-    'Longbowman',
-    'HP 100  ATK 12  RNG 3  SPD 2  VIS 1  UPKEEP F1 M1  |  RANGED: pelts spears, weak vs CAVALRY',
     { [ResourceType.GOLD]: 40, [ResourceType.FOOD]: 500, [ResourceType.RAW_MATERIAL]: 350 },
     150, ['hunting'], CityBuildingType.BARRACKS, 2, null),
 
   unit(UnitType.CAVALRY,
-    'Cavalry',
-    'HP 160  ATK 32  RNG 1  SPD 3  VIS 1  UPKEEP F2 M1  REQ COPPER  |  beats RANGED, weak vs SPEARS',
     { [ResourceType.GOLD]: 80, [ResourceType.FOOD]: 700, [ResourceType.RAW_MATERIAL]: 500 },
     200, ['animal_domestication'], CityBuildingType.BARRACKS, 2, null, [TerritoryResourceType.COPPER, TerritoryResourceType.IRON, TerritoryResourceType.FIRE_GLASS]),
 
   unit(UnitType.CROSSBOWMAN,
-    'Crossbowman',
-    'HP 150  ATK 15  RNG 2  SPD 1  VIS 1  UPKEEP F1 M1  REQ COPPER/IRON/FIRE GLASS  |  anti-ARMOR, weak vs CAVALRY',
     { [ResourceType.GOLD]: 50, [ResourceType.FOOD]: 550, [ResourceType.RAW_MATERIAL]: 400 },
     180, ['mechanization'], CityBuildingType.BARRACKS, 3, null,
     [TerritoryResourceType.COPPER, TerritoryResourceType.IRON, TerritoryResourceType.FIRE_GLASS]),
 
   unit(UnitType.HEAVY_INFANTRY,
-    'Heavy Infantry',
-    'HP 250  ATK 20  RNG 1  SPD 1  VIS 1  UPKEEP F2 M1  REQ IRON  |  SPEARS: beats CAVALRY, weak vs RANGED',
     { [ResourceType.GOLD]: 80, [ResourceType.FOOD]: 700, [ResourceType.RAW_MATERIAL]: 450 },
     200, ['iron_working'], CityBuildingType.BARRACKS, 3, null, [TerritoryResourceType.IRON, TerritoryResourceType.FIRE_GLASS]),
 
   unit(UnitType.CATAPULT,
-    'Catapult',
-    'HP 200  ATK 25  RNG 2  SPD 1  VIS 1  UPKEEP F1 M2  REQ COPPER/IRON/FIRE GLASS  |  SIEGE: anti-armor/building, helpless vs CAVALRY',
     { [ResourceType.GOLD]: 80, [ResourceType.FOOD]: 350, [ResourceType.RAW_MATERIAL]: 600 },
     240, ['physics', 'the_wheel'], CityBuildingType.BARRACKS, 3, null, [TerritoryResourceType.COPPER, TerritoryResourceType.IRON, TerritoryResourceType.FIRE_GLASS]),
 
   unit(UnitType.TREBUCHET,
-    'Trebuchet',
-    'HP 250  ATK 50  RNG 3  SPD 1  VIS 1  UPKEEP F2 M3  REQ FIRE GLASS  |  SIEGE: anti-armor/building, helpless vs CAVALRY',
     { [ResourceType.GOLD]: 100, [ResourceType.FOOD]: 400, [ResourceType.RAW_MATERIAL]: 800 },
     280, ['mechanization', 'steel_working'], CityBuildingType.BARRACKS, 5, null, [TerritoryResourceType.IRON, TerritoryResourceType.FIRE_GLASS]),
 ];

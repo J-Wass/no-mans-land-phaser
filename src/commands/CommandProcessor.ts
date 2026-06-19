@@ -378,6 +378,10 @@ export class CommandProcessor {
       order.ticksTotal = ticks;
       order.ticksRemaining = ticks;
     }
+    if (this.sandboxMode) {
+      order.ticksTotal = Math.min(10, order.ticksTotal);
+      order.ticksRemaining = order.ticksTotal;
+    }
     city.enqueueOrder(order);
     this.eventBus.emit('city:production-started', {
       cityId:   city.id,

@@ -40,6 +40,9 @@ const UPKEEP_INTERVAL      = 30;
 let unitSerial = 1000;
 
 export class ProductionSystem {
+  /** In sandbox mode, queued research is free and completes near-instantly. */
+  constructor(private readonly sandboxMode = false) {}
+
   public tick(gameState: GameState, eventBus: GameEventBus, currentTick: number): void {
 
     // ── Passive resource yield — base per city ────────────────────────────────
@@ -206,10 +209,10 @@ export class ProductionSystem {
     }
 
     const treasury = nation.getTreasury();
-    if (treasury.getAmount(ResourceType.RESEARCH) < node.researchCost) return;
+    if (!this.sandboxMode && treasury.getAmount(ResourceType.RESEARCH) < node.researchCost) return;
 
-    treasury.consumeResources({ [ResourceType.RESEARCH]: node.researchCost });
-    nation.startResearch(nextTechId, node.ticks);
+    if (!this.sandboxMode) treasury.consumeResources({ [ResourceType.RESEARCH]: node.researchCost });
+    nation.startResearch(nextTechId, this.sandboxMode ? Math.min(10, node.ticks) : node.ticks);
     eventBus.emit('nation:research-started', {
       nationId: nation.getId(),
       techId: nextTechId,

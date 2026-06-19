@@ -15,6 +15,9 @@
  */
 
 import type { TutorialUI, TutorialViewModel } from '@/systems/tutorial/TutorialManager';
+import { MODAL_STRINGS } from '@/i18n/modals';
+
+const STR = MODAL_STRINGS.tutorial;
 
 /** Rect for the current highlight target in viewport coords. */
 interface TargetRect {
@@ -85,7 +88,7 @@ export class TutorialOverlay implements TutorialUI {
 
     // Drag handle — obvious grip + cursor + "Drag me" hint.
     this.handle = document.createElement('div');
-    this.handle.title = 'Drag to reposition';
+    this.handle.title = STR.dragHandleTitle;
     this.handle.style.cssText =
       'display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:grab;' +
       'background:rgba(100,168,255,0.12);border-bottom:1px solid rgba(100,168,255,0.25);' +
@@ -94,7 +97,7 @@ export class TutorialOverlay implements TutorialUI {
     grip.textContent = '⠿';   // braille pattern dots-12345678 — reads as a 2-column grip
     grip.style.cssText = 'color:#7bd4ff;font-size:18px;line-height:1;letter-spacing:1px;';
     const hint = document.createElement('span');
-    hint.textContent = 'Click and hold to drag';
+    hint.textContent = STR.dragHint;
     hint.style.cssText = 'color:#7bd4ff;font-size:0.78em;letter-spacing:0.08em;font-weight:700;text-transform:uppercase;';
     this.handle.append(grip, hint);
     this.handle.addEventListener('pointerdown', (e) => this.handleDragStart(e));
@@ -197,15 +200,15 @@ export class TutorialOverlay implements TutorialUI {
 
   private renderGuided(view: TutorialViewModel): HTMLElement[] {
     const s = view.step;
-    const eyebrow = this.label(s ? `STEP ${s.index + 1} OF ${s.total}` : 'TUTORIAL');
-    const title = this.heading(s?.title ?? 'Tutorial');
+    const eyebrow = this.label(s ? STR.eyebrowStep(s.index + 1, s.total) : STR.eyebrowTutorial);
+    const title = this.heading(s?.title ?? STR.fallbackTitle);
     const body = this.paragraph(s?.body ?? '');
     return [eyebrow, title, body];
   }
 
   private renderBonus(view: TutorialViewModel): HTMLElement[] {
     const b = view.bonus!;
-    const eyebrow = this.label('OPTIONAL');
+    const eyebrow = this.label(STR.eyebrowOptional);
     const title = this.heading(b.title);
 
     const list = document.createElement('div');
@@ -214,7 +217,7 @@ export class TutorialOverlay implements TutorialUI {
       const row = document.createElement('div');
       row.style.cssText = `display:flex;gap:8px;align-items:flex-start;opacity:${item.done ? 0.55 : 1};`;
       const mark = document.createElement('span');
-      mark.textContent = item.done ? '✓' : '○';
+      mark.textContent = item.done ? STR.markDone : STR.markPending;
       mark.style.cssText = `color:${item.done ? '#89e4ad' : 'var(--color-accent-soft,#7bd4ff)'};font-weight:700;`;
       const text = document.createElement('span');
       text.textContent = item.label;
@@ -230,23 +233,21 @@ export class TutorialOverlay implements TutorialUI {
 
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
-    btnRow.appendChild(this.button('Keep playing', 'btn-secondary', view.onDismiss));
-    btnRow.appendChild(this.button('Back to menu', 'btn-primary', view.onBackToMenu));
+    btnRow.appendChild(this.button(STR.keepPlaying, 'btn-secondary', view.onDismiss));
+    btnRow.appendChild(this.button(STR.backToMenu, 'btn-primary', view.onBackToMenu));
 
     return [eyebrow, title, list, hint, btnRow];
   }
 
   private renderComplete(view: TutorialViewModel): HTMLElement[] {
-    const eyebrow = this.label('TUTORIAL COMPLETE');
-    const title = this.heading('Well done!');
-    const body = this.paragraph(
-      "You've covered the essentials. Keep playing this map, or head back to the menu for a real match.",
-    );
+    const eyebrow = this.label(STR.eyebrowComplete);
+    const title = this.heading(STR.completeTitle);
+    const body = this.paragraph(STR.completeBody);
 
     const btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;';
-    btnRow.appendChild(this.button('Keep playing', 'btn-secondary', view.onDismiss));
-    btnRow.appendChild(this.button('Back to menu', 'btn-primary', view.onBackToMenu));
+    btnRow.appendChild(this.button(STR.keepPlaying, 'btn-secondary', view.onDismiss));
+    btnRow.appendChild(this.button(STR.backToMenu, 'btn-primary', view.onBackToMenu));
     return [eyebrow, title, body, btnRow];
   }
 

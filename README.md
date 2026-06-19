@@ -90,6 +90,7 @@ src/
 ├── managers/               # GameState, MusicManager
 ├── scenes/                 # Phaser scenes: Menu, Boot, Game, UI, Minimap
 ├── ui/                     # UIManager, modals, overlays, styles
+├── i18n/                   # all user-facing strings (strings.ts barrel + content/hud/modals/menu)
 ├── commands/               # CommandProcessor + GameCommand (all player intent)
 └── network/                # NetworkAdapter / LocalServerAdapter (multiplayer-ready seam)
 ```
@@ -99,6 +100,7 @@ src/
 - **Deterministic simulation.** All systems pull from one seeded RNG (`GameState.getRng()`), so the same seed + same commands always produce the same game. This is what makes the `LocalServerAdapter`/`NetworkAdapter` seam (and a future lockstep multiplayer) viable. The `seed` field in `GameSetup` exists for reproducible/shared maps.
 - **Command-driven.** Player and AI intent flows through `CommandProcessor` as discrete `GameCommand`s (move, build, research, set stance, declare war, trade, …), never by mutating state directly.
 - **Centralized balance.** Tunable numbers live in `src/config/` (`combatBalance.ts`, `moraleBalance.ts`, `constants.ts`) and the catalogs (`ProductionCatalog.ts`, `TechTree.ts`, building catalogs), keeping the shared formulas identical across every system.
+- **Centralized strings.** All user-facing text lives under `src/i18n/` (imported via the `src/i18n/strings.ts` barrel), so the game can be localized without touching scenes, modals, or catalogs. The data catalogs source their `label`/`detail`/`perks`/`name`/`description` from `i18n/content.ts`; flavor-text quotes live in `src/config/flavorText.ts` (re-exported by the barrel).
 - **Strict TypeScript.** `strict`, `noUnusedLocals/Parameters`, `noImplicitReturns`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes` are all enabled.
 
 ## TypeScript features

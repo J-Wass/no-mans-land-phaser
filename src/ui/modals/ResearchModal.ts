@@ -6,6 +6,10 @@ import { TICK_RATE } from '@/config/constants';
 import { CITY_BUILDING_CATALOG } from '@/systems/territory/CityBuilding';
 import { TERRITORY_BUILDING_CATALOG } from '@/systems/territory/TerritoryBuilding';
 import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
+import { TECH_FLAVOR } from '@/config/flavorText';
+import { MODAL_STRINGS } from '@/i18n/modals';
+
+const STR = MODAL_STRINGS.research;
 
 const BRANCH_COLORS: Record<TechBranch, string> = {
   science: '#7eb7ff',
@@ -90,11 +94,11 @@ export class ResearchModal {
 
     const title = document.createElement('div');
     title.className = 'text-heading text-bold';
-    title.textContent = 'Research';
+    title.textContent = STR.title;
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'btn btn-danger btn-sm';
-    closeBtn.textContent = 'CLOSE';
+    closeBtn.textContent = STR.close;
     closeBtn.addEventListener('click', () => this.close());
 
     row.appendChild(title);
@@ -111,11 +115,11 @@ export class ResearchModal {
 
     this.currentLabel = document.createElement('div');
     this.currentLabel.className = 'text-body text-dim text-mono grow text-wrap';
-    this.currentLabel.textContent = 'Idle';
+    this.currentLabel.textContent = STR.idle;
 
     this.cancelBtn = document.createElement('button');
     this.cancelBtn.className = 'btn btn-warning btn-sm';
-    this.cancelBtn.textContent = 'CANCEL';
+    this.cancelBtn.textContent = STR.cancel;
     this.cancelBtn.disabled = true;
     this.cancelBtn.addEventListener('click', () => void this.cancelResearch());
 
@@ -135,7 +139,7 @@ export class ResearchModal {
 
     const queueTitle = document.createElement('div');
     queueTitle.className = 'section-label';
-    queueTitle.textContent = 'QUEUE';
+    queueTitle.textContent = STR.queue;
     wrap.appendChild(queueTitle);
 
     this.queueWrap = document.createElement('div');
@@ -323,7 +327,7 @@ export class ResearchModal {
     const btn = document.createElement('button');
     btn.className = 'btn btn-primary btn-sm tech-node-btn';
     btn.dataset['role'] = 'btn';
-    btn.textContent = 'START';
+    btn.textContent = STR.start;
     btn.addEventListener('click', () => void this.startResearch(node));
 
     const unlocks = TECH_UNLOCKS.get(node.id);
@@ -332,14 +336,19 @@ export class ResearchModal {
     // List the units/buildings this tech leads to; otherwise fall back to the
     // effect description so it's always clear what researching this gets you.
     unlockEl.textContent = unlocks && unlocks.length > 0
-      ? 'Leads to: ' + unlocks.join(', ')
+      ? STR.leadsTo(unlocks.join(', '))
       : node.description;
 
     el.appendChild(name);
     el.appendChild(unlockEl);
     el.appendChild(sub);
     el.appendChild(btn);
-    el.title = node.description + (unlocks?.length ? '\n\nLeads to: ' + unlocks.join(', ') : '');
+    const flavor = TECH_FLAVOR[node.id];
+    el.title = STR.tooltip(
+      flavor ? STR.flavorBlock(flavor) : '',
+      node.description,
+      unlocks?.length ? STR.leadsToBlock(unlocks.join(', ')) : '',
+    );
     return el;
   }
 
@@ -380,55 +389,55 @@ export class ResearchModal {
       el.className = 'tech-node ' + state;
       el.style.borderLeftColor = BRANCH_COLORS[node.branch];
 
-      const costLine = `${node.researchCost} RP · ${(node.ticks / TICK_RATE).toFixed(0)}s`;
+      const costLine = STR.costLine(node.researchCost, (node.ticks / TICK_RATE).toFixed(0));
 
       if (researched) {
         name.style.color = 'var(--color-success)';
-        sub.textContent  = 'Researched';
+        sub.textContent  = STR.researched;
         sub.style.color  = 'var(--color-success)';
-        btn.textContent  = 'DONE';
+        btn.textContent  = STR.done;
         btn.className    = 'btn btn-success btn-sm tech-node-btn';
         btn.disabled     = true;
       } else if (isActive) {
         name.style.color = 'var(--color-gold)';
-        sub.textContent  = 'In progress';
+        sub.textContent  = STR.inProgress;
         sub.style.color  = 'var(--color-gold)';
-        btn.textContent  = '...';
+        btn.textContent  = STR.activeBtn;
         btn.className    = 'btn btn-warning btn-sm tech-node-btn';
         btn.disabled     = true;
       } else if (isQueued) {
         name.style.color = 'var(--color-gold)';
-        sub.textContent  = 'Queued';
+        sub.textContent  = STR.queued;
         sub.style.color  = 'var(--color-gold)';
-        btn.textContent  = 'QUEUED';
+        btn.textContent  = STR.queuedBtn;
         btn.className    = 'btn btn-warning btn-sm tech-node-btn';
         btn.disabled     = true;
       } else if (prereqsMet && !hasPoints) {
         name.style.color = 'var(--color-lt)';
-        sub.textContent  = `${costLine}  (${currentPoints}/${node.researchCost} RP)`;
+        sub.textContent  = STR.needsRpSub(costLine, currentPoints, node.researchCost);
         sub.style.color  = '#e8917a';
-        btn.textContent  = 'QUEUE';
+        btn.textContent  = STR.queue;
         btn.className    = 'btn btn-primary btn-sm tech-node-btn';
         btn.disabled     = !canQueue;
       } else if (canStart) {
         name.style.color = 'var(--color-lt)';
         sub.textContent  = costLine;
         sub.style.color  = 'var(--color-dim)';
-        btn.textContent  = 'START';
+        btn.textContent  = STR.start;
         btn.className    = 'btn btn-primary btn-sm tech-node-btn';
         btn.disabled     = false;
       } else if (canQueue) {
         name.style.color = 'var(--color-dim)';
         sub.textContent  = costLine;
         sub.style.color  = '#b98e8e';
-        btn.textContent  = node.requires.length > 0 && !prereqsMet ? 'QUEUE PATH' : 'QUEUE';
+        btn.textContent  = node.requires.length > 0 && !prereqsMet ? STR.queuePath : STR.queue;
         btn.className    = 'btn btn-primary btn-sm tech-node-btn';
         btn.disabled     = false;
       } else {
         name.style.color = 'var(--color-dim)';
         sub.textContent  = costLine;
         sub.style.color  = '#b98e8e';
-        btn.textContent  = 'LOCKED';
+        btn.textContent  = STR.locked;
         btn.className    = 'btn btn-secondary btn-sm tech-node-btn';
         btn.disabled     = true;
       }
@@ -444,7 +453,7 @@ export class ResearchModal {
     if (queue.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'text-caption text-dim';
-      empty.textContent = 'No queued technologies';
+      empty.textContent = STR.noQueuedTechs;
       this.queueWrap.appendChild(empty);
       return;
     }
@@ -460,7 +469,7 @@ export class ResearchModal {
 
       const label = document.createElement('div');
       label.className = 'text-caption text-mono text-wrap grow';
-      label.textContent = `${index + 1}. ${node?.name ?? techId}`;
+      label.textContent = STR.queueItem(index + 1, node?.name ?? techId);
       row.appendChild(label);
 
       const actions = document.createElement('div');
@@ -468,19 +477,19 @@ export class ResearchModal {
 
       const up = document.createElement('button');
       up.className = 'btn btn-secondary btn-sm';
-      up.textContent = 'UP';
+      up.textContent = STR.up;
       up.disabled = index === 0;
       up.addEventListener('click', () => void this.moveQueuedResearch(techId, 'up'));
 
       const down = document.createElement('button');
       down.className = 'btn btn-secondary btn-sm';
-      down.textContent = 'DOWN';
+      down.textContent = STR.down;
       down.disabled = index === queue.length - 1;
       down.addEventListener('click', () => void this.moveQueuedResearch(techId, 'down'));
 
       const remove = document.createElement('button');
       remove.className = 'btn btn-danger btn-sm';
-      remove.textContent = 'X';
+      remove.textContent = STR.remove;
       remove.addEventListener('click', () => void this.removeQueuedResearch(techId));
 
       actions.appendChild(up);
@@ -503,14 +512,14 @@ export class ResearchModal {
     const nation = this.getNation();
     const current = nation?.getCurrentResearch();
     if (!current) {
-      this.currentLabel.textContent = 'Idle';
+      this.currentLabel.textContent = STR.idle;
       this.currentLabel.style.color = 'var(--color-dim)';
       this.currentBarFill.style.width = '0%';
       this.cancelBtn.disabled = true;
       return;
     }
     const pct = (current.ticksTotal - current.ticksRemaining) / current.ticksTotal;
-    this.currentLabel.textContent = `${current.techId.replace(/_/g, ' ')}  (${(current.ticksRemaining / TICK_RATE).toFixed(1)}s)`;
+    this.currentLabel.textContent = STR.currentResearch(current.techId.replace(/_/g, ' '), (current.ticksRemaining / TICK_RATE).toFixed(1));
     this.currentLabel.style.color = 'var(--color-gold)';
     this.currentBarFill.style.width = `${(pct * 100).toFixed(1)}%`;
     this.cancelBtn.disabled = false;

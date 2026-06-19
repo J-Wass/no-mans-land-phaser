@@ -46,7 +46,7 @@ const CITY_HEAL_RATE = 0.05;
 
 export class TickEngine {
   private currentTick = 0;
-  private readonly productionSystem        = new ProductionSystem();
+  private readonly productionSystem:        ProductionSystem;
   private readonly battleSystem:            BattleSystem;
   private readonly citySiegeSystem:         CitySiegeSystem;
   private readonly rangedFireSystem:        RangedFireSystem;
@@ -57,8 +57,10 @@ export class TickEngine {
   constructor(
     private gameState: GameState,
     private movementSystem: MovementSystem,
-    private eventBus: GameEventBus
+    private eventBus: GameEventBus,
+    sandboxMode = false,
   ) {
+    this.productionSystem = new ProductionSystem(sandboxMode);
     // Every combat system shares the one authoritative RNG so the simulation is
     // deterministic and lockstep-safe for multiplayer.
     const random = gameState.getRng().fn();

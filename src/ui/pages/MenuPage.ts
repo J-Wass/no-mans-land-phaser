@@ -3,6 +3,7 @@ import { SaveSystem } from '@/systems/save/SaveSystem';
 import { SCENARIOS, DEFAULT_SCENARIO_ID, getScenarioById } from '@/config/scenarios';
 import { normalizeGameSetup } from '@/types/gameSetup';
 import type { Difficulty, GameSetup } from '@/types/gameSetup';
+import { MENU_STRINGS } from '@/i18n/menu';
 
 export class MenuPage {
   private setup: GameSetup = normalizeGameSetup({
@@ -89,7 +90,7 @@ export class MenuPage {
     const ver = document.createElement('div');
     ver.className = 'text-caption text-muted text-mono';
     ver.style.textAlign = 'right';
-    ver.textContent = 'v0.1';
+    ver.textContent = MENU_STRINGS.menu.version;
     root.appendChild(ver);
 
     this.refreshOpponentBtns();
@@ -109,17 +110,17 @@ export class MenuPage {
     const text = document.createElement('div');
     text.className = 'text-body text-wrap';
     text.style.flex = '1';
-    text.textContent = "👋 New here? The Tutorial walks you through the basics against a passive opponent.";
+    text.textContent = MENU_STRINGS.menu.newPlayerBanner;
 
     const startBtn = document.createElement('button');
     startBtn.className = 'btn btn-primary';
-    startBtn.textContent = 'START TUTORIAL';
+    startBtn.textContent = MENU_STRINGS.menu.startTutorial;
     startBtn.addEventListener('click', () => this.startTutorial());
 
     const dismiss = document.createElement('button');
     dismiss.className = 'btn btn-ghost btn-sm';
-    dismiss.textContent = '✕';
-    dismiss.title = 'Dismiss';
+    dismiss.textContent = MENU_STRINGS.menu.dismissSymbol;
+    dismiss.title = MENU_STRINGS.menu.dismissTitle;
     dismiss.addEventListener('click', () => {
       try { localStorage.setItem('nml:hasPlayed', '1'); } catch { /* storage unavailable */ }
       banner.remove();
@@ -137,11 +138,11 @@ export class MenuPage {
 
     const title = document.createElement('div');
     title.className = 'text-title text-bold';
-    title.textContent = "NO MAN'S LAND";
+    title.textContent = MENU_STRINGS.menu.title;
 
     const sub = document.createElement('div');
     sub.className = 'text-body text-dim';
-    sub.textContent = 'Pick a preset scenario, set up a standard match, or explore freely in sandbox mode.';
+    sub.textContent = MENU_STRINGS.menu.subtitle;
 
     wrap.appendChild(title);
     wrap.appendChild(sub);
@@ -156,11 +157,11 @@ export class MenuPage {
 
     const lbl = document.createElement('div');
     lbl.className = 'section-label text-accent-soft';
-    lbl.textContent = 'SCENARIO PICKER';
+    lbl.textContent = MENU_STRINGS.menu.scenarioPickerLabel;
 
     const name = document.createElement('div');
     name.className = 'text-heading text-bold text-wrap';
-    name.textContent = scenario?.name ?? 'No scenario configured';
+    name.textContent = scenario?.name ?? MENU_STRINGS.menu.noScenarioConfigured;
     this.scenarioNameEl = name;
 
     card.appendChild(lbl);
@@ -169,7 +170,7 @@ export class MenuPage {
     if (SCENARIOS.length > 1) {
       const hint = document.createElement('div');
       hint.className = 'text-caption text-dim';
-      hint.textContent = 'Choose a preset scenario.';
+      hint.textContent = MENU_STRINGS.menu.chooseScenarioHint;
       card.appendChild(hint);
 
       const btnList = document.createElement('div');
@@ -177,7 +178,9 @@ export class MenuPage {
       for (const s of SCENARIOS) {
         const btn = document.createElement('button');
         btn.className = 'btn btn-secondary btn-full btn-sm';
-        btn.textContent = s.isTutorial ? `★ ${s.name.toUpperCase()}` : s.name.toUpperCase();
+        btn.textContent = s.isTutorial
+          ? MENU_STRINGS.menu.tutorialScenarioButton(s.name)
+          : MENU_STRINGS.menu.scenarioButton(s.name);
         btn.addEventListener('click', () => {
           this.setup.scenarioId = s.id;
           this.refreshScenarioBtns();
@@ -221,15 +224,15 @@ export class MenuPage {
 
     const lbl = document.createElement('div');
     lbl.className = 'section-label text-accent-soft';
-    lbl.textContent = 'STANDARD MATCH';
+    lbl.textContent = MENU_STRINGS.menu.standardMatchLabel;
 
     const name = document.createElement('div');
     name.className = 'text-heading text-bold';
-    name.textContent = 'Custom Setup';
+    name.textContent = MENU_STRINGS.menu.customSetupName;
 
     const desc = document.createElement('div');
     desc.className = 'text-caption text-dim text-wrap';
-    desc.textContent = 'Tune the opponent count and difficulty, then launch a normal match.';
+    desc.textContent = MENU_STRINGS.menu.standardMatchDescription;
 
     card.appendChild(lbl);
     card.appendChild(name);
@@ -237,7 +240,7 @@ export class MenuPage {
 
     // Opponent selector
     card.appendChild(this.buildChoiceBlock(
-      'Opponents',
+      MENU_STRINGS.menu.opponentsTitle,
       [1, 2, 3, 4].map(v => ({ label: String(v), value: v })),
       (v: number) => { this.setup.opponentCount = v; this.refreshOpponentBtns(); },
       this.opponentBtns,
@@ -245,11 +248,11 @@ export class MenuPage {
 
     // Difficulty selector
     card.appendChild(this.buildChoiceBlock<Difficulty>(
-      'Difficulty',
+      MENU_STRINGS.menu.difficultyTitle,
       [
-        { label: 'EASY',   value: 'easy' },
-        { label: 'MEDIUM', value: 'medium' },
-        { label: 'HARD',   value: 'hard' },
+        { label: MENU_STRINGS.menu.difficultyEasy,   value: 'easy' },
+        { label: MENU_STRINGS.menu.difficultyMedium, value: 'medium' },
+        { label: MENU_STRINGS.menu.difficultyHard,   value: 'hard' },
       ],
       (v: Difficulty) => { this.setup.difficulty = v; this.refreshDiffBtns(); },
       this.diffBtns,
@@ -262,7 +265,7 @@ export class MenuPage {
 
     const startBtn = document.createElement('button');
     startBtn.className = 'btn btn-success btn-full';
-    startBtn.textContent = 'START STANDARD MATCH';
+    startBtn.textContent = MENU_STRINGS.menu.startStandardMatch;
     startBtn.addEventListener('click', () => {
       this.startGame({ setup: { ...this.setup, gameMode: 'skirmish', difficulty: this.standardDifficulty, scenarioId: null } });
     });
@@ -278,20 +281,20 @@ export class MenuPage {
     const lbl = document.createElement('div');
     lbl.className = 'section-label';
     lbl.style.color = '#7bd4ff';
-    lbl.textContent = 'SANDBOX';
+    lbl.textContent = MENU_STRINGS.menu.sandboxLabel;
 
     const name = document.createElement('div');
     name.className = 'text-heading text-bold';
-    name.textContent = 'Free Play';
+    name.textContent = MENU_STRINGS.menu.freePlayName;
 
     const desc = document.createElement('div');
     desc.className = 'text-caption text-dim text-wrap';
     desc.style.flex = '1';
-    desc.textContent = 'No resource costs. No fog of war. Adjust AI level and paint terrain mid-game using the left toolbar.';
+    desc.textContent = MENU_STRINGS.menu.sandboxDescription;
 
     const startBtn = document.createElement('button');
     startBtn.className = 'btn btn-primary btn-full';
-    startBtn.textContent = 'START SANDBOX';
+    startBtn.textContent = MENU_STRINGS.menu.startSandbox;
     startBtn.addEventListener('click', () => {
       this.startGame({ setup: { ...this.setup, gameMode: 'sandbox', difficulty: 'sandbox', opponentCount: 1, scenarioId: null } });
     });
@@ -340,12 +343,12 @@ export class MenuPage {
 
     const lbl = document.createElement('div');
     lbl.className = 'text-caption text-dim text-wrap';
-    lbl.textContent = 'Or continue from your last local save.';
+    lbl.textContent = MENU_STRINGS.menu.loadHint;
 
     const loadBtn = document.createElement('button');
     loadBtn.className = `btn btn-secondary${firstSave ? '' : ' disabled'}`;
     loadBtn.disabled = !firstSave;
-    loadBtn.textContent = 'LOAD SAVED GAME';
+    loadBtn.textContent = MENU_STRINGS.menu.loadSavedGame;
     loadBtn.addEventListener('click', () => {
       if (!firstSave) return;
       const saveData = SaveSystem.load(firstSave.slot);
@@ -363,7 +366,7 @@ export class MenuPage {
       btn.className = `btn btn-sm grow ${value === this.setup.opponentCount ? 'btn-primary active' : 'btn-secondary'}`;
     }
     if (this.summaryEl) {
-      this.summaryEl.textContent = `${this.setup.opponentCount} Opponent${this.setup.opponentCount === 1 ? '' : 's'}  |  ${this.standardDifficulty.toUpperCase()}`;
+      this.summaryEl.textContent = MENU_STRINGS.menu.matchSummary(this.setup.opponentCount, this.standardDifficulty.toUpperCase());
     }
   }
 
@@ -372,7 +375,7 @@ export class MenuPage {
       btn.className = `btn btn-sm grow ${value === this.standardDifficulty ? 'btn-primary active' : 'btn-secondary'}`;
     }
     if (this.summaryEl) {
-      this.summaryEl.textContent = `${this.setup.opponentCount} Opponent${this.setup.opponentCount === 1 ? '' : 's'}  |  ${this.standardDifficulty.toUpperCase()}`;
+      this.summaryEl.textContent = MENU_STRINGS.menu.matchSummary(this.setup.opponentCount, this.standardDifficulty.toUpperCase());
     }
   }
 
@@ -382,15 +385,19 @@ export class MenuPage {
     }
     const scenario = getScenarioById(this.setup.scenarioId);
     if (this.scenarioNameEl) {
-      this.scenarioNameEl.textContent = scenario?.name ?? 'No scenario configured';
+      this.scenarioNameEl.textContent = scenario?.name ?? MENU_STRINGS.menu.noScenarioConfigured;
     }
     if (this.scenarioDescEl) {
       if (scenario) {
         const player = scenario.nations.find(n => n.isPlayer);
         const aiNames = scenario.nations.filter(n => !n.isPlayer).map(n => n.name).join(', ');
-        this.scenarioDescEl.textContent = `${scenario.description}\nPlayer: ${player?.name ?? '?'} vs ${aiNames}`;
+        this.scenarioDescEl.textContent = MENU_STRINGS.menu.scenarioDescription(
+          scenario.description,
+          player?.name ?? MENU_STRINGS.menu.scenarioPlayerFallback,
+          aiNames,
+        );
       } else {
-        this.scenarioDescEl.textContent = 'Add a scenario preset in src/config/scenarios.json to enable scenario mode.';
+        this.scenarioDescEl.textContent = MENU_STRINGS.menu.addScenarioHint;
       }
     }
     if (this.scenarioStartBtn) {
@@ -398,8 +405,8 @@ export class MenuPage {
       this.scenarioStartBtn.disabled = !enabled;
       this.scenarioStartBtn.className = `btn btn-primary btn-full${enabled ? '' : ' disabled'}`;
       this.scenarioStartBtn.textContent = enabled
-        ? (scenario.isTutorial ? 'START TUTORIAL' : 'START SCENARIO')
-        : 'SCENARIO UNAVAILABLE';
+        ? (scenario.isTutorial ? MENU_STRINGS.menu.startTutorial : MENU_STRINGS.menu.startScenario)
+        : MENU_STRINGS.menu.scenarioUnavailable;
     }
   }
 }

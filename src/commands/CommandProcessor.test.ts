@@ -499,6 +499,25 @@ describe('CommandProcessor', () => {
       expect(city.getCurrentOrder()).not.toBeNull();
     });
 
+    it('sandbox: builds units in ~1s and ignores resource cost', () => {
+      nation.getTreasury().consumeResources({
+        [ResourceType.GOLD]: 1000,
+        [ResourceType.FOOD]: 5000,
+        [ResourceType.RAW_MATERIAL]: 5000,
+      });
+      const sandbox = new CommandProcessor(gameState, movementSystem, eventBus, undefined, true);
+      const result = sandbox.dispatch({
+        type: 'START_CITY_PRODUCTION',
+        playerId: 'player-1',
+        cityId: 'city-1',
+        unitType: UnitType.INFANTRY,
+        issuedAtTick: 1,
+      });
+
+      expect(result.success).toBe(true); // empty treasury, but sandbox skips the cost
+      expect(city.getCurrentOrder()?.ticksTotal).toBe(10); // 120-tick Infantry clamped to ~1s
+    });
+
     it('queues additional orders behind the active one until the queue is full', () => {
       // 1 active order + CITY_QUEUE_MAX (5) queued = 6 accepted, the 7th is rejected.
       for (let i = 0; i < 6; i++) {

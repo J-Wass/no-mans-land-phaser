@@ -9,6 +9,7 @@
 import type { ResourceCost } from '@/systems/resources/ResourceType';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import type { TechId } from '@/systems/research/TechTree';
+import { CONTENT_STRINGS } from '@/i18n/content';
 
 export enum CityBuildingType {
   CITY_HALL    = 'CITY_HALL',
@@ -45,8 +46,8 @@ export interface CityBuildingDef {
 export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   {
     type: CityBuildingType.CITY_HALL,
-    label: 'City Hall',
-    perks: 'Built-in administration',
+    label: CONTENT_STRINGS.cityBuildings[CityBuildingType.CITY_HALL].label,
+    perks: CONTENT_STRINGS.cityBuildings[CityBuildingType.CITY_HALL].perks,
     cost: {},
     ticks: 0,
     requiresTech: null,
@@ -55,8 +56,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   },
   {
     type: CityBuildingType.BARRACKS,
-    label: 'Barracks',
-    perks: 'Trains units. Higher levels unlock advanced units and speed up mobilization (−5%/level).',
+    label: CONTENT_STRINGS.cityBuildings[CityBuildingType.BARRACKS].label,
+    perks: CONTENT_STRINGS.cityBuildings[CityBuildingType.BARRACKS].perks,
     cost: { [ResourceType.GOLD]: 40, [ResourceType.RAW_MATERIAL]: 90, [ResourceType.FOOD]: 40 },
     ticks: 400,
     requiresTech: 'masonry',
@@ -65,8 +66,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   },
   {
     type: CityBuildingType.WALLS,
-    label: 'Walls',
-    perks: 'Lvl1: +60HP +3dmg. Upgrades improve city defense through Lvl5.',
+    label: CONTENT_STRINGS.cityBuildings[CityBuildingType.WALLS].label,
+    perks: CONTENT_STRINGS.cityBuildings[CityBuildingType.WALLS].perks,
     cost: { [ResourceType.GOLD]: 30, [ResourceType.RAW_MATERIAL]: 90 },
     ticks: 450,
     requiresTech: 'masonry',
@@ -75,8 +76,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   },
   {
     type: CityBuildingType.FARMS,
-    label: 'Farms',
-    perks: '🍎 +2/s per level',
+    label: CONTENT_STRINGS.cityBuildings[CityBuildingType.FARMS].label,
+    perks: CONTENT_STRINGS.cityBuildings[CityBuildingType.FARMS].perks,
     cost: { [ResourceType.GOLD]: 25, [ResourceType.RAW_MATERIAL]: 80 },
     ticks: 300,
     requiresTech: 'masonry',
@@ -85,8 +86,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   },
   {
     type: CityBuildingType.WORKSHOP,
-    label: 'Workshop',
-    perks: '🧱 +1/s per level',
+    label: CONTENT_STRINGS.cityBuildings[CityBuildingType.WORKSHOP].label,
+    perks: CONTENT_STRINGS.cityBuildings[CityBuildingType.WORKSHOP].perks,
     cost: { [ResourceType.GOLD]: 25, [ResourceType.RAW_MATERIAL]: 80 },
     ticks: 300,
     requiresTech: 'masonry',
@@ -95,8 +96,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   },
   {
     type: CityBuildingType.WATCHTOWER,
-    label: 'Watchtower',
-    perks: 'Vision+',
+    label: CONTENT_STRINGS.cityBuildings[CityBuildingType.WATCHTOWER].label,
+    perks: CONTENT_STRINGS.cityBuildings[CityBuildingType.WATCHTOWER].perks,
     cost: { [ResourceType.GOLD]: 20, [ResourceType.RAW_MATERIAL]: 70 },
     ticks: 300,
     requiresTech: 'masonry',
@@ -105,8 +106,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   },
   {
     type: CityBuildingType.SCHOOL,
-    label: 'School',
-    perks: '🔬 +1/s per level',
+    label: CONTENT_STRINGS.cityBuildings[CityBuildingType.SCHOOL].label,
+    perks: CONTENT_STRINGS.cityBuildings[CityBuildingType.SCHOOL].perks,
     cost: { [ResourceType.GOLD]: 40, [ResourceType.RAW_MATERIAL]: 90, [ResourceType.FOOD]: 50 },
     ticks: 400,
     requiresTech: 'education',
@@ -115,8 +116,8 @@ export const CITY_BUILDING_CATALOG: CityBuildingDef[] = [
   },
   {
     type: CityBuildingType.MARKET,
-    label: 'Market',
-    perks: '🪙 +1/s per level',
+    label: CONTENT_STRINGS.cityBuildings[CityBuildingType.MARKET].label,
+    perks: CONTENT_STRINGS.cityBuildings[CityBuildingType.MARKET].perks,
     cost: { [ResourceType.GOLD]: 50, [ResourceType.RAW_MATERIAL]: 110 },
     ticks: 400,
     requiresTech: 'trade',

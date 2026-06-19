@@ -1,5 +1,8 @@
 import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import { TICK_RATE } from '@/config/constants';
+import { MODAL_STRINGS } from '@/i18n/modals';
+
+const STR = MODAL_STRINGS.gameOver;
 
 export type GameOutcome = 'victory' | 'defeat';
 
@@ -34,7 +37,7 @@ export class GameOverModal {
     const menuBtn = document.createElement('button');
     menuBtn.className = 'btn btn-primary';
     menuBtn.style.width = '100%';
-    menuBtn.textContent = 'RETURN TO MENU';
+    menuBtn.textContent = STR.returnToMenu;
     menuBtn.addEventListener('click', () => this.bridge.goToMenu());
     panel.appendChild(menuBtn);
 
@@ -48,7 +51,7 @@ export class GameOverModal {
     el.style.fontSize = '2.4em';
     el.style.letterSpacing = '0.08em';
     el.style.color = this.outcome === 'victory' ? 'var(--color-success)' : 'var(--color-danger)';
-    el.textContent = this.outcome === 'victory' ? 'VICTORY' : 'DEFEAT';
+    el.textContent = this.outcome === 'victory' ? STR.victory : STR.defeat;
     return el;
   }
 
@@ -58,7 +61,7 @@ export class GameOverModal {
     const secs      = totalSecs % 60;
     const el = document.createElement('div');
     el.className = 'text-body text-dim';
-    el.textContent = `Game duration: ${minutes}m ${secs.toString().padStart(2, '0')}s`;
+    el.textContent = STR.duration(minutes, secs.toString().padStart(2, '0'));
     return el;
   }
 
@@ -68,7 +71,7 @@ export class GameOverModal {
 
     const label = document.createElement('div');
     label.className = 'text-caption text-accent-soft text-mono text-bold';
-    label.textContent = 'Surviving Nations';
+    label.textContent = STR.survivingNations;
     wrap.appendChild(label);
 
     for (const nation of nations) {
@@ -96,7 +99,7 @@ export class GameOverModal {
 
     const label = document.createElement('div');
     label.className = 'text-caption text-dim text-mono';
-    label.textContent = 'Defeated Nations';
+    label.textContent = STR.defeatedNations;
     wrap.appendChild(label);
 
     for (const t of tombstones) {

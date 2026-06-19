@@ -124,11 +124,20 @@ export class BootScene extends Phaser.Scene {
       const isLocal  = i === 0;
       const nation   = new Nation(nationId, cfg.name, cfg.color, !isLocal);
       nation.setControlledBy(playerId);
-      grantResources(nation, {
-        [ResourceType.GOLD]: 50,
-        [ResourceType.FOOD]: 30,
-        [ResourceType.RAW_MATERIAL]: 20,
-      });
+      // Sandbox: the local player starts with a near-limitless treasury so you can
+      // build/test anything freely (everything also completes in ~1s — see CommandProcessor).
+      grantResources(nation, setup.gameMode === 'sandbox' && isLocal
+        ? {
+            [ResourceType.GOLD]: 9999,
+            [ResourceType.FOOD]: 9999,
+            [ResourceType.RAW_MATERIAL]: 9999,
+            [ResourceType.RESEARCH]: 9999,
+          }
+        : {
+            [ResourceType.GOLD]: 50,
+            [ResourceType.FOOD]: 30,
+            [ResourceType.RAW_MATERIAL]: 20,
+          });
       grantTechs(nation, [ROOT_TECHS[Math.floor(rng() * ROOT_TECHS.length)]!]);
 
       gameState.addNation(nation);

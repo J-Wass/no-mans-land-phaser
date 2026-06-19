@@ -102,6 +102,7 @@ Game events (territory claimed, building finished, unit trained, research done, 
 - Resource-deposit icons (**hover** for a tooltip explaining the mine).
 - **Fog of war** — undiscovered tiles black, seen-but-not-visible dark; near-vision contacts show an orange **"Heavily Armored Contact"** / **"Lightly Armored Contact"** label. Fog is **off** in Sandbox and Tutorial.
 - A "CAPTURED!" flash rises above a conquered city.
+- **Flavor text** — hover a unit in a city's production list or a tech in the research tree to see a short historical quote (purely cosmetic).
 
 ### Sandbox toolbar (left edge, Sandbox only)
 AI LEVEL buttons (OFF / EASY / MED / HARD, applied live) and a **PAINT** tool that cycles a tile's terrain on click.
@@ -148,7 +149,7 @@ The main menu is a 3-card layout plus a load row. A random calm title track play
 
 - **Card 1 — Scenario picker.** Preset scenarios (★ marks the tutorial). Shows name, description, and "Player vs AI". Launches with **START SCENARIO / START TUTORIAL**.
 - **Card 2 — Standard Match.** Pick **1–4 opponents** and **Easy/Medium/Hard**; launches a procedural skirmish.
-- **Card 3 — Sandbox.** No costs, no fog, live AI + terrain controls.
+- **Card 3 — Sandbox.** Start with 9999 of every resource; everything builds/researches in ~1s; no costs, no fog; live AI + terrain controls.
 - **Load row** — **LOAD SAVED GAME** loads your first non-empty save slot.
 
 New players see a banner nudging them toward the tutorial (until `localStorage 'nml:hasPlayed'` is set).

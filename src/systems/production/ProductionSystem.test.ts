@@ -190,4 +190,12 @@ describe('ProductionSystem', () => {
     system.tick(state, eventBus, 1);
     expect(nation.getCurrentResearch()!.ticksRemaining).toBe(99);
   });
+
+  it('sandbox: queued research is free and finishes in ~1s', () => {
+    const sandbox = new ProductionSystem(true);
+    nation.queueResearch('writing'); // no RESEARCH granted — sandbox skips the cost
+    sandbox.tick(state, eventBus, 1);
+    expect(nation.getCurrentResearch()?.techId).toBe('writing');
+    expect(nation.getCurrentResearch()!.ticksTotal).toBe(10); // clamped from 1200
+  });
 });

@@ -36,6 +36,7 @@ import {
   unitInitial, stanceShortLabel, stanceBadgeColor, moraleBandFill,
 } from './gameSceneHelpers';
 import { effectiveBattleOrder, getMoraleBand } from '@/systems/morale/moraleRules';
+import { MENU_STRINGS } from '@/i18n/menu';
 
 interface GameSceneData {
   gameState?: GameState;
@@ -169,10 +170,10 @@ export class GameScene extends Phaser.Scene {
     this.pathfinder     = new Pathfinder(this.gameState.getGrid());
     this.eventBus = new GameEventBus();
     this.subs = new EventSubscriptions(this.eventBus);
-    this.tickEngine = new TickEngine(this.gameState, this.movementSystem, this.eventBus);
+    const isSandbox = this.setup.gameMode === 'sandbox';
+    this.tickEngine = new TickEngine(this.gameState, this.movementSystem, this.eventBus, isSandbox);
     this.diplomacySystem  = new DiplomacySystem(this.gameState, this.eventBus);
     this.visionSystem     = new VisionSystem();
-    const isSandbox = this.setup.gameMode === 'sandbox';
     this.isTutorialMode =
       this.setup.gameMode === 'scenario' && !!getScenarioById(this.setup.scenarioId)?.isTutorial;
     this.commandProcessor = new CommandProcessor(
@@ -317,7 +318,7 @@ export class GameScene extends Phaser.Scene {
       // Flash "CAPTURED!" text above the city
       const flashX = position.col * TILE_SIZE + TILE_SIZE / 2;
       const flashY = position.row * TILE_SIZE - 14;
-      const flash = this.add.text(flashX, flashY, 'CAPTURED!', {
+      const flash = this.add.text(flashX, flashY, MENU_STRINGS.game.captured(), {
         fontSize: '11px', color: '#ffdd44', fontFamily: 'monospace', fontStyle: 'bold',
         stroke: '#000000', strokeThickness: 3,
       }).setOrigin(0.5, 1).setDepth(900);
@@ -914,8 +915,8 @@ export class GameScene extends Phaser.Scene {
           const cx = unit.position.col * TILE_SIZE + TILE_SIZE / 2;
           const cy = unit.position.row * TILE_SIZE + TILE_SIZE / 2;
           const armorLabel = unit.getStats().armorType === 'heavy'
-            ? 'Heavily Armored Contact'
-            : 'Lightly Armored Contact';
+            ? MENU_STRINGS.game.heavilyArmoredContact
+            : MENU_STRINGS.game.lightlyArmoredContact;
           const marker = this.add.text(cx, cy, armorLabel, {
             fontSize: '9px', color: '#ff8844', fontFamily: 'monospace', fontStyle: 'bold',
             stroke: '#000000', strokeThickness: 2, align: 'center',

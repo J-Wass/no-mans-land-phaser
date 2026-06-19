@@ -5,6 +5,9 @@ import {
   FONT_OPTIONS, SIZE_OPTIONS,
   getFont, setFont, getFontSizeScale, setFontSizeScale,
 } from '@/config/accessibility';
+import { MODAL_STRINGS } from '@/i18n/modals';
+
+const STR = MODAL_STRINGS.pause;
 
 export class PauseModal {
   private escHandler: (e: KeyboardEvent) => void;
@@ -54,18 +57,18 @@ export class PauseModal {
 
     const title = document.createElement('div');
     title.className = 'text-heading text-bold';
-    title.textContent = 'Paused';
+    title.textContent = STR.title;
 
     const desc = document.createElement('div');
     desc.className = 'text-caption text-dim text-wrap';
-    desc.textContent = 'Manage saves, import or export files, or jump back to the main menu.';
+    desc.textContent = STR.desc;
 
     left.appendChild(title);
     left.appendChild(desc);
 
     const resumeBtn = document.createElement('button');
     resumeBtn.className = 'btn btn-primary';
-    resumeBtn.textContent = 'RESUME';
+    resumeBtn.textContent = STR.resume;
     resumeBtn.addEventListener('click', () => this.bridge.closePause());
 
     row.appendChild(left);
@@ -79,11 +82,11 @@ export class PauseModal {
 
     const localLabel = document.createElement('div');
     localLabel.className = 'text-caption text-accent-soft text-mono text-bold grow';
-    localLabel.textContent = 'LOCAL SLOTS';
+    localLabel.textContent = STR.localSlots;
 
     const menuBtn = document.createElement('button');
     menuBtn.className = 'btn btn-danger btn-sm';
-    menuBtn.textContent = 'MAIN MENU';
+    menuBtn.textContent = STR.mainMenu;
     menuBtn.addEventListener('click', () => this.bridge.goToMenu());
 
     row.appendChild(localLabel);
@@ -97,11 +100,11 @@ export class PauseModal {
 
     const heading = document.createElement('div');
     heading.className = 'text-caption text-accent-soft text-mono text-bold';
-    heading.textContent = 'Save Slots';
+    heading.textContent = STR.saveSlots;
 
     const subtext = document.createElement('div');
     subtext.className = 'text-caption text-dim';
-    subtext.textContent = 'All 10 slots live locally in this browser profile.';
+    subtext.textContent = STR.slotsSubtext;
 
     wrap.appendChild(heading);
     wrap.appendChild(subtext);
@@ -125,17 +128,17 @@ export class PauseModal {
 
     const slotLabel = document.createElement('div');
     slotLabel.className = 'text-body text-mono text-bold';
-    slotLabel.textContent = `Slot ${slot}`;
+    slotLabel.textContent = STR.slotLabel(slot);
 
     const meta = document.createElement('div');
     meta.className = 'text-caption';
     if (saveData) {
       meta.style.color = 'var(--color-dim)';
       const day = Math.floor(saveData.currentTick / 100) + 1;
-      meta.textContent = `${new Date(saveData.savedAt).toLocaleString()}  |  Day ${day}  |  ${saveData.setup.gameMode}`;
+      meta.textContent = STR.slotMeta(new Date(saveData.savedAt).toLocaleString(), day, saveData.setup.gameMode);
     } else {
       meta.style.color = 'var(--color-muted)';
-      meta.textContent = 'Empty slot';
+      meta.textContent = STR.emptySlot;
     }
 
     info.appendChild(slotLabel);
@@ -146,13 +149,13 @@ export class PauseModal {
 
     const saveBtn = document.createElement('button');
     saveBtn.className = 'btn btn-primary btn-sm';
-    saveBtn.textContent = 'SAVE';
+    saveBtn.textContent = STR.save;
     saveBtn.addEventListener('click', () => this.saveGame(slot));
 
     const loadBtn = document.createElement('button');
     loadBtn.className = `btn btn-sm ${saveData ? 'btn-success' : 'btn-secondary'}`;
     loadBtn.disabled = !saveData;
-    loadBtn.textContent = 'LOAD';
+    loadBtn.textContent = STR.load;
     loadBtn.addEventListener('click', () => this.loadGame(slot));
 
     actions.appendChild(saveBtn);
@@ -169,19 +172,19 @@ export class PauseModal {
 
     const desc = document.createElement('div');
     desc.className = 'text-caption text-dim text-center';
-    desc.textContent = 'Export or import a save file to move progress between computers.';
+    desc.textContent = STR.transferDesc;
 
     const btnRow = document.createElement('div');
     btnRow.className = 'row';
 
     const exportBtn = document.createElement('button');
     exportBtn.className = 'btn btn-secondary grow';
-    exportBtn.textContent = 'EXPORT FILE';
+    exportBtn.textContent = STR.exportFile;
     exportBtn.addEventListener('click', () => this.exportSave());
 
     const importBtn = document.createElement('button');
     importBtn.className = 'btn btn-secondary grow';
-    importBtn.textContent = 'IMPORT FILE';
+    importBtn.textContent = STR.importFile;
     importBtn.addEventListener('click', () => void this.importSave());
 
     btnRow.appendChild(exportBtn);
@@ -197,7 +200,7 @@ export class PauseModal {
 
     const heading = document.createElement('div');
     heading.className = 'text-caption text-accent-soft text-mono text-bold';
-    heading.textContent = 'Accessibility';
+    heading.textContent = STR.accessibility;
 
     wrap.appendChild(heading);
 
@@ -206,7 +209,7 @@ export class PauseModal {
     fontRow.className = 'row tight';
     const fontLabel = document.createElement('span');
     fontLabel.className = 'text-caption text-dim';
-    fontLabel.textContent = 'Font:';
+    fontLabel.textContent = STR.fontLabel;
     fontRow.appendChild(fontLabel);
 
     const currentFont = getFont();
@@ -225,7 +228,7 @@ export class PauseModal {
     sizeRow.className = 'row tight';
     const sizeLabel = document.createElement('span');
     sizeLabel.className = 'text-caption text-dim';
-    sizeLabel.textContent = 'Size:';
+    sizeLabel.textContent = STR.sizeLabel;
     sizeRow.appendChild(sizeLabel);
 
     const currentSize = getFontSizeScale();
@@ -255,7 +258,7 @@ export class PauseModal {
 
   private saveGame(slot: number): void {
     this.bridge.saveToSlot(slot);
-    this.showFeedback(`Saved to slot ${slot}.`, 'var(--color-success)');
+    this.showFeedback(STR.savedToSlot(slot), 'var(--color-success)');
     // Refresh the slot list
     this.refreshAccessibility();
   }
@@ -263,7 +266,7 @@ export class PauseModal {
   private loadGame(slot: number): void {
     const saveData = SaveSystem.load(slot);
     if (!saveData) {
-      this.showFeedback(`Slot ${slot} is empty.`, 'var(--color-danger)');
+      this.showFeedback(STR.slotEmpty(slot), 'var(--color-danger)');
       return;
     }
     void import('@/ui/UIManager').then(({ UIManager }) => UIManager.close('pause'));
@@ -275,9 +278,9 @@ export class PauseModal {
 
   private exportSave(): void {
     const slot = SaveSystem.listSlots().find(s => s.saveData)?.slot;
-    if (!slot) { this.showFeedback('Save a slot before exporting.', 'var(--color-danger)'); return; }
+    if (!slot) { this.showFeedback(STR.saveBeforeExporting, 'var(--color-danger)'); return; }
     const saveData = SaveSystem.load(slot);
-    if (!saveData) { this.showFeedback('No save found to export.', 'var(--color-danger)'); return; }
+    if (!saveData) { this.showFeedback(STR.noSaveToExport, 'var(--color-danger)'); return; }
     const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -285,7 +288,7 @@ export class PauseModal {
     link.download = `phaser-rts-save-slot-${slot}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    this.showFeedback(`Exported slot ${slot}.`, 'var(--color-success)');
+    this.showFeedback(STR.exportedSlot(slot), 'var(--color-success)');
   }
 
   private async importSave(): Promise<void> {
@@ -301,10 +304,10 @@ export class PauseModal {
         if (parsed.version !== 1) throw new Error('Unsupported save version');
         const targetSlot = SaveSystem.listSlots().find(s => !s.saveData)?.slot ?? 10;
         SaveSystem.save(targetSlot, parsed);
-        this.showFeedback(`Imported save into slot ${targetSlot}.`, 'var(--color-success)');
+        this.showFeedback(STR.importedIntoSlot(targetSlot), 'var(--color-success)');
         this.refreshAccessibility();
       } catch {
-        this.showFeedback('Import failed.', 'var(--color-danger)');
+        this.showFeedback(STR.importFailed, 'var(--color-danger)');
       }
     };
     input.click();
