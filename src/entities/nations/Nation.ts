@@ -97,12 +97,13 @@ export class Nation implements Serializable<NationJSON> {
   }
 
   /**
-   * Advance research by one tick.
+   * Advance research by `amount` ticks of progress (default 1). Schools speed
+   * research up by passing amount > 1 (computed in ProductionSystem).
    * @returns the completed TechId if research finished this tick, otherwise null.
    */
-  public tickResearch(): TechId | null {
+  public tickResearch(amount = 1): TechId | null {
     if (!this.currentResearch) return null;
-    this.currentResearch.ticksRemaining = Math.max(0, this.currentResearch.ticksRemaining - 1);
+    this.currentResearch.ticksRemaining = Math.max(0, this.currentResearch.ticksRemaining - amount);
     if (this.currentResearch.ticksRemaining === 0) {
       const completed = this.currentResearch.techId;
       this.researchedTechs.add(completed);

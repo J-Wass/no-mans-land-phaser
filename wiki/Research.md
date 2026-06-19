@@ -5,6 +5,8 @@
 Technology is researched per-nation by spending **Research points** down a three-branch tree: **Society**, **Science**, and **Arcane**. You can queue techs; the system auto-starts the next affordable one whose prerequisites are met. The Research point cost is paid **upfront** when research begins, then the tech takes time to complete.
 
 > **Important — real durations are ×4 the base.** Every tech's listed time is multiplied by `RESEARCH_SPEED_MULTIPLIER = 4`. The tables below show **base ticks**; multiply by 4 for the actual research time, then divide by 10 for seconds. (E.g. a "300-tick" tech really takes 1200 ticks = 120 seconds.)
+>
+> **Schools shorten this.** Each [School](Production-and-Buildings.md#2-city-buildings) building level speeds your active research by **+10%** (capped at **+50%**, i.e. up to 1.5× faster). This is the real payoff of Education/Schools — research is time-gated, not point-gated.
 
 You research via the **Research modal** (top-bar RESEARCH button), a graph with prerequisite edges; each node has **START / QUEUE / QUEUE PATH / QUEUED / DONE / LOCKED** controls and a reorderable queue.
 

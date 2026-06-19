@@ -172,4 +172,22 @@ describe('ProductionSystem', () => {
     expect(nation.getResearchQueue()).toEqual([]);
     expect(nation.getTreasury().getAmount(ResourceType.RESEARCH)).toBe(0);
   });
+
+  it('Schools speed up the active research (+10% per School level)', () => {
+    const city = new City('city-s', 'Scholar', nation.getId(), { row: 2, col: 2 });
+    city.addBuilding(CityBuildingType.SCHOOL); // level 1 → +10% research speed
+    state.addCity(city);
+    nation.startResearch('iron_working', 100);
+
+    system.tick(state, eventBus, 1);
+
+    // 1 School level → research advances 1.1 ticks of progress: 100 → 98.9.
+    expect(nation.getCurrentResearch()!.ticksRemaining).toBeCloseTo(98.9);
+  });
+
+  it('research advances at normal speed with no School', () => {
+    nation.startResearch('iron_working', 100);
+    system.tick(state, eventBus, 1);
+    expect(nation.getCurrentResearch()!.ticksRemaining).toBe(99);
+  });
 });

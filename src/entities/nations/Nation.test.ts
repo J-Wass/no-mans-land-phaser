@@ -92,6 +92,15 @@ describe('Nation', () => {
       expect(nation1.getCurrentResearch()).toBeNull();
     });
 
+    it('advances research by a given amount (School speed-up)', () => {
+      nation1.startResearch('masonry', 10);
+      nation1.tickResearch(2); // a +100% speed-up advances 2 ticks of progress
+      expect(nation1.getCurrentResearch()!.ticksRemaining).toBe(8);
+      const completed = nation1.tickResearch(8);
+      expect(completed).toBe('masonry');
+      expect(nation1.hasResearched('masonry')).toBe(true);
+    });
+
     it('returns null from tickResearch when idle', () => {
       expect(nation1.tickResearch()).toBeNull();
     });

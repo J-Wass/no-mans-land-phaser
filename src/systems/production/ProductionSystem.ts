@@ -25,6 +25,10 @@ const FOOD_INTERVAL        = 5;   // base +2/s per city
 const MATERIAL_INTERVAL    = 10;  // base +1/s per city
 const GOLD_INTERVAL        = 10;
 const RESEARCH_INTERVAL    = 10;
+/** Each School building level speeds the nation's active research by this fraction. */
+const RESEARCH_SPEED_PER_SCHOOL_LEVEL = 0.10;
+/** Cap on the total School research speed-up (0.50 = research advances 1.5× as fast). */
+const RESEARCH_SPEED_CAP = 0.50;
 // Territory terrain yields — slower than city yields, represents land exploitation
 const TERRAIN_FOOD_INTERVAL    = 50;  // plains: +1 food per 5s
 const TERRAIN_MATERIAL_INTERVAL = 50; // forest/hills: +1 material per 5s
@@ -168,7 +172,11 @@ export class ProductionSystem {
     // ── Research ──────────────────────────────────────────────────────────────
     for (const nation of gameState.getAllNations()) {
       this.startQueuedResearch(nation, eventBus);
-      const completed = nation.tickResearch();
+      // Schools speed up the active research (+10% per School level, capped).
+      const schoolLevels = gameState.getCitiesByNation(nation.getId())
+        .reduce((sum, city) => sum + city.getBuildingLevel(CityBuildingType.SCHOOL), 0);
+      const researchSpeed = 1 + Math.min(RESEARCH_SPEED_CAP, schoolLevels * RESEARCH_SPEED_PER_SCHOOL_LEVEL);
+      const completed = nation.tickResearch(researchSpeed);
       if (completed) {
         eventBus.emit('nation:research-complete', {
           nationId: nation.getId(), techId: completed,

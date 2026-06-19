@@ -139,6 +139,7 @@ Step cost = `max(1, ceil(terrainCost / (speed + lightningBonus)))`. Heavy/cavalr
 | Constant | Value |
 |---|---|
 | `RESEARCH_SPEED_MULTIPLIER` | 4 (real time = base ticks × 4) |
+| School research speed-up | +10% per School level, cap +50% |
 | RP costs | 5 / 10 / 15 / 20 / 25 by tier |
 
 ## Buildings

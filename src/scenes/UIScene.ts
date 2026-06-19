@@ -1261,7 +1261,7 @@ export class UIScene extends Phaser.Scene {
             `Schools ${formatRate(perSecond(citySchoolCount, RESEARCH_INTERVAL))}`,
           ],
           outgoing: [],
-          tip: 'Build Schools in cities (requires Education tech).',
+          tip: 'Schools add research income and speed up research +10%/level, cap +50% (requires Education tech).',
         };
     }
   }

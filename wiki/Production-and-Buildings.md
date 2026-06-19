@@ -33,7 +33,7 @@ Built/upgraded on the City Menu's **BUILDINGS tab**. Caps: most cap at **level 5
 | **Farms** | 10 G, 20 M | 300 | `masonry` | 5 | 12 G, 24 M | +2 Food/sec per level |
 | **Workshop** | 10 G, 20 M | 300 | `masonry` | 5 | 12 G, 24 M | +1 Raw Material/sec per level |
 | **Watchtower** | 5 G, 15 M | 300 | `masonry` | 1 | — | +vision (radius-3 circle) |
-| **School** | 15 G, 25 M, 10 F | 400 | `education` | 5 | 18 G, 30 M, 12 F | +1 Research/sec per level |
+| **School** | 15 G, 25 M, 10 F | 400 | `education` | 5 | 18 G, 30 M, 12 F | +1 Research/sec per level **and +10% research speed per level** (cap +50%) |
 | **Market** | 20 G, 35 M | 400 | `trade` | 5 | 24 G, 42 M | +1 Gold/sec per level |
 
 (G = Gold, M = Raw Material, F = Food.) Re-building an existing building is the **upgrade** path (level +1, up to max). Adding/upgrading Walls refills the city to its new max HP.
@@ -77,7 +77,7 @@ Buildings and tiles generate income on these pulses (see [Economy → yields](Ec
 | Farms (city) | +2 Food/s × level |
 | Workshop (city) | +1 Material/s × level |
 | Market (city) | +1 Gold/s × level |
-| School (city) | +1 Research/s × level |
+| School (city) | +1 Research/s × level (also +10% research speed/level, cap +50%) |
 | Terrain (owned tiles) | plains→Food, forest→Material (every 50t), desert→Gold (every 80t) |
 | Region domination | region resource every 50t, scaled by size |
 

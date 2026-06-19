@@ -33,7 +33,7 @@ All income arrives on periodic pulses (`tick % interval == 0`). At `TICK_RATE = 
 - **Farms:** +2 Food/sec per level
 - **Workshop:** +1 Raw Material/sec per level
 - **Market:** +1 Gold/sec per level
-- **School:** +1 Research/sec per level (after tick 300)
+- **School:** +1 Research/sec per level (after tick 300), **and +10% research speed per level** (cap +50%) — Schools make techs finish faster, which is their main value (research is time-gated, so the extra points matter less than the speed-up)
 
 **Per owned territory:**
 - Territory **Farms** building: +1 Food / 5 ticks
