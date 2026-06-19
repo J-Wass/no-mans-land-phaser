@@ -79,7 +79,6 @@ Counters are **not** stored on the units — they're applied in the [BattleSyste
 
 ### Special behaviors
 - **Ranged vs melee choice:** a ranged unit fires only if `range > 1 && ranged > 0 && order !== ADVANCE`. Choosing ADVANCE forces a shooter into melee. Ranged base damage = `max(rangedDamage, meleeDamage × 0.7)`.
-- **Kinematics tech:** gives siege units (Catapult/Trebuchet) **+3 flat ranged damage**.
 - **Withdraw & retreat:** units that lose a fight may flee; details in [Stances](Stances.md).
 
 ---

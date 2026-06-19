@@ -50,9 +50,8 @@ offense = baseDamage × hpFactor × orderFactor × matchupFactor
 
 - **useRanged** = `range > 1 && ranged > 0 && order ≠ ADVANCE`. ADVANCE forces shooters into melee.
 - **rawBase** = `useRanged ? max(ranged, melee × 0.7) : melee`.
-- **baseDamage** = `(rawBase + weaponTierBonus + kinematicsBonus) × veteranMultiplier`.
+- **baseDamage** = `(rawBase + weaponTierBonus) × veteranMultiplier`.
   - *weaponTierBonus* — best active weapon deposit: Copper +2, Iron +4, Fire Glass +6 (only the best applies). See [Economy](Economy-and-Resources.md#deposit-bonuses).
-  - *kinematicsBonus* — +3 if a siege unit fires ranged and the nation has the Kinematics tech.
 - **hpFactor** — `healthFactor` of the attacker, [0.55, 1.0].
 - **orderFactor** — on ADVANCE: Cavalry **×1.5**, everyone else **×1.25**; HOLD/WITHDRAW **×1.0**.
 - **matchupFactor** — the [unit/armor counters](Units.md#2-unit-matchups) (the rock-paper-scissors triangle), summed additively into one factor (e.g. Heavy Infantry vs Cavalry +0.35; a siege unit pinned in melee −0.80).

@@ -9,9 +9,9 @@ export type TechId =
   | 'writing' | 'hunting' | 'masonry' | 'trade' | 'education' | 'the_wheel'
   // Science
   | 'scientific_method' | 'mathematics' | 'physics' | 'chemistry' | 'biology'
-  | 'animal_domestication' | 'iron_working' | 'steel_working' | 'mechanization' | 'kinematics'
+  | 'animal_domestication' | 'iron_working' | 'steel_working' | 'mechanization'
   // Arcane
-  | 'ancient_rituals' | 'mana_studies' | 'the_elements';
+  | 'ancient_rituals' | 'mana_studies';
 
 export type TechBranch = 'science' | 'society' | 'arcane';
 
@@ -53,19 +53,17 @@ export const TECH_CATALOG: TechNode[] = [
   // ── Science ──────────────────────────────────────────────────────────────────
   T('scientific_method',    'Scientific Method',    'science', [],                                     300,  5, 'Leads to Chemistry, Biology, and Physics.'),
   T('mathematics',          'Mathematics',          'science', [],                                     300,  5, 'Leads to Physics.'),
-  T('chemistry',            'Chemistry',            'science', ['scientific_method'],                  450, 10, 'Leads to Iron Working and The Elements.'),
+  T('chemistry',            'Chemistry',            'science', ['scientific_method'],                  450, 10, 'Leads to Iron Working.'),
   T('biology',              'Biology',              'science', ['scientific_method'],                  450, 10, 'Leads to Animal Domestication.'),
-  T('physics',              'Physics',              'science', ['scientific_method', 'mathematics'],   600, 15, 'Leads to Iron Working, Mana Studies, and Kinematics.'),
+  T('physics',              'Physics',              'science', ['scientific_method', 'mathematics'],   600, 15, 'Leads to Iron Working and Mana Studies.'),
   T('animal_domestication', 'Animal Domestication', 'science', ['biology'],                           600, 15, 'Leads to mounted units.'),
   T('iron_working',         'Iron Working',         'science', ['chemistry', 'physics'],               750, 20, 'Leads to Mechanization and Steel Working.'),
   T('mechanization',        'Mechanization',        'science', ['iron_working'],                       750, 20, 'Leads to advanced ranged units.'),
   T('steel_working',        'Steel Working',        'science', ['iron_working'],                       900, 25, 'Leads to the finest weapons.'),
-  T('kinematics',           'Kinematics',           'science', ['physics'],                            600, 15, '+3 ranged damage for Catapult and Trebuchet.'),
 
   // ── Arcane ───────────────────────────────────────────────────────────────────
   T('ancient_rituals',      'Ancient Rituals',      'arcane',  ['hunting', 'masonry'],                600, 15, 'Leads to Mana Studies.'),
-  T('mana_studies',         'Mana Studies',         'arcane',  ['ancient_rituals', 'physics'],         750, 20, 'Leads to The Elements.'),
-  T('the_elements',         'The Elements',         'arcane',  ['mana_studies', 'chemistry'],          900, 25, 'Mastery of elemental magic.'),
+  T('mana_studies',         'Mana Studies',         'arcane',  ['ancient_rituals', 'physics'],         750, 20, 'Unlocks the Mana Mine.'),
 ];
 
 export const TECH_MAP = new Map<TechId, TechNode>(TECH_CATALOG.map(t => [t.id, t]));

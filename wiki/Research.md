@@ -27,22 +27,20 @@ You research via the **Research modal** (top-bar RESEARCH button), a graph with 
 |---|---|---|---|---|
 | **Scientific Method** | — | 300 | 5 | → Chemistry, Biology, Physics |
 | **Mathematics** | — | 300 | 5 | → Physics |
-| **Chemistry** | Scientific Method | 450 | 10 | → Iron Working, The Elements |
+| **Chemistry** | Scientific Method | 450 | 10 | → Iron Working |
 | **Biology** | Scientific Method | 450 | 10 | → Animal Domestication |
-| **Physics** | Scientific Method + Mathematics | 600 | 15 | → Iron Working, Mana Studies, Kinematics; (req for Catapult) |
+| **Physics** | Scientific Method + Mathematics | 600 | 15 | → Iron Working, Mana Studies; (req for Catapult) |
 | **Animal Domestication** | Biology | 600 | 15 | **Cavalry** |
 | **Iron Working** | Chemistry + Physics | 750 | 20 | **Heavy Infantry**, **Iron Mine**; → Mechanization, Steel Working |
 | **Mechanization** | Iron Working | 750 | 20 | **Crossbowman**; (req for Trebuchet) |
 | **Steel Working** | Iron Working | 900 | 25 | **Trebuchet**, **Fire Glass Mine** |
-| **Kinematics** | Physics | 600 | 15 | **+3 ranged damage** for Catapult & Trebuchet |
 
 ## Arcane branch
 
 | Tech | Requires | Base ticks (×4) | RP cost | Unlocks / leads to |
 |---|---|---|---|---|
 | **Ancient Rituals** | Hunting + Masonry | 600 | 15 | → Mana Studies |
-| **Mana Studies** | Ancient Rituals + Physics | 750 | 20 | **Mana Mine**; → The Elements |
-| **The Elements** | Mana Studies + Chemistry | 900 | 25 | Mastery of elemental magic |
+| **Mana Studies** | Ancient Rituals + Physics | 750 | 20 | **Mana Mine** |
 
 ---
 
@@ -57,7 +55,6 @@ You research via the **Research modal** (top-bar RESEARCH button), a graph with 
 | Catapult | Physics **+** The Wheel |
 | Trebuchet | Mechanization **+** Steel Working |
 | Fire Glass Mine | Steel Working |
-| +3 siege ranged damage | Kinematics |
 | Barracks, Walls, Farms, Workshop, Watchtower, Copper Mine | Masonry |
 | Market | Trade |
 | School | Education |

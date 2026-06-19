@@ -163,8 +163,6 @@ export class BattleSystem {
       const orderA = effectiveBattleOrder(unitA);
       const orderB = effectiveBattleOrder(unitB);
       const battlePaceFactor = orderA === 'ADVANCE' || orderB === 'ADVANCE' ? ADVANCE_PACE_FACTOR : 1;
-      const kinematicsA = gameState.getNation(unitA.getOwnerId())?.hasResearched('kinematics') ?? false;
-      const kinematicsB = gameState.getNation(unitB.getOwnerId())?.hasResearched('kinematics') ?? false;
 
       const damageToUnitA = this.calculateDamage(
         unitB,           // attacker
@@ -177,7 +175,6 @@ export class BattleSystem {
         countsB,
         depositsA,
         countsA,
-        kinematicsB,
       );
       const damageToUnitB = this.calculateDamage(
         unitA,           // attacker
@@ -190,7 +187,6 @@ export class BattleSystem {
         countsA,
         depositsB,
         countsB,
-        kinematicsA,
       );
 
       unitA.takeDamage(damageToUnitA);
@@ -306,7 +302,6 @@ export class BattleSystem {
     attackerCounts: ReadonlyMap<TerritoryResourceType, number>,
     defenderDeposits: ReadonlySet<TerritoryResourceType>,
     defenderCounts: ReadonlyMap<TerritoryResourceType, number>,
-    attackerHasKinematics = false,
   ): number {
     const offense = this.getOffenseScore(
       attacker,
@@ -316,7 +311,6 @@ export class BattleSystem {
       battlePaceFactor,
       attackerDeposits,
       attackerCounts,
-      attackerHasKinematics,
     );
     const mitigation = this.getMitigationScore(defender, attacker, terrain, defenderOrder, defenderDeposits, defenderCounts);
     return Math.max(1, Math.round(offense * (1 - mitigation)));
@@ -324,7 +318,7 @@ export class BattleSystem {
 
   /**
    * Pre-mitigation outgoing damage, built as a multiplicative chain:
-   *   baseDamage (ranged unless ADVANCEing; + weapon-tier + Kinematics; × veteran)
+   *   baseDamage (ranged unless ADVANCEing; + weapon-tier; × veteran)
    *   × hpFactor       (wounded units hit softer; range [0.55, 1.0])
    *   × orderFactor    (ADVANCE: 1.5× Cavalry, 1.25× others)
    *   × matchupFactor  (armor and siege adjustments — no unit counters)
@@ -341,14 +335,11 @@ export class BattleSystem {
     battlePaceFactor: number,
     attackerDeposits: ReadonlySet<TerritoryResourceType>,
     attackerCounts: ReadonlyMap<TerritoryResourceType, number>,
-    attackerHasKinematics = false,
   ): number {
     const stats = attacker.getStats();
     const useRanged = stats.attackRange > 1 && stats.rangedDamage > 0 && order !== 'ADVANCE';
     const rawBase = useRanged ? Math.max(stats.rangedDamage, stats.meleeDamage * 0.7) : stats.meleeDamage;
-    const isSiege = attacker.getUnitType() === 'CATAPULT' || attacker.getUnitType() === 'TREBUCHET';
-    const kinematicsBonus = attackerHasKinematics && useRanged && isSiege ? 3 : 0;
-    const baseDamage = (rawBase + weaponTierDamageBonus(attackerDeposits) + kinematicsBonus)
+    const baseDamage = (rawBase + weaponTierDamageBonus(attackerDeposits))
       * veteranDamageMultiplier(attacker.getVeteranLevel());
     const hpFactor = healthFactor(attacker.getHealth(), stats.maxHealth);
     const orderFactor = getOrderAttackFactor(order, attacker.getUnitType());
