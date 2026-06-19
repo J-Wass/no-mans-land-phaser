@@ -43,27 +43,27 @@ const T = (
 /** Full tech catalog — display order within each branch is top to bottom. */
 export const TECH_CATALOG: TechNode[] = [
   // ── Society ──────────────────────────────────────────────────────────────────
-  T('writing',              'Writing',              'society', [],                                     300,  5, 'Leads to Trade and Education.'),
-  T('hunting',              'Hunting',              'society', [],                                     300,  5, 'Leads to Ancient Rituals.'),
-  T('masonry',              'Masonry',              'society', [],                                     300,  5, 'Leads to The Wheel and Ancient Rituals.'),
-  T('trade',                'Trade',                'society', ['writing'],                            450, 10, 'Improves your commerce income.'),
-  T('education',            'Education',            'society', ['writing'],                            450, 10, 'Boosts your research output.'),
-  T('the_wheel',            'The Wheel',            'society', ['masonry'],                            450, 10, 'Leads to siege weapons.'),
+  T('writing',              'Writing',              'society', [],                                     300,  25, 'Leads to Trade and Education.'),
+  T('hunting',              'Hunting',              'society', [],                                     300,  25, 'Leads to Ancient Rituals.'),
+  T('masonry',              'Masonry',              'society', [],                                     300,  25, 'Leads to The Wheel and Ancient Rituals.'),
+  T('trade',                'Trade',                'society', ['writing'],                            450, 50, 'Improves your commerce income.'),
+  T('education',            'Education',            'society', ['writing'],                            450, 50, 'Boosts your research output.'),
+  T('the_wheel',            'The Wheel',            'society', ['masonry'],                            450, 50, '+20% movement speed for all your units; required for the Catapult.'),
 
   // ── Science ──────────────────────────────────────────────────────────────────
-  T('scientific_method',    'Scientific Method',    'science', [],                                     300,  5, 'Leads to Chemistry, Biology, and Physics.'),
-  T('mathematics',          'Mathematics',          'science', [],                                     300,  5, 'Leads to Physics.'),
-  T('chemistry',            'Chemistry',            'science', ['scientific_method'],                  450, 10, 'Leads to Iron Working.'),
-  T('biology',              'Biology',              'science', ['scientific_method'],                  450, 10, 'Leads to Animal Domestication.'),
-  T('physics',              'Physics',              'science', ['scientific_method', 'mathematics'],   600, 15, 'Leads to Iron Working and Mana Studies.'),
-  T('animal_domestication', 'Animal Domestication', 'science', ['biology'],                           600, 15, 'Leads to mounted units.'),
-  T('iron_working',         'Iron Working',         'science', ['chemistry', 'physics'],               750, 20, 'Leads to Mechanization and Steel Working.'),
-  T('mechanization',        'Mechanization',        'science', ['iron_working'],                       750, 20, 'Leads to advanced ranged units.'),
-  T('steel_working',        'Steel Working',        'science', ['iron_working'],                       900, 25, 'Leads to the finest weapons.'),
+  T('scientific_method',    'Scientific Method',    'science', [],                                     300,  25, 'Leads to Chemistry, Biology, and Physics.'),
+  T('mathematics',          'Mathematics',          'science', [],                                     300,  25, 'Leads to Physics.'),
+  T('chemistry',            'Chemistry',            'science', ['scientific_method'],                  450, 50, 'Leads to Iron Working.'),
+  T('biology',              'Biology',              'science', ['scientific_method'],                  450, 50, 'Leads to Animal Domestication.'),
+  T('physics',              'Physics',              'science', ['scientific_method', 'mathematics'],   600, 75, 'Leads to Iron Working and Mana Studies.'),
+  T('animal_domestication', 'Animal Domestication', 'science', ['biology'],                           600, 75, 'Leads to mounted units.'),
+  T('iron_working',         'Iron Working',         'science', ['chemistry', 'physics'],               750, 100, 'Leads to Mechanization and Steel Working.'),
+  T('mechanization',        'Mechanization',        'science', ['iron_working'],                       750, 100, 'Leads to advanced ranged units.'),
+  T('steel_working',        'Steel Working',        'science', ['iron_working'],                       900, 125, 'Leads to the finest weapons.'),
 
   // ── Arcane ───────────────────────────────────────────────────────────────────
-  T('ancient_rituals',      'Ancient Rituals',      'arcane',  ['hunting', 'masonry'],                600, 15, 'Leads to Mana Studies.'),
-  T('mana_studies',         'Mana Studies',         'arcane',  ['ancient_rituals', 'physics'],         750, 20, 'Unlocks the Mana Mine.'),
+  T('ancient_rituals',      'Ancient Rituals',      'arcane',  ['hunting', 'masonry'],                600, 75, 'Leads to Mana Studies.'),
+  T('mana_studies',         'Mana Studies',         'arcane',  ['ancient_rituals', 'physics'],         750, 100, 'Unlocks the Mana Mine.'),
 ];
 
 export const TECH_MAP = new Map<TechId, TechNode>(TECH_CATALOG.map(t => [t.id, t]));

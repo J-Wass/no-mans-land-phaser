@@ -104,7 +104,7 @@ A single-page reference for every tunable number, plus definitions of the game's
 | Mountain | ∞ (Earth Mana → 75) | — |
 | Water | ∞ (Water Mana → 75) | — |
 
-Step cost = `max(1, ceil(terrainCost / (speed + lightningBonus)))`. Heavy/cavalry/siege move through forest at effective speed 1. Pathfinder enemy-territory penalty: +12.
+Step cost = `max(1, ceil(terrainCost / ((speed + lightningBonus) × wheelMult)))`, where `wheelMult` = 1.2 with The Wheel tech, else 1. Heavy/cavalry/siege move through forest at effective speed 1. Pathfinder enemy-territory penalty: +12.
 
 ## Economy intervals
 
@@ -140,7 +140,7 @@ Step cost = `max(1, ceil(terrainCost / (speed + lightningBonus)))`. Heavy/cavalr
 |---|---|
 | `RESEARCH_SPEED_MULTIPLIER` | 4 (real time = base ticks × 4) |
 | School research speed-up | +10% per School level, cap +50% |
-| RP costs | 5 / 10 / 15 / 20 / 25 by tier |
+| RP costs | 25 / 50 / 75 / 100 / 125 by tier |
 
 ## Buildings
 

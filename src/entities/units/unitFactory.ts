@@ -75,6 +75,7 @@ export function createUnitFromData(data: UnitData): Unit {
   if (data.unitSerial          !== undefined) unit.setUnitSerial(data.unitSerial);
   if (data.retreatCooldownUntilTick !== undefined) unit.setRetreatCooldownUntilTick(data.retreatCooldownUntilTick);
   if (data.moraleRecoveryCooldownUntilTick !== undefined) unit.setMoraleRecoveryCooldownUntilTick(data.moraleRecoveryCooldownUntilTick);
+  if (data.isSpy) unit.setSpy(true);
   if (data.hasMovedThisTurn) unit.moveTo(data.position); // marks hasMovedThisTurn
   return unit;
 }

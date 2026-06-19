@@ -171,11 +171,13 @@ export class TerritoryMenuModal {
     listEl.className = 'scrollable col tight';
 
     const terrainType = territory?.getTerrainType();
-    const passable = terrainType !== TerrainType.WATER && terrainType !== TerrainType.MOUNTAIN;
+    // Outposts may claim any land tile, including mountains (so you can grab a
+    // peak and the deposits it holds); only open water is off-limits.
+    const buildableTerrain = terrainType !== TerrainType.WATER;
 
     const listable = TERRITORY_BUILDING_CATALOG.filter(b => {
-      // Outpost claims an unclaimed, passable tile — show it only there.
-      if (b.type === TerritoryBuildingType.OUTPOST) return ownerId === null && passable;
+      // Outpost claims an unclaimed land tile — show it only there.
+      if (b.type === TerritoryBuildingType.OUTPOST) return ownerId === null && buildableTerrain;
       // Every other building requires the tile to already be owned.
       if (ownerId === null) return false;
       if (!MINE_TYPES.has(b.type)) return true;

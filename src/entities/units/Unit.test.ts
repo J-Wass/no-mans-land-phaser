@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from '@jest/globals';
 import { Infantry } from './Infantry';
 import { Longbowman } from './Longbowman';
 import { DEFAULT_MORALE, MAX_MORALE } from './Unit';
+import { createUnitFromData } from './unitFactory';
 
 describe('Infantry', () => {
   let infantry: Infantry;
@@ -64,6 +65,13 @@ describe('Infantry', () => {
     expect(json.position).toEqual({ row: 0, col: 0 });
     expect(json.battleOrder).toBe('HOLD');
     expect(json.engagedInBattle).toBe(false);
+  });
+
+  it('serializes and restores the spy flag', () => {
+    infantry.setSpy(true);
+    expect(infantry.toJSON().isSpy).toBe(true);
+    const restored = createUnitFromData(infantry.toJSON());
+    expect(restored.isSpy()).toBe(true);
   });
 
   it('should default to hold battle orders', () => {

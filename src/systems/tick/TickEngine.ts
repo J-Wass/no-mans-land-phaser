@@ -11,6 +11,7 @@ import { BattleSystem } from '@/systems/combat/BattleSystem';
 import type { SavedBattleState } from '@/systems/combat/BattleSystem';
 import { CitySiegeSystem } from '@/systems/combat/CitySiegeSystem';
 import { RangedFireSystem } from '@/systems/combat/RangedFireSystem';
+import { SpyDetectionSystem } from '@/systems/combat/SpyDetectionSystem';
 import { ProductionSystem } from '@/systems/production/ProductionSystem';
 import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { MAX_MORALE } from '@/entities/units/Unit';
@@ -49,6 +50,7 @@ export class TickEngine {
   private readonly battleSystem:            BattleSystem;
   private readonly citySiegeSystem:         CitySiegeSystem;
   private readonly rangedFireSystem:        RangedFireSystem;
+  private readonly spyDetectionSystem:      SpyDetectionSystem;
   private readonly territoryBattleSystem:   TerritoryBattleSystem;
   private readonly moraleSystem:            MoraleSystem;
 
@@ -63,6 +65,7 @@ export class TickEngine {
     this.battleSystem          = new BattleSystem(random);
     this.citySiegeSystem       = new CitySiegeSystem(random);
     this.rangedFireSystem      = new RangedFireSystem(random);
+    this.spyDetectionSystem    = new SpyDetectionSystem(random);
     this.territoryBattleSystem = new TerritoryBattleSystem(random);
     // MoraleSystem subscribes to game events in its constructor; we only need
     // to call its tick() so it can emit `morale:band-changed` for the UI.
@@ -73,6 +76,7 @@ export class TickEngine {
   public advance(): number {
     this.currentTick++;
     this.movementSystem.tickWithBattles(this.gameState, this.eventBus, this.currentTick, this.battleSystem, this.citySiegeSystem, this.territoryBattleSystem);
+    this.spyDetectionSystem.tick(this.gameState, this.eventBus, this.currentTick);
     this.battleSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.startSiegesForStrandedEnemiesOnCities();
     this.citySiegeSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);

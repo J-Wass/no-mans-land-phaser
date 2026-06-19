@@ -100,7 +100,7 @@ Game events (territory claimed, building finished, unit trained, research done, 
 - A floating **stance badge** above your units currently in battle (shows their *effective* stance).
 - Conquest progress overlay on contested tiles; construction progress bars.
 - Resource-deposit icons (**hover** for a tooltip explaining the mine).
-- **Fog of war** — undiscovered tiles black, seen-but-not-visible dark; near-vision contacts show an orange "H"/"L" marker (heavy/light armor). Fog is **off** in Sandbox and Tutorial.
+- **Fog of war** — undiscovered tiles black, seen-but-not-visible dark; near-vision contacts show an orange **"Heavily Armored Contact"** / **"Lightly Armored Contact"** label. Fog is **off** in Sandbox and Tutorial.
 - A "CAPTURED!" flash rises above a conquered city.
 
 ### Sandbox toolbar (left edge, Sandbox only)
@@ -124,7 +124,7 @@ Select + left-click a destination, or left-drag a path. Attacking = moving onto 
 See **[Production & Buildings](Production-and-Buildings.md)**.
 
 ### Build on territory (Territory Menu — double-click a tile)
-- **Outpost** — on an unclaimed, passable tile; claims it. The prerequisite for everything else on a tile.
+- **Outpost** — on any unclaimed land tile (including mountains; only open water is off-limits); claims it. The prerequisite for everything else on a tile.
 - On owned tiles: Farms, Workshop, Walls (multi-level), Watchtower, and **mines** (which only appear when the tile's deposit matches). Each row shows perks, cost, duration, requirements, and a **BUILD / ▲ UP / MAX / BUILT / BUSY** button.
 
 See **[Cities, Territory & Regions](Cities-Territory-Regions.md)**.

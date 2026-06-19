@@ -31,6 +31,10 @@ export type GameEventMap = {
   'unit:move-cancelled':       { unitId: EntityId };
   'unit:destroyed':            { unitId: EntityId; byUnitId: EntityId | null; ownerNationId: EntityId; position: GridCoordinates; tick: number };
   'unit:battle-order-changed': { unitId: EntityId; battleOrder: BattleOrder; tick: number };
+  /** A Scout toggled undercover (spy) mode on or off. */
+  'unit:spy-changed':          { unitId: EntityId; isSpy: boolean; tick: number };
+  /** A spy was caught by an enemy and destroyed. */
+  'spy:detected':              { spyUnitId: EntityId; ownerNationId: EntityId; byNationId: EntityId; byUnitId: EntityId; position: GridCoordinates; tick: number };
   'battle:started':            { battleId: string; unitAId: EntityId; unitBId: EntityId; position: GridCoordinates; tick: number };
   'battle:round-resolved':     {
     battleId: string;

@@ -116,6 +116,13 @@ export class VisionSystem {
     gameState:         GameState,
     viewerNationId:    string,
   ): 'visible' | 'near' | 'hidden' {
+    // A Scout operating undercover (spy) is invisible to everyone but its owner
+    // and allies; detection (which destroys it) lives in SpyDetectionSystem.
+    if (unit.isSpy() && unit.getOwnerId() !== viewerNationId) {
+      const viewer = gameState.getNation(viewerNationId);
+      if (!viewer || !viewer.isAlly(unit.getOwnerId())) return 'hidden';
+    }
+
     const enemyDeposits  = gameState.getNationActiveDeposits(unit.getOwnerId());
     const enemyCounts    = gameState.getNationActiveDepositCounts(unit.getOwnerId());
     const shadowReduction = shadowManaVisionReduction(enemyDeposits, enemyCounts);

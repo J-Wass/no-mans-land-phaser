@@ -298,6 +298,17 @@ export class UIScene extends Phaser.Scene {
       if (this.selectedUnit?.id === unitId) this.rebuildHUD();
     });
 
+    this.subs.on('unit:spy-changed', ({ unitId }) => {
+      if (this.selectedUnit?.id === unitId) this.rebuildHUD();
+    });
+
+    this.subs.on('spy:detected', ({ ownerNationId, position }) => {
+      const localNation = this.getLocalNation();
+      if (localNation && ownerNationId === localNation.getId()) {
+        this.pushNotification(`Your spy was discovered and killed at (${position.row}, ${position.col}).`);
+      }
+    });
+
     this.subs.on('unit:destroyed', ({ unitId }) => {
       if (this.selectedUnit?.id === unitId) {
         this.selectedUnit = null;
@@ -863,7 +874,7 @@ export class UIScene extends Phaser.Scene {
     const btnH = Math.round(24 * scale);
     const gap = Math.round(6 * scale);
     const panelW = Math.round(360 * scale);
-    const panelH = Math.round(246 * scale);
+    const panelH = Math.round(254 * scale);
     const x = 0;
     const y = H - panelH;
 
@@ -872,8 +883,8 @@ export class UIScene extends Phaser.Scene {
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
       .setOrigin(0, 0)
       .setStrokeStyle(1, 0x3355bb));
-    this.track(this.add.text(x + pad, y + pad, unitDisplayName(unit), {
-      ...MONO, fontSize: fs(14, scale), color: '#dce6ff', fontStyle: 'bold',
+    this.track(this.add.text(x + pad, y + pad, unitDisplayName(unit) + (unit.isSpy() ? '  · UNDERCOVER' : ''), {
+      ...MONO, fontSize: fs(14, scale), color: unit.isSpy() ? '#c488e8' : '#dce6ff', fontStyle: 'bold',
     }).setOrigin(0, 0));
     this.track(this.add.text(x + panelW - pad, y + pad, nation?.getName() ?? '', {
       ...MONO, fontSize: fs(11, scale), color: '#8fa6d8',
@@ -907,7 +918,9 @@ export class UIScene extends Phaser.Scene {
     // Outpost construction lives in the territory buildings menu now (double-click
     // an unclaimed tile adjacent to your land), not on the unit panel.
     const rowY = y + panelH - pad - btnH;
-    const labelY = rowY - Math.round(14 * scale);
+    // Lift the label a full button half-height clear of the row so it can't sit on
+    // top of the WITHDRAW button beneath it.
+    const labelY = rowY - Math.round(btnH / 2) - Math.round(10 * scale);
 
     this.track(this.add.text(x + pad, labelY, 'STANCE', {
       ...MONO, fontSize: fs(10, scale), color: '#8fa6d8', fontStyle: 'bold',
@@ -946,6 +959,41 @@ export class UIScene extends Phaser.Scene {
         });
       }
     });
+
+    // Spy toggle — Scouts can go undercover once Ancient Rituals is researched.
+    if (unit.getUnitType() === 'SCOUT' && (nation?.hasResearched('ancient_rituals') ?? false)) {
+      const terrOwner = this.gameState.getGrid().getTerritory(unit.position)?.getControllingNation();
+      const onOwnOrNeutral = !terrOwner || terrOwner === unit.getOwnerId();
+      const spy = unit.isSpy();
+      const spyDisabled = unit.isEngagedInBattle() || !onOwnOrNeutral;
+      const spyBx = x + pad + 3 * (btnW + gap) + btnW / 2;
+      const fill = spy ? 0x4a2a6e : spyDisabled ? 0x1b2230 : 0x2a3a5e;
+      const border = spy ? 0xc488e8 : spyDisabled ? 0x344155 : 0x5a7caa;
+      const spyBg = this.track(this.add.rectangle(spyBx, rowY, btnW, btnH, fill)
+        .setStrokeStyle(1, border)) as Phaser.GameObjects.Rectangle;
+      this.track(this.add.text(spyBx, rowY, spy ? 'DROP' : 'SPY', {
+        ...MONO, fontSize: fs(10, scale), color: spyDisabled ? '#59657a' : '#f0f5ff',
+      }).setOrigin(0.5));
+      const spyTip = spy
+        ? 'Drop cover — revert to a normal Scout (own or neutral territory only).'
+        : spyDisabled
+          ? (unit.isEngagedInBattle() ? 'Cannot go undercover while in battle.' : 'Go undercover only on your own or neutral territory.')
+          : 'Go undercover: invisible to enemies, infiltrates enemy land for recon. Caught and killed if an enemy gets close.';
+      spyBg.setInteractive({ useHandCursor: !spyDisabled });
+      spyBg.on('pointerover', () => this.showStanceTooltip(spyBx, rowY - btnH / 2 - 6, spyTip, scale));
+      spyBg.on('pointerout', () => this.hideStanceTooltip());
+      if (!spyDisabled) {
+        spyBg.on('pointerup', () => {
+          void this.networkAdapter.sendCommand({
+            type: 'CONVERT_TO_SPY',
+            playerId: this.playerId,
+            unitId: unit.id,
+            spy: !spy,
+            issuedAtTick: this.tickEngine.getCurrentTick(),
+          });
+        });
+      }
+    }
   }
 
   /** Show the stance hover tooltip above a button (screen coords; UI scene has no zoom). */

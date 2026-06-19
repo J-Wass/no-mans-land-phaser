@@ -113,6 +113,15 @@ export interface SetUnitBattleOrderCommand {
   issuedAtTick: number;
 }
 
+export interface ConvertToSpyCommand {
+  type:         'CONVERT_TO_SPY';
+  playerId:     PlayerId;
+  unitId:       EntityId;
+  /** true = go undercover, false = drop cover back to a normal Scout. */
+  spy:          boolean;
+  issuedAtTick: number;
+}
+
 export interface DeclareWarCommand {
   type:            'DECLARE_WAR';
   playerId:        PlayerId;
@@ -161,6 +170,7 @@ export type GameCommand =
   | RazeCityCommand
   | RemoveCityBuildingLevelCommand
   | SetUnitBattleOrderCommand
+  | ConvertToSpyCommand
   | DeclareWarCommand
   | ProposePeaceCommand
   | OfferTradeCommand;

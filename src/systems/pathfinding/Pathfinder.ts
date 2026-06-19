@@ -9,7 +9,7 @@ import type { GridCoordinates } from '@/types/common';
 import type { Grid } from '@/systems/grid/Grid';
 import { coordsToKey } from '@/systems/grid/Grid';
 import type { UnitType, UnitStats } from '@/entities/units/Unit';
-import { stepCost } from '@/systems/movement/MovementCosts';
+import { stepCost, WHEEL_SPEED_MULTIPLIER } from '@/systems/movement/MovementCosts';
 import type { GameState } from '@/managers/GameState';
 
 /** Extra cost added per tile when entering enemy-controlled territory. */
@@ -55,7 +55,10 @@ export class Pathfinder {
     const ownerCounts = ownerNationId && gameState
       ? gameState.getNationActiveDepositCounts(ownerNationId)
       : undefined;
-    const destCost = stepCost(destTerritory.getTerrainType(), unitType, stats, ownerDeposits, ownerCounts);
+    const hasWheel = !!ownerNationId && !!gameState
+      && (gameState.getNation(ownerNationId)?.hasResearched('the_wheel') ?? false);
+    const ownerSpeedMult = hasWheel ? WHEEL_SPEED_MULTIPLIER : 1;
+    const destCost = stepCost(destTerritory.getTerrainType(), unitType, stats, ownerDeposits, ownerCounts, ownerSpeedMult);
     if (!isFinite(destCost)) return null;
 
     const open: AStarNode[] = [];
@@ -109,7 +112,7 @@ export class Pathfinder {
         if (closed.has(neighborKey)) continue;
 
         const terrain = neighbor.getTerrainType();
-        let cost = stepCost(terrain, unitType, stats, ownerDeposits, ownerCounts);
+        let cost = stepCost(terrain, unitType, stats, ownerDeposits, ownerCounts, ownerSpeedMult);
         if (!isFinite(cost)) continue; // impassable
 
         // Penalise enemy-controlled tiles so the path prefers to go around them.

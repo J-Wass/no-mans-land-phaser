@@ -49,6 +49,27 @@ describe('VisionSystem', () => {
     expect(system.unitVisibility(enemy, vision.visible, vision.nearVisible, state, viewerNation.getId())).toBe('visible');
   });
 
+  it('hides an undercover spy from enemies but keeps it visible to its owner', () => {
+    const state = new GameState({ rows: 6, cols: 6 });
+    const viewerNation = createNation('nation-a');
+    const ownerNation = createNation('nation-b');
+    state.addNation(viewerNation);
+    state.addNation(ownerNation);
+
+    // Viewer's scout sits right next to the spy — it WOULD see it without the disguise.
+    state.addUnit(new Scout('viewer-scout', viewerNation.getId(), { row: 2, col: 2 }));
+    const spy = new Scout('spy', ownerNation.getId(), { row: 2, col: 3 });
+    spy.setSpy(true);
+    state.addUnit(spy);
+
+    const system = new VisionSystem();
+    const viewerVision = system.compute(state, viewerNation.getId());
+    expect(system.unitVisibility(spy, viewerVision.visible, viewerVision.nearVisible, state, viewerNation.getId())).toBe('hidden');
+
+    const ownerVision = system.compute(state, ownerNation.getId());
+    expect(system.unitVisibility(spy, ownerVision.visible, ownerVision.nearVisible, state, ownerNation.getId())).toBe('visible');
+  });
+
   it('reduces visibility by one with shadow mana and lets air mana counter it', () => {
     const state = new GameState({ rows: 6, cols: 6 });
     const viewerNation = createNation('nation-a');

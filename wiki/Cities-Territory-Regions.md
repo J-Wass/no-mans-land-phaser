@@ -24,7 +24,7 @@ Resting units in a friendly city heal **+5% of max HP per second** and recover m
 Every non-city tile is a **territory** you can claim and develop.
 
 - **Base territory HP: 30** (the HP an attacker must grind through to [conquer it](Combat.md#3-territory-battle)).
-- Claim a tile by building an **Outpost** (needs a friendly unit on an unclaimed, passable tile). The Outpost is the prerequisite for all other [territory buildings](Production-and-Buildings.md#3-territory-buildings) and mines.
+- Claim a tile by building an **Outpost** on an unclaimed tile adjacent to your land. Outposts may be placed on **any land tile, including mountains** (handy for grabbing a peak's deposit) — only open water is off-limits. The Outpost is the prerequisite for all other [territory buildings](Production-and-Buildings.md#3-territory-buildings) and mines.
 - Conquering an enemy territory replaces its buildings with a **free Outpost** and also claims adjacent unowned water/mountain tiles.
 
 ### Territory walls

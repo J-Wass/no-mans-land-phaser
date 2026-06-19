@@ -114,6 +114,8 @@ export interface UnitData {
   retreatCooldownUntilTick: number;
   /** Ticks until this unit's morale recovery rate returns to normal after losing a battle. */
   moraleRecoveryCooldownUntilTick: number;
+  /** Scout "undercover" mode: hidden from enemies, infiltrates enemy territory. Scouts only. */
+  isSpy: boolean;
 }
 
 export abstract class Unit implements GameEntity, Serializable<UnitData> {
@@ -147,6 +149,7 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
       unitSerial: 0,
       retreatCooldownUntilTick: 0,
       moraleRecoveryCooldownUntilTick: 0,
+      isSpy: false,
     };
   }
 
@@ -197,6 +200,15 @@ export abstract class Unit implements GameEntity, Serializable<UnitData> {
 
   public setEngagedInBattle(engaged: boolean): void {
     this.data.engagedInBattle = engaged;
+  }
+
+  /** Whether this unit is operating undercover as a Spy (Scouts only). */
+  public isSpy(): boolean {
+    return this.data.isSpy;
+  }
+
+  public setSpy(value: boolean): void {
+    this.data.isSpy = value;
   }
 
   public getMorale(): number {

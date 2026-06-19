@@ -69,7 +69,7 @@ Counters are **not** stored on the units — they're applied in the [BattleSyste
 ## 3. Unit roles & notes
 
 - **Infantry** — cheap, available from a level-1 Barracks with no tech. A no-tech filler/screen: it loses 1v1 to every specialist but trades on cost and gets you an early army.
-- **Scout** — fast (speed 3), vision 2, almost no combat value (melee 2). Pure reconnaissance and land-grabbing.
+- **Scout** — fast (speed 3), vision 2, almost no combat value (melee 2). Pure reconnaissance and land-grabbing. After researching **Ancient Rituals**, a Scout on your own or neutral territory can **go undercover as a Spy** (see Special behaviors).
 - **Heavy Infantry** — a 250-HP wall and the **anti-cavalry anchor**: **+16% mitigation on HOLD** (shield wall), **+35% offense / +20% mitigation vs Cavalry**. Slow (speed 1) and softened by massed ranged before it can close — its predator is the ranged line.
 - **Cavalry** — the anti-ranged unit: 32 melee + ×1.5 charge, fast, and takes only **half** of incoming ranged fire, so it runs down archers and siege. Hard-countered by Heavy Infantry; crippled in forest.
 - **Longbowman** — range **3** skirmisher; out-ranges shields to soften them before contact. Light armor, fragile — flees from cavalry.
@@ -79,6 +79,7 @@ Counters are **not** stored on the units — they're applied in the [BattleSyste
 
 ### Special behaviors
 - **Ranged vs melee choice:** a ranged unit fires only if `range > 1 && ranged > 0 && order !== ADVANCE`. Choosing ADVANCE forces a shooter into melee. Ranged base damage = `max(rangedDamage, meleeDamage × 0.7)`.
+- **Spies (undercover Scouts):** after **Ancient Rituals**, a Scout can go undercover (toggle on your own/neutral territory, not while in battle). A spy is **invisible to enemy nations** and **infiltrates enemy territory without triggering battles, sieges, or war** — it never starts a fight, and enemy units that move onto it pass through harmlessly (no war is declared either way), giving you vision deep in enemy land. A spy is only at risk **while standing on enemy-controlled territory**: there it is **caught and destroyed** if a non-allied enemy unit is within 2 tiles, with the catch chance higher the closer the enemy is and the more it out-XPs the spy. In **neutral no-man's-land** (and on your own or allied soil) a spy can't be caught, so it can slip through the wilds safely. If your spy is discovered you get an on-screen alert. Drop cover (on own/neutral land) to revert to a normal Scout.
 - **Withdraw & retreat:** units that lose a fight may flee; details in [Stances](Stances.md).
 
 ---
@@ -89,14 +90,14 @@ All units are trained from a city **Barracks** (built/upgraded in the [City Menu
 
 | Unit | Gold | Food | RawMat | Build ticks | Tech needed | Barracks lvl | Deposit needed |
 |------|------|------|--------|-------------|-------------|--------------|----------------|
-| **Infantry** | 30 | 400 | 300 | 60 | — | 1 | — |
-| **Scout** | 20 | 300 | 0 | 50 | — | 1 | — |
-| **Longbowman** | 40 | 500 | 350 | 75 | `hunting` | 2 | — |
-| **Cavalry** | 80 | 700 | 500 | 100 | `animal_domestication` | 2 | Copper / Iron / Fire Glass |
-| **Crossbowman** | 50 | 550 | 400 | 90 | `mechanization` | 3 | Copper / Iron / Fire Glass |
-| **Heavy Infantry** | 80 | 700 | 450 | 100 | `iron_working` | 3 | Iron / Fire Glass |
-| **Catapult** | 80 | 350 | 600 | 120 | `physics` + `the_wheel` | 3 | Copper / Iron / Fire Glass |
-| **Trebuchet** | 100 | 400 | 800 | 140 | `mechanization` + `steel_working` | 5 | Iron / Fire Glass |
+| **Infantry** | 30 | 400 | 300 | 120 | — | 1 | — |
+| **Scout** | 20 | 300 | 0 | 100 | — | 1 | — |
+| **Longbowman** | 40 | 500 | 350 | 150 | `hunting` | 2 | — |
+| **Cavalry** | 80 | 700 | 500 | 200 | `animal_domestication` | 2 | Copper / Iron / Fire Glass |
+| **Crossbowman** | 50 | 550 | 400 | 180 | `mechanization` | 3 | Copper / Iron / Fire Glass |
+| **Heavy Infantry** | 80 | 700 | 450 | 200 | `iron_working` | 3 | Iron / Fire Glass |
+| **Catapult** | 80 | 350 | 600 | 240 | `physics` + `the_wheel` | 3 | Copper / Iron / Fire Glass |
+| **Trebuchet** | 100 | 400 | 800 | 280 | `mechanization` + `steel_working` | 5 | Iron / Fire Glass |
 
 - **Cost is paid upfront** when production starts. **Build ticks** is the time to finish (reduced by higher Barracks levels — **−5% per level above 1**).
 - A finished unit spawns on or next to the city (first passable, unoccupied tile of the 8 neighbors) and remembers its **home city**.

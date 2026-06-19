@@ -28,13 +28,13 @@ Built/upgraded on the City Menu's **BUILDINGS tab**. Caps: most cap at **level 5
 | Building | Build cost | Build ticks | Tech | Max lvl | Upgrade cost | Effect |
 |---|---|---|---|---|---|---|
 | **City Hall** | — | (built-in) | — | 1 | — | Administration; can't be razed |
-| **Barracks** | 15 G, 30 M | 400 | `masonry` | 5 | 20 G, 40 M | Trains units; higher levels unlock advanced units & speed training −5%/lvl |
-| **Walls** | 10 G, 25 M | 450 | `masonry` | 5 | 15 G, 35 M | +60 HP & +3 city melee per level |
-| **Farms** | 10 G, 20 M | 300 | `masonry` | 5 | 12 G, 24 M | +2 Food/sec per level |
-| **Workshop** | 10 G, 20 M | 300 | `masonry` | 5 | 12 G, 24 M | +1 Raw Material/sec per level |
-| **Watchtower** | 5 G, 15 M | 300 | `masonry` | 1 | — | +vision (radius-3 circle) |
-| **School** | 15 G, 25 M, 10 F | 400 | `education` | 5 | 18 G, 30 M, 12 F | +1 Research/sec per level **and +10% research speed per level** (cap +50%) |
-| **Market** | 20 G, 35 M | 400 | `trade` | 5 | 24 G, 42 M | +1 Gold/sec per level |
+| **Barracks** | 40 G, 90 M, 40 F | 400 | `masonry` | 5 | 40 G, 90 M, 40 F | Trains units; higher levels unlock advanced units & speed training −5%/lvl |
+| **Walls** | 30 G, 90 M | 450 | `masonry` | 5 | 35 G, 90 M | +60 HP & +3 city melee per level |
+| **Farms** | 25 G, 80 M | 300 | `masonry` | 5 | 25 G, 70 M | +2 Food/sec per level |
+| **Workshop** | 25 G, 80 M | 300 | `masonry` | 5 | 25 G, 70 M | +1 Raw Material/sec per level |
+| **Watchtower** | 20 G, 70 M | 300 | `masonry` | 1 | — | +vision (radius-3 circle) |
+| **School** | 40 G, 90 M, 50 F | 400 | `education` | 5 | 35 G, 80 M, 40 F | +1 Research/sec per level **and +10% research speed per level** (cap +50%) |
+| **Market** | 50 G, 110 M | 400 | `trade` | 5 | 45 G, 100 M | +1 Gold/sec per level |
 
 (G = Gold, M = Raw Material, F = Food.) Re-building an existing building is the **upgrade** path (level +1, up to max). Adding/upgrading Walls refills the city to its new max HP.
 
@@ -47,19 +47,19 @@ Built/upgraded on the City Menu's **BUILDINGS tab**. Caps: most cap at **level 5
 
 ## 3. Territory buildings
 
-Built on map tiles via the Territory Menu (double-click a tile). **Outpost is the gateway** — it claims an unclaimed tile and is the prerequisite for every other territory building. Mines also require the matching deposit on the tile.
+Built on map tiles via the Territory Menu (double-click a tile). **Outpost is the gateway** — it claims an unclaimed tile and is the prerequisite for every other territory building. An Outpost can be placed on **any land tile, including mountains** (so you can grab a peak and the deposit it holds); only open water is off-limits. Mines also require the matching deposit on the tile.
 
 | Building | Cost | Ticks | Needs building | Tech | Deposit | Max lvl | Effect |
 |---|---|---|---|---|---|---|---|
-| **Outpost** | 15 G, 30 M, 10 F | 80 | — | — | — | 1 | Claims the tile; prerequisite for all |
-| **Walls** | 5 G, 20 M | 90 | Outpost | `masonry` | — | 5 | +50 HP, +attack & range per level |
-| **Farms** | 20 M | 60 | Outpost | `masonry` | — | 1 | +Food |
-| **Workshop** | 20 M | 70 | Outpost | `masonry` | — | 1 | +Raw Material |
-| **Watchtower** | 15 M | 70 | Outpost | `masonry` | — | 1 | Reveals fog in a 2-tile radius (no units needed) |
-| **Copper Mine** | 25 M | 80 | Outpost | `masonry` | Copper | 1 | +2 melee & ranged damage nation-wide |
-| **Iron Mine** | 30 M | 90 | Outpost | `iron_working` | Iron | 1 | +4 damage nation-wide |
-| **Fire Glass Mine** | 40 M | 100 | Outpost | `steel_working` | Fire Glass | 1 | +6 damage nation-wide |
-| **Mana Mine** | 35 M, 10 F | 100 | Outpost | `mana_studies` | any mana | 1 | Activates the tile's mana deposit (bonus depends on type) |
+| **Outpost** | 30 G, 80 M, 40 F | 80 | — | — | — | 1 | Claims the tile; prerequisite for all |
+| **Walls** | 20 G, 70 M | 90 | Outpost | `masonry` | — | 5 | +50 HP, +attack & range per level |
+| **Farms** | 70 M | 60 | Outpost | `masonry` | — | 1 | +Food |
+| **Workshop** | 70 M | 70 | Outpost | `masonry` | — | 1 | +Raw Material |
+| **Watchtower** | 60 M | 70 | Outpost | `masonry` | — | 1 | Reveals fog in a 2-tile radius (no units needed) |
+| **Copper Mine** | 80 M | 80 | Outpost | `masonry` | Copper | 1 | +2 melee & ranged damage nation-wide |
+| **Iron Mine** | 90 M | 90 | Outpost | `iron_working` | Iron | 1 | +4 damage nation-wide |
+| **Fire Glass Mine** | 120 M | 100 | Outpost | `steel_working` | Fire Glass | 1 | +6 damage nation-wide |
+| **Mana Mine** | 110 M, 40 F | 100 | Outpost | `mana_studies` | any mana | 1 | Activates the tile's mana deposit (bonus depends on type) |
 
 Building a mine is what makes a [deposit "active"](Economy-and-Resources.md#2-tile-deposits). The single Mana Mine building works for any of the six mana types.
 

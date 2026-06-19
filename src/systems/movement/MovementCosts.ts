@@ -28,6 +28,9 @@ export const FOREST_PENALTY_UNITS = new Set<UnitType>([
   UnitType.TREBUCHET,
 ]);
 
+/** The Wheel tech multiplies a unit's effective movement speed by this (+20%). */
+export const WHEEL_SPEED_MULTIPLIER = 1.2;
+
 /**
  * Returns the number of ticks required for a unit to move onto a tile
  * with the given terrain type.
@@ -35,6 +38,7 @@ export const FOREST_PENALTY_UNITS = new Set<UnitType>([
  * If `activeDeposits` is provided and contains EARTH_MANA, mountains become passable
  * (treated as hills). If WATER_MANA is active, water becomes passable (treated as hills).
  * LIGHTNING_MANA adds +1 effective speed per mine (up to +3).
+ * `speedMultiplier` scales effective speed (e.g. 1.2 from the The Wheel tech).
  *
  * Returns Infinity for still-impassable terrain.
  */
@@ -44,6 +48,7 @@ export function stepCost(
   stats: UnitStats,
   activeDeposits?: ReadonlySet<TerritoryResourceType>,
   activeCounts?: ReadonlyMap<TerritoryResourceType, number>,
+  speedMultiplier = 1,
 ): number {
   let base = TERRAIN_BASE_COST[terrain];
 
@@ -63,9 +68,7 @@ export function stepCost(
       : stats.speed;
 
   const speedBonus = lightningManaSpeedBonus(activeDeposits ?? new Set(), activeCounts);
-  if (speedBonus > 0) {
-    return Math.max(1, Math.ceil(base / (effectiveSpeed + speedBonus)));
-  }
-
-  return Math.max(1, Math.ceil(base / effectiveSpeed));
+  // Lightning mana (speedBonus) and The Wheel tech (speedMultiplier) both raise effective speed.
+  const divisor = (effectiveSpeed + speedBonus) * speedMultiplier;
+  return Math.max(1, Math.ceil(base / divisor));
 }

@@ -17,7 +17,7 @@ import type {
   StartResearchCommand, CancelResearchCommand, QueueResearchCommand, RemoveQueuedResearchCommand,
   MoveQueuedResearchCommand, StartCityProductionCommand, CancelCityProductionCommand,
   RazeCityCommand, RemoveCityBuildingLevelCommand,
-  SetUnitBattleOrderCommand,
+  SetUnitBattleOrderCommand, ConvertToSpyCommand,
   DeclareWarCommand, ProposePeaceCommand, OfferTradeCommand,
 } from './GameCommand';
 import { PRODUCTION_CATALOG, BARRACKS_MOBILIZATION_SPEEDUP_PER_LEVEL } from '@/systems/production/ProductionCatalog';
@@ -65,6 +65,7 @@ export class CommandProcessor {
       case 'RAZE_CITY':              return this.handleRazeCity(command);
       case 'REMOVE_CITY_BUILDING_LEVEL': return this.handleRemoveCityBuildingLevel(command);
       case 'SET_UNIT_BATTLE_ORDER':  return this.handleSetUnitBattleOrder(command);
+      case 'CONVERT_TO_SPY':         return this.handleConvertToSpy(command);
       case 'DECLARE_WAR':            return this.handleDeclareWar(command);
       case 'PROPOSE_PEACE':          return this.handleProposePeace(command);
       case 'OFFER_TRADE':            return this.handleOfferTrade(command);
@@ -559,6 +560,43 @@ export class CommandProcessor {
     this.eventBus.emit('unit:battle-order-changed', {
       unitId: unit.id,
       battleOrder: command.battleOrder,
+      tick: command.issuedAtTick,
+    });
+    return { success: true };
+  }
+
+  // ── CONVERT_TO_SPY ────────────────────────────────────────────────────────
+
+  /** Toggle a Scout's undercover (spy) mode. Constrained: Scout only, requires
+   *  Ancient Rituals, must be on own/neutral territory and not in battle. */
+  private handleConvertToSpy(command: ConvertToSpyCommand): CommandResult {
+    const player = this.gameState.getPlayer(command.playerId);
+    if (!player) return { success: false, reason: 'Player not found' };
+
+    const nation = this.gameState.getNation(player.getControlledNationId());
+    if (!nation) return { success: false, reason: 'Nation not found' };
+
+    const unit = this.gameState.getUnit(command.unitId);
+    if (!unit || unit.getOwnerId() !== nation.getId())
+      return { success: false, reason: 'Unit not found or not owned' };
+
+    if (unit.getUnitType() !== 'SCOUT')
+      return { success: false, reason: 'Only Scouts can go undercover' };
+    if (!this.sandboxMode && !nation.hasResearched('ancient_rituals'))
+      return { success: false, reason: 'Requires research: ancient rituals' };
+    if (unit.isEngagedInBattle())
+      return { success: false, reason: 'Cannot change cover while in battle' };
+
+    const owner = this.gameState.getGrid().getTerritory(unit.position)?.getControllingNation();
+    if (owner && owner !== nation.getId())
+      return { success: false, reason: 'Must be on your own or neutral territory' };
+
+    if (unit.isSpy() === command.spy) return { success: true }; // already in desired state
+
+    unit.setSpy(command.spy);
+    this.eventBus.emit('unit:spy-changed', {
+      unitId: unit.id,
+      isSpy: command.spy,
       tick: command.issuedAtTick,
     });
     return { success: true };

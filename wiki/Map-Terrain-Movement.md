@@ -61,6 +61,7 @@ stepCost       = max(1, ceil(terrainBaseCost / (effectiveSpeed + lightningBonus)
 - A speed-2 unit on plains (cost 50): `ceil(50/2) = 25` ticks per tile. A speed-5 unit: 10 ticks.
 - **Forest penalty:** Heavy Infantry, Cavalry, Catapult, and Trebuchet always move through **forest** at effective speed 1 (so 100 ticks/tile) regardless of their speed stat.
 - **Lightning Mana** adds +1 effective speed per mine (max +3).
+- **The Wheel** tech multiplies effective speed by **1.2** (+20% movement) for all your units — stacks with Lightning Mana.
 - **Earth/Water Mana** make mountain/water passable at cost 75.
 
 How a move plays out each tick:
@@ -68,7 +69,7 @@ How a move plays out each tick:
 2. On entering a new step, the tile's terrain sets the step's tick cost.
 3. The cost counts down; at 0 the unit commits the step.
 4. **Friendly stacking is blocked** — if a friendly unit already holds the target tile, the mover waits and retries.
-5. While moving, if the unit enters an **enemy unit** (→ battle), **enemy city** (→ siege), or **enemy territory at war** (→ territory battle), combat starts and movement halts.
+5. While moving, if the unit enters an **enemy unit** (→ battle), **enemy city** (→ siege), or **enemy territory at war** (→ territory battle), combat starts and movement halts. **Undercover spies are the exception** — they pass through enemy units, cities, and territory without triggering any of this (and enemy units likewise pass through them), so infiltrating never declares war (see [Units → Spies](Units.md#special-behaviors)).
 
 **Stance does not change movement speed** — ADVANCE/HOLD/WITHDRAW and the battle pace factor affect combat only. A unit in battle simply stops moving.
 
@@ -91,7 +92,7 @@ When you left-click a destination (or drag a path), this is what plots the route
 Each nation has three visibility tiers (all Manhattan distance):
 
 - **Visible** — fully revealed (units and terrain shown).
-- **Near-visible** — a 2-tile ring beyond each vision source, showing **unidentified contacts** (you see *something* is there — an orange "H"/"L" marker for heavy/light armor — but not what).
+- **Near-visible** — a 2-tile ring beyond each vision source, showing **unidentified contacts** (you see *something* is there — an orange **"Heavily Armored Contact"** / **"Lightly Armored Contact"** label telling you only the armor class — but not the exact unit).
 - **Discovered** — every tile ever seen (persisted); shown dark when not currently visible.
 
 What reveals the map:

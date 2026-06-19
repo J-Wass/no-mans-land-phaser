@@ -6,6 +6,7 @@ import { GameEventBus } from '@/systems/events/GameEventBus';
 import { Nation } from '@/entities/nations/Nation';
 import { Player } from '@/entities/players/Player';
 import { Infantry } from '@/entities/units/Infantry';
+import { Scout } from '@/entities/units/Scout';
 import { City } from '@/entities/cities/City';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
@@ -49,6 +50,55 @@ describe('CommandProcessor', () => {
 
     expect(result.success).toBe(true);
     expect(movementSystem.isMoving('unit-1')).toBe(true);
+  });
+
+  describe('CONVERT_TO_SPY', () => {
+    const researchAncientRituals = (): void => {
+      nation.startResearch('ancient_rituals', 1);
+      nation.tickResearch();
+    };
+    const addScout = (id: string, pos: { row: number; col: number }): Scout => {
+      const scout = new Scout(id, 'nation-1', pos);
+      gameState.addUnit(scout);
+      return scout;
+    };
+    const convert = (unitId: string, spy: boolean) => processor.dispatch({
+      type: 'CONVERT_TO_SPY', playerId: 'player-1', unitId, spy, issuedAtTick: 1,
+    });
+
+    it('converts a Scout to a spy with Ancient Rituals on own/neutral territory', () => {
+      const scout = addScout('scout-1', { row: 1, col: 1 });
+      researchAncientRituals();
+      expect(convert('scout-1', true).success).toBe(true);
+      expect(scout.isSpy()).toBe(true);
+    });
+
+    it('rejects without Ancient Rituals', () => {
+      const scout = addScout('scout-1', { row: 1, col: 1 });
+      expect(convert('scout-1', true).success).toBe(false);
+      expect(scout.isSpy()).toBe(false);
+    });
+
+    it('rejects a non-Scout unit', () => {
+      researchAncientRituals();
+      expect(convert('unit-1', true).success).toBe(false); // unit-1 is Infantry
+    });
+
+    it('rejects converting on enemy territory', () => {
+      const scout = addScout('scout-e', { row: 2, col: 2 });
+      researchAncientRituals();
+      gameState.getGrid().getTerritory({ row: 2, col: 2 })?.setControllingNation('enemy-nation');
+      expect(convert('scout-e', true).success).toBe(false);
+      expect(scout.isSpy()).toBe(false);
+    });
+
+    it('drops cover (toggles back to a Scout)', () => {
+      const scout = addScout('scout-1', { row: 1, col: 1 });
+      researchAncientRituals();
+      convert('scout-1', true);
+      expect(convert('scout-1', false).success).toBe(true);
+      expect(scout.isSpy()).toBe(false);
+    });
   });
 
   it('rejects command when player not found', () => {
@@ -171,10 +221,10 @@ describe('CommandProcessor', () => {
 
   describe('BUILD_TERRITORY (OUTPOST)', () => {
     beforeEach(() => {
-      // OUTPOST costs GOLD:15, RAW_MATERIAL:30, FOOD:10 and now builds over time.
+      // OUTPOST costs GOLD:30, RAW_MATERIAL:80, FOOD:40 and now builds over time.
       nation.getTreasury().addResource(ResourceType.GOLD, 30);
-      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 60);
-      nation.getTreasury().addResource(ResourceType.FOOD, 20);
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 80);
+      nation.getTreasury().addResource(ResourceType.FOOD, 40);
       // Pre-own an adjacent tile so the adjacency check passes.
       gameState.getGrid().getTerritory({ row: 0, col: 1 })?.setControllingNation('nation-1');
     });
@@ -206,9 +256,9 @@ describe('CommandProcessor', () => {
         issuedAtTick: 1,
       });
 
-      expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(15);
-      expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(30);
-      expect(nation.getTreasury().getAmount(ResourceType.FOOD)).toBe(10);
+      expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(0);
+      expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(0);
+      expect(nation.getTreasury().getAmount(ResourceType.FOOD)).toBe(0);
     });
 
     it('rejects when the tile is not adjacent to owned territory', () => {
@@ -242,8 +292,8 @@ describe('CommandProcessor', () => {
     it('rejects when nation cannot afford the cost', () => {
       nation.getTreasury().consumeResources({
         [ResourceType.GOLD]: 30,
-        [ResourceType.RAW_MATERIAL]: 60,
-        [ResourceType.FOOD]: 20,
+        [ResourceType.RAW_MATERIAL]: 80,
+        [ResourceType.FOOD]: 40,
       });
 
       const result = processor.dispatch({
@@ -573,8 +623,8 @@ describe('CommandProcessor', () => {
 
       expect(result.success).toBe(true);
       expect(city.getCurrentOrder()?.label).toBe('Walls Lvl 2');
-      expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(85);
-      expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(65);
+      expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(65);
+      expect(nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(10);
     });
 
     it('rejects wall upgrades at maximum level', () => {

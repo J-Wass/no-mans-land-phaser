@@ -163,7 +163,7 @@ describe('ProductionSystem', () => {
   });
 
   it('starts the next queued research when prerequisites and points are available', () => {
-    nation.getTreasury().addResource(ResourceType.RESEARCH, 5);
+    nation.getTreasury().addResource(ResourceType.RESEARCH, 25);
     nation.queueResearch('writing');
 
     system.tick(state, eventBus, 1);

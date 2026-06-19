@@ -13,7 +13,7 @@ import type { BattleSystem } from '@/systems/combat/BattleSystem';
 import type { CitySiegeSystem } from '@/systems/combat/CitySiegeSystem';
 import type { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import type { SavedMovementState } from '@/types/gameSetup';
-import { stepCost } from './MovementCosts';
+import { stepCost, WHEEL_SPEED_MULTIPLIER } from './MovementCosts';
 import type { UnitMovementState } from './MovementState';
 
 export class MovementSystem {
@@ -119,6 +119,8 @@ export class MovementSystem {
 
       const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
       const counts   = gameState.getNationActiveDepositCounts(unit.getOwnerId());
+      const speedMult = (gameState.getNation(unit.getOwnerId())?.hasResearched('the_wheel') ?? false)
+        ? WHEEL_SPEED_MULTIPLIER : 1;
 
       // Resolve first-tick cost (ticksRemainingOnStep === 0 means just issued)
       if (state.ticksRemainingOnStep <= 0) {
@@ -132,7 +134,7 @@ export class MovementSystem {
           this.states.delete(unitId);
           continue;
         }
-        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts);
+        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts, speedMult);
         if (!isFinite(cost)) {
           // Path became invalid (terrain changed); cancel
           this.states.delete(unitId);
@@ -187,7 +189,7 @@ export class MovementSystem {
           if (nextNext !== undefined) {
             const territory = grid.getTerritory(nextNext);
             if (territory) {
-              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts);
+              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts, speedMult);
               state.ticksRemainingOnStep = isFinite(cost) ? cost : 0;
             }
           }
@@ -219,6 +221,8 @@ export class MovementSystem {
 
       const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
       const counts   = gameState.getNationActiveDepositCounts(unit.getOwnerId());
+      const speedMult = (gameState.getNation(unit.getOwnerId())?.hasResearched('the_wheel') ?? false)
+        ? WHEEL_SPEED_MULTIPLIER : 1;
 
       if (state.ticksRemainingOnStep <= 0) {
         const nextCoords = state.path[0];
@@ -231,7 +235,7 @@ export class MovementSystem {
           this.states.delete(unitId);
           continue;
         }
-        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts);
+        const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts, speedMult);
         if (!isFinite(cost)) {
           this.states.delete(unitId);
           continue;
@@ -272,39 +276,45 @@ export class MovementSystem {
           tick: currentTick,
         });
 
-        const enemyOccupant = gameState.getAllUnits().find(other =>
-          other.id !== unit.id &&
-          other.isAlive() &&
-          !other.isEngagedInBattle() &&
-          other.getOwnerId() !== unit.getOwnerId() &&
-          other.position.row === nextCoords.row &&
-          other.position.col === nextCoords.col,
-        );
+        // Spies infiltrate silently — they never trigger unit battles, sieges, or
+        // auto-war on entering enemy units/cities/territory. (Detection, which
+        // destroys them, is handled by SpyDetectionSystem.)
+        if (!unit.isSpy()) {
+          const enemyOccupant = gameState.getAllUnits().find(other =>
+            other.id !== unit.id &&
+            other.isAlive() &&
+            !other.isSpy() &&            // undercover spies coexist silently — moving onto one never starts a battle or declares war
+            !other.isEngagedInBattle() &&
+            other.getOwnerId() !== unit.getOwnerId() &&
+            other.position.row === nextCoords.row &&
+            other.position.col === nextCoords.col,
+          );
 
-        if (enemyOccupant) {
-          battleSystem.startBattle(unit, enemyOccupant, from, nextCoords, currentTick, this, eventBus);
-          continue;
-        }
-
-        // Check for enemy city on this tile
-        const territory = grid.getTerritory(nextCoords);
-        const cityId = territory?.getCityId() ?? null;
-        if (cityId) {
-          const city = gameState.getCity(cityId);
-          if (city && city.getOwnerId() !== unit.getOwnerId()) {
-            citySiegeSystem.startSiege(unit, city, from, nextCoords, currentTick, this, eventBus);
+          if (enemyOccupant) {
+            battleSystem.startBattle(unit, enemyOccupant, from, nextCoords, currentTick, this, eventBus);
             continue;
           }
-        }
 
-        // Check for enemy-owned non-city territory
-        if (territory) {
-          const tOwner = territory.getControllingNation();
-          if (tOwner && tOwner !== unit.getOwnerId() && !territory.getCityId()) {
-            const unitNation = gameState.getNation(unit.getOwnerId());
-            if (unitNation?.isAtWar(tOwner)) {
-              territoryBattleSystem.startBattle(unit, territory, from, nextCoords, currentTick, this, eventBus);
+          // Check for enemy city on this tile
+          const territory = grid.getTerritory(nextCoords);
+          const cityId = territory?.getCityId() ?? null;
+          if (cityId) {
+            const city = gameState.getCity(cityId);
+            if (city && city.getOwnerId() !== unit.getOwnerId()) {
+              citySiegeSystem.startSiege(unit, city, from, nextCoords, currentTick, this, eventBus);
               continue;
+            }
+          }
+
+          // Check for enemy-owned non-city territory
+          if (territory) {
+            const tOwner = territory.getControllingNation();
+            if (tOwner && tOwner !== unit.getOwnerId() && !territory.getCityId()) {
+              const unitNation = gameState.getNation(unit.getOwnerId());
+              if (unitNation?.isAtWar(tOwner)) {
+                territoryBattleSystem.startBattle(unit, territory, from, nextCoords, currentTick, this, eventBus);
+                continue;
+              }
             }
           }
         }
@@ -321,7 +331,7 @@ export class MovementSystem {
           if (nextNext !== undefined) {
             const territory = grid.getTerritory(nextNext);
             if (territory) {
-              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts);
+              const cost = stepCost(territory.getTerrainType(), unit.getUnitType(), unit.getStats(), deposits, counts, speedMult);
               state.ticksRemainingOnStep = isFinite(cost) ? cost : 0;
             }
           }

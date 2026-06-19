@@ -3,6 +3,7 @@ import { stepCost, TERRAIN_BASE_COST } from './MovementCosts';
 import { TerrainType } from '@/systems/grid/Territory';
 import { UnitType } from '@/entities/units/Unit';
 import type { UnitStats } from '@/entities/units/Unit';
+import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 
 const infantryStats: UnitStats = {
   maxHealth: 100, meleeDamage: 10, rangedDamage: 0,
@@ -65,5 +66,25 @@ describe('stepCost', () => {
     Object.values(TerrainType).forEach(terrain => {
       expect(TERRAIN_BASE_COST[terrain]).toBeDefined();
     });
+  });
+});
+
+describe('stepCost — The Wheel (+20% speed multiplier)', () => {
+  it('infantry on PLAINS: ceil(50 / (2 * 1.2)) = 21', () => {
+    expect(stepCost(TerrainType.PLAINS, UnitType.INFANTRY, infantryStats, undefined, undefined, 1.2)).toBe(21);
+  });
+
+  it('cavalry on PLAINS: ceil(50 / (3 * 1.2)) = 14', () => {
+    expect(stepCost(TerrainType.PLAINS, UnitType.CAVALRY, cavalryStats, undefined, undefined, 1.2)).toBe(14);
+  });
+
+  it('stacks with Lightning mana — both feed the divisor', () => {
+    const deposits = new Set([TerritoryResourceType.LIGHTNING_MANA]);
+    // (speed 2 + 1 lightning) * 1.2 = 3.6 → ceil(50 / 3.6) = 14
+    expect(stepCost(TerrainType.PLAINS, UnitType.INFANTRY, infantryStats, deposits, undefined, 1.2)).toBe(14);
+  });
+
+  it('a multiplier of 1 leaves cost unchanged', () => {
+    expect(stepCost(TerrainType.PLAINS, UnitType.INFANTRY, infantryStats, undefined, undefined, 1)).toBe(25);
   });
 });

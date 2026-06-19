@@ -913,10 +913,13 @@ export class GameScene extends Phaser.Scene {
         if (!this.contactMarkers.has(key)) {
           const cx = unit.position.col * TILE_SIZE + TILE_SIZE / 2;
           const cy = unit.position.row * TILE_SIZE + TILE_SIZE / 2;
-          const armorLabel = unit.getStats().armorType === 'heavy' ? 'H' : 'L';
+          const armorLabel = unit.getStats().armorType === 'heavy'
+            ? 'Heavily Armored Contact'
+            : 'Lightly Armored Contact';
           const marker = this.add.text(cx, cy, armorLabel, {
-            fontSize: '14px', color: '#ff8844', fontFamily: 'monospace', fontStyle: 'bold',
-            stroke: '#000000', strokeThickness: 2,
+            fontSize: '9px', color: '#ff8844', fontFamily: 'monospace', fontStyle: 'bold',
+            stroke: '#000000', strokeThickness: 2, align: 'center',
+            wordWrap: { width: Math.round(TILE_SIZE * 2.4) },
           }).setOrigin(0.5).setDepth(290);
           this.contactMarkers.set(key, marker);
         }

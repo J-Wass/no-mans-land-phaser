@@ -3,6 +3,11 @@ import { MovementSystem } from './MovementSystem';
 import { GameState } from '@/managers/GameState';
 import { Infantry } from '@/entities/units/Infantry';
 import { Cavalry } from '@/entities/units/Cavalry';
+import { Scout } from '@/entities/units/Scout';
+import { Nation } from '@/entities/nations/Nation';
+import { BattleSystem } from '@/systems/combat/BattleSystem';
+import { CitySiegeSystem } from '@/systems/combat/CitySiegeSystem';
+import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { GameEventBus } from '@/systems/events/GameEventBus';
 import { TerrainType } from '@/systems/grid/Territory';
 
@@ -36,6 +41,62 @@ describe('MovementSystem', () => {
 
     expect(unit.position).toEqual({ row: 0, col: 2 });
     expect(movementSystem.isMoving('unit-1')).toBe(false);
+  });
+
+  it('a spy moves onto an enemy unit without starting a battle', () => {
+    gameState.addNation(new Nation('na', 'A', '#f00'));
+    gameState.addNation(new Nation('nb', 'B', '#00f'));
+    const spy = new Scout('spy', 'na', { row: 1, col: 0 });
+    spy.setSpy(true);
+    gameState.addUnit(spy);
+    gameState.addUnit(new Infantry('enemy', 'nb', { row: 1, col: 1 }));
+    const battle = new BattleSystem(() => 0.5);
+    const siege = new CitySiegeSystem(() => 0.5);
+    const terr = new TerritoryBattleSystem(() => 0.5);
+
+    movementSystem.issueOrder(spy, [{ row: 1, col: 1 }]);
+    for (let t = 1; t <= 25; t++) movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr);
+
+    expect(spy.position).toEqual({ row: 1, col: 1 });   // coexists on the enemy's tile
+    expect(spy.isEngagedInBattle()).toBe(false);
+    expect(battle.getBattleForUnit('spy')).toBeNull();
+  });
+
+  it('a normal Scout DOES start a battle entering an enemy unit (control)', () => {
+    gameState.addNation(new Nation('na', 'A', '#f00'));
+    gameState.addNation(new Nation('nb', 'B', '#00f'));
+    const scout = new Scout('scout', 'na', { row: 1, col: 0 });
+    gameState.addUnit(scout);
+    gameState.addUnit(new Infantry('enemy', 'nb', { row: 1, col: 1 }));
+    const battle = new BattleSystem(() => 0.5);
+    const siege = new CitySiegeSystem(() => 0.5);
+    const terr = new TerritoryBattleSystem(() => 0.5);
+
+    movementSystem.issueOrder(scout, [{ row: 1, col: 1 }]);
+    for (let t = 1; t <= 25; t++) movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr);
+
+    expect(battle.getBattleForUnit('scout')).not.toBeNull();
+  });
+
+  it('an enemy unit moving onto a stationary spy does not start a battle (no auto-war)', () => {
+    gameState.addNation(new Nation('na', 'A', '#f00'));
+    gameState.addNation(new Nation('nb', 'B', '#00f'));
+    const spy = new Scout('spy', 'na', { row: 2, col: 1 });
+    spy.setSpy(true);
+    gameState.addUnit(spy);
+    const enemy = new Infantry('enemy', 'nb', { row: 2, col: 0 });
+    gameState.addUnit(enemy);
+    const battle = new BattleSystem(() => 0.5);
+    const siege = new CitySiegeSystem(() => 0.5);
+    const terr = new TerritoryBattleSystem(() => 0.5);
+
+    movementSystem.issueOrder(enemy, [{ row: 2, col: 1 }]); // enemy walks onto the spy
+    for (let t = 1; t <= 25; t++) movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr);
+
+    expect(enemy.position).toEqual({ row: 2, col: 1 }); // coexists on the spy's tile
+    expect(battle.getBattleForUnit('enemy')).toBeNull();
+    expect(battle.getBattleForUnit('spy')).toBeNull();
+    expect(enemy.isEngagedInBattle()).toBe(false);
   });
 
   it('unit reaches first tile after exactly 25 ticks on PLAINS (speed=2)', () => {
