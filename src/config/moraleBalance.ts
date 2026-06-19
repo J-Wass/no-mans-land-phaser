@@ -51,9 +51,6 @@ export const BAND_EFFECTS: Record<MoraleBand, MoraleEffect> = {
   [MoraleBand.BROKEN]:   { damageMultiplier: 0.60, mitigationDelta: -0.10 },
 };
 
-/** SHAKEN units flee more readily — bonus added to withdraw roll. */
-export const SHAKEN_WITHDRAW_BONUS = 0.10;
-
 // ── Sources of GAIN ───────────────────────────────────────────────────────────
 
 export const GAIN_BATTLE_WIN          = 20;  // ELIMINATION or WITHDRAW victory

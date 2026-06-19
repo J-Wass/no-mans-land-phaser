@@ -8,6 +8,8 @@ import { Infantry } from '@/entities/units/Infantry';
 import { Cavalry } from '@/entities/units/Cavalry';
 import { HeavyInfantry } from '@/entities/units/HeavyInfantry';
 import { Crossbowman } from '@/entities/units/Crossbowman';
+import { Catapult } from '@/entities/units/Catapult';
+import { Trebuchet } from '@/entities/units/Trebuchet';
 
 describe('BattleSystem', () => {
   let gameState: GameState;
@@ -142,7 +144,9 @@ describe('BattleSystem', () => {
     expect(cavalry.isAlive()).toBe(false);
   });
 
-  it('cavalry slightly wins 1v1 against a holding crossbowman', () => {
+  it('cavalry beats a holding crossbowman (Crossbow no longer counters Cavalry)', () => {
+    // Rock-paper-scissors: Cavalry beats every ranged unit, Crossbow included.
+    // (Crossbow's old anti-cavalry bonuses were removed.)
     const crossbow = new Crossbowman('cross', 'nation-a', { row: 3, col: 3 });
     const cavalry = new Cavalry('cav', 'nation-b', { row: 3, col: 3 });
     crossbow.setBattleOrder('HOLD');
@@ -152,9 +156,70 @@ describe('BattleSystem', () => {
     battleSystem.startBattle(cavalry, crossbow, { row: 3, col: 2 }, { row: 3, col: 3 }, 0, movementSystem, eventBus);
     tickRounds(15);
 
-    // Cavalry survives but takes a real beating — crossbow bolts should leave it bloodied.
     expect(crossbow.isAlive()).toBe(false);
     expect(cavalry.isAlive()).toBe(true);
-    expect(cavalry.getHealth()).toBeLessThan(150);
+    expect(cavalry.getHealth()).toBeGreaterThan(80); // decisive win, not a bloody trade
+  });
+
+  it('cavalry beats a trebuchet once it reaches melee (siege is helpless when pinned)', () => {
+    // The Cavalry > Ranged leg: a siege unit caught in melee can only fire
+    // point-blank and is near-helpless, so Cavalry that reaches it wins.
+    const trebuchet = new Trebuchet('treb', 'nation-a', { row: 3, col: 3 });
+    const cavalry = new Cavalry('cav', 'nation-b', { row: 3, col: 3 });
+    trebuchet.setBattleOrder('HOLD');
+    cavalry.setBattleOrder('ADVANCE');
+    gameState.addUnit(trebuchet);
+    gameState.addUnit(cavalry);
+    // Start adjacent (no approach pre-damage) to isolate the melee outcome.
+    battleSystem.startBattle(cavalry, trebuchet, { row: 3, col: 2 }, { row: 3, col: 3 }, 0, movementSystem, eventBus);
+    tickRounds(15);
+
+    expect(trebuchet.isAlive()).toBe(false);
+    expect(cavalry.isAlive()).toBe(true);
+  });
+
+  it('cavalry beats a catapult in melee', () => {
+    const catapult = new Catapult('cat', 'nation-a', { row: 3, col: 3 });
+    const cavalry = new Cavalry('cav', 'nation-b', { row: 3, col: 3 });
+    catapult.setBattleOrder('HOLD');
+    cavalry.setBattleOrder('ADVANCE');
+    gameState.addUnit(catapult);
+    gameState.addUnit(cavalry);
+    battleSystem.startBattle(cavalry, catapult, { row: 3, col: 2 }, { row: 3, col: 3 }, 0, movementSystem, eventBus);
+    tickRounds(15);
+
+    expect(catapult.isAlive()).toBe(false);
+    expect(cavalry.isAlive()).toBe(true);
+  });
+
+  it('crossbowman beats one Infantry but is left weak enough for a second to finish it', () => {
+    // The crossbow's -30% vs light armor means it still wins the 1v1, but the fight
+    // drags out and leaves it badly bloodied — so a second cheap Infantry kills it.
+    const crossbow = new Crossbowman('xbow', 'nation-a', { row: 3, col: 3 });
+    const inf1 = new Infantry('inf1', 'nation-b', { row: 3, col: 3 });
+    crossbow.setBattleOrder('HOLD');
+    inf1.setBattleOrder('ADVANCE');
+    gameState.addUnit(crossbow);
+    gameState.addUnit(inf1);
+
+    battleSystem.startBattle(inf1, crossbow, { row: 3, col: 2 }, { row: 3, col: 3 }, 0, movementSystem, eventBus);
+    const afterFirst = tickRounds(30);
+
+    expect(inf1.isAlive()).toBe(false);
+    expect(crossbow.isAlive()).toBe(true);
+    expect(crossbow.getHealth()).toBeLessThan(90); // bloodied (~half of its 150 HP), not unscathed
+
+    // A second fresh Infantry then finishes the wounded crossbow.
+    const inf2 = new Infantry('inf2', 'nation-b', { row: 3, col: 4 });
+    inf2.setBattleOrder('ADVANCE');
+    gameState.addUnit(inf2);
+    const start = afterFirst + 25;
+    battleSystem.startBattle(inf2, crossbow, { row: 3, col: 4 }, { row: 3, col: 3 }, start, movementSystem, eventBus);
+    for (let t = start + 1; t <= start + 30 * UNIT_BATTLE_ROUND_TICKS; t++) {
+      battleSystem.tick(gameState, movementSystem, eventBus, t);
+      if (!crossbow.isAlive() || !inf2.isAlive()) break;
+    }
+
+    expect(crossbow.isAlive()).toBe(false);
   });
 });

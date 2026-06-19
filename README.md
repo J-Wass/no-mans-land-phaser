@@ -1,202 +1,115 @@
-# Phaser Game
+# No Man's Land
 
-A TypeScript-based Phaser 3 game with strict type safety and testing.
+A grid-based, **real-time (tick-driven) strategy game** built with **Phaser 3** and **TypeScript** (strict mode). You command a nation: grow an economy, research a tech tree, raise an army, and conquer rival cities. Combat resolves automatically over time using a deep stat model where HP, **morale**, **stance**, terrain, unit matchups, veterancy, and magical **deposits** all feed the same damage math.
+
+> 📖 **Full game documentation lives in [`wiki/`](wiki/README.md)** — every mechanic (morale, stances, withdraw, combat formulas, economy, research, AI, diplomacy) is documented there with exact numbers.
 
 ## Setup
 
-Install dependencies:
 ```bash
 npm install
 ```
 
 ## Development
 
-Start the dev server:
 ```bash
-npm run dev
-```
-
-The game will open at `http://localhost:3000`
-
-## Building
-
-Build for production:
-```bash
-npm run build
-```
-
-Type-check without building:
-```bash
-npm run type-check
+npm run dev          # start the Vite dev server (opens http://localhost:3000)
+npm run build        # type-check + production build to dist/
+npm run preview      # preview the production build
+npm run type-check   # tsc --noEmit (no build)
+npm run lint         # eslint
+npm run lint:fix     # eslint --fix
+npm run format       # prettier --write src
 ```
 
 ## Testing
 
-Run tests:
-```bash
-npm test
-```
+Tests run on **Jest** (via `ts-jest`):
 
-Run tests with UI:
 ```bash
-npm run test:ui
-```
-
-Run tests with coverage:
-```bash
+npm test             # run the suite
+npm run test:watch   # watch mode
 npm run test:coverage
 ```
 
-## Project Structure
+Test files live next to the code they cover as `*.test.ts` (e.g. `BattleSystem.test.ts`, `MoraleSystem.test.ts`, `Grid.test.ts`). Combat is covered by a determinism test that asserts the seeded RNG produces reproducible results.
+
+## Gameplay overview
+
+- **Tick model:** the world advances at `TICK_RATE = 10` ticks/sec (100 ms/tick). The clock reads "Day N HH:00" (100 ticks = 1 day). Speed is adjustable (Pause / 0.5× / 1× / 2× / 4×).
+- **Modes:** Scenario, Standard Match (procedural skirmish, 1–4 AI), Sandbox (no costs, no fog, live AI/terrain tools), and a guided Tutorial.
+- **Difficulties:** Easy (passive-ish Noob AI), Medium (Basic AI), Hard (Advanced AI with a strategy state machine), Sandbox (passive).
+- **Win condition:** scenario-defined — usually eliminate all rivals; some scenarios are "survive N ticks".
+- **Controls:** mouse-driven. Left-click to select/move (left-drag paints a path), right-drag to pan, wheel to zoom, double-click cities/tiles for their menus, ESC for the pause menu. Attacking = moving a unit into an enemy; combat starts automatically.
+
+### Core systems
+
+| System | Summary |
+|---|---|
+| **Combat** | Multiplicative offense × additive-clamped mitigation (cap 0.65). Unit battles, city sieges, territory battles, and standalone ranged fire. |
+| **Morale** | A parallel stat with 5 bands (Inspired→Broken) that scales damage/mitigation, gates stances, and routs broken units. |
+| **Stances** | HOLD (defense), ADVANCE (offense, costs morale), WITHDRAW (disengage). Morale can override your chosen stance. |
+| **Units** | 8 types — Infantry, Scout, Heavy Infantry, Cavalry, Longbowman, Crossbowman, Catapult, Trebuchet — with type/armor matchup counters and XP-based veterancy. |
+| **Economy** | Gold, Food, Raw Material, Research from cities/territories, plus metal & mana **deposits** activated by mines. |
+| **Research** | A 3-branch tech tree (Society / Science / Arcane) unlocking units, buildings, and mines. |
+| **Map** | 4-connected grid, six terrain types, A\* pathfinding, fog of war, regions with domination bonuses. |
+| **AI** | Profile → Strategy → Goal hierarchy; difficulty changes think-rate, aggression, and tech/economy behavior. |
+| **Diplomacy** | War / Peace / Ally relations, auto-war on attack, peace cooldowns, and AI-evaluated resource trades. |
+
+## Project structure
 
 ```
-phaser-test/
-├── src/
-│   ├── types/              # Core type definitions
-│   │   ├── common.ts       # Position, GridCoordinates, EntityId
-│   │   └── diplomacy.ts    # Diplomatic relations types
-│   ├── entities/           # Game entities (modular)
-│   │   ├── units/          # Unit classes
-│   │   │   ├── Unit.ts     # Base Unit class
-│   │   │   ├── Infantry.ts # Infantry unit
-│   │   │   ├── Archer.ts   # Archer unit
-│   │   │   └── index.ts    # Barrel exports
-│   │   ├── cities/         # City management
-│   │   │   ├── City.ts     # City class
-│   │   │   └── index.ts    # Barrel exports
-│   │   └── nations/        # Nation/player entities
-│   │       ├── Nation.ts   # Nation class with diplomacy
-│   │       └── index.ts    # Barrel exports
-│   ├── systems/            # Game systems
-│   │   ├── grid/           # Grid & territory system
-│   │   │   ├── Grid.ts     # Game board grid
-│   │   │   ├── Territory.ts # Individual tile/square
-│   │   │   └── index.ts    # Barrel exports
-│   │   └── resources/      # Resource management
-│   │       ├── ResourceType.ts # Resources (Fire Mana, Iron, etc.)
-│   │       └── index.ts    # Barrel exports
-│   ├── managers/           # State managers
-│   │   ├── GameState.ts    # Central game state
-│   │   └── index.ts        # Barrel exports
-│   ├── config/             # Game configuration
-│   │   └── gameConfig.ts   # Phaser config
-│   ├── scenes/             # Phaser scenes (add game scenes here)
-│   └── main.ts             # Entry point
-├── assets/                 # Game assets (images, sounds, etc.)
-├── public/                 # Static files
-├── index.html              # HTML template
-├── tsconfig.json           # TypeScript config (strict mode enabled)
-├── vite.config.ts          # Vite bundler config
-└── vitest.config.ts        # Test framework config
+src/
+├── main.ts                 # entry point
+├── config/                 # balance constants, scenarios, maps, themes
+│   ├── combatBalance.ts     #   damage formulas & combat constants
+│   ├── moraleBalance.ts     #   morale bands, gains/losses, recovery
+│   ├── constants.ts         #   TICK_RATE, TILE_SIZE, …
+│   ├── scenarios.json/.ts   #   scenario definitions
+│   └── maps/*.terrain       #   plain-text map files
+├── types/                  # shared types (common, diplomacy, gameSetup, …)
+├── entities/               # units/ (8 types + base Unit), cities/, nations/, players/
+├── systems/                # game systems
+│   ├── combat/              #   BattleSystem, CitySiegeSystem, TerritoryBattleSystem, RangedFireSystem
+│   ├── morale/              #   MoraleSystem, moraleRules
+│   ├── movement/            #   MovementSystem, MovementCosts
+│   ├── pathfinding/         #   A* Pathfinder
+│   ├── grid/                #   Grid, Territory, geometry
+│   ├── vision/              #   fog of war
+│   ├── tick/                #   TickEngine (the simulation clock)
+│   ├── production/          #   ProductionSystem, ProductionCatalog
+│   ├── research/            #   TechTree
+│   ├── resources/           #   ResourceType, deposits, ResourceBonuses
+│   ├── territory/           #   City/Territory building catalogs
+│   ├── regions/             #   RegionSystem
+│   ├── spawn/               #   start-of-game placement
+│   ├── diplomacy/           #   DiplomacySystem
+│   ├── ai/                  #   profiles, strategies, goals
+│   ├── tutorial/            #   TutorialManager, tutorialSteps
+│   └── save/                #   SaveSystem (localStorage, 10 slots)
+├── managers/               # GameState, MusicManager
+├── scenes/                 # Phaser scenes: Menu, Boot, Game, UI, Minimap
+├── ui/                     # UIManager, modals, overlays, styles
+├── commands/               # CommandProcessor + GameCommand (all player intent)
+└── network/                # NetworkAdapter / LocalServerAdapter (multiplayer-ready seam)
 ```
 
-## Game Architecture
+## Architecture notes
 
-**Modular RTS Grid-Based Game**
+- **Deterministic simulation.** All systems pull from one seeded RNG (`GameState.getRng()`), so the same seed + same commands always produce the same game. This is what makes the `LocalServerAdapter`/`NetworkAdapter` seam (and a future lockstep multiplayer) viable. The `seed` field in `GameSetup` exists for reproducible/shared maps.
+- **Command-driven.** Player and AI intent flows through `CommandProcessor` as discrete `GameCommand`s (move, build, research, set stance, declare war, trade, …), never by mutating state directly.
+- **Centralized balance.** Tunable numbers live in `src/config/` (`combatBalance.ts`, `moraleBalance.ts`, `constants.ts`) and the catalogs (`ProductionCatalog.ts`, `TechTree.ts`, building catalogs), keeping the shared formulas identical across every system.
+- **Strict TypeScript.** `strict`, `noUnusedLocals/Parameters`, `noImplicitReturns`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes` are all enabled.
 
-### Core Systems
+## TypeScript features
 
-**Grid System** ([src/systems/grid/](src/systems/grid/))
-- Grid manages the game board with configurable rows/columns
-- Territory represents each square tile with terrain types
-- Territories can be controlled by nations and contain cities
+This project uses a strict TypeScript configuration:
+- `strict: true` — all strict type checks
+- `noUnusedLocals` & `noUnusedParameters` — no unused variables
+- `noImplicitReturns` — all code paths must return
+- `noUncheckedIndexedAccess` — indexed access returns `T | undefined`
+- `exactOptionalPropertyTypes` — strict optional properties
 
-**Resource System** ([src/systems/resources/](src/systems/resources/))
-- ResourceType: Fire Mana, Water Mana, Iron, Gold, Food, Wood
-- ResourceStorage: Manages resource amounts with add/remove/consume methods
-- ResourceCost: Defines costs for units, buildings, etc.
+## License
 
-### Game Entities
-
-**Units** ([src/entities/units/](src/entities/units/))
-- Base Unit class with health, attack, defense, movement, range
-- Infantry: Melee unit (close range, balanced stats)
-- Archer: Ranged unit (long range, lower defense)
-- Units can move, attack, and reset each turn
-
-**Cities** ([src/entities/cities/](src/entities/cities/))
-- Occupy one territory square
-- Produce units with production queue system
-- Store resources locally
-- Have population growth
-
-**Nations** ([src/entities/nations/](src/entities/nations/))
-- Control territories, cities, and units
-- Manage treasury (ResourceStorage)
-- Diplomatic relations: Ally, Neutral, War, Trade Agreement
-- Can be player-controlled or AI
-
-### Game State
-
-**GameState Manager** ([src/managers/GameState.ts](src/managers/GameState.ts))
-- Central state management
-- Manages all nations, cities, units, and the grid
-- Turn-based system with active nation tracking
-- Provides access methods for all game entities
-
-## TypeScript Features
-
-This project uses strict TypeScript configuration including:
-- `strict: true` - All strict type checks
-- `noUnusedLocals` & `noUnusedParameters` - No unused variables
-- `noImplicitReturns` - All code paths must return
-- `noUncheckedIndexedAccess` - Array access returns potentially undefined
-- `exactOptionalPropertyTypes` - Strict optional properties
-
-## Testing
-
-All major modules have comprehensive test coverage:
-- [ResourceStorage.test.ts](src/systems/resources/ResourceType.test.ts) - Resource management
-- [Unit.test.ts](src/entities/units/Unit.test.ts) - Unit behavior (Infantry, Archer)
-- [Grid.test.ts](src/systems/grid/Grid.test.ts) - Grid and territory logic
-- [Nation.test.ts](src/entities/nations/Nation.test.ts) - Nation diplomacy
-
-Run `npm test` to verify all systems work correctly.
-
-## Usage Example
-
-```typescript
-import { GameState } from '@/managers';
-import { Nation } from '@/entities/nations';
-import { Infantry, Archer } from '@/entities/units';
-import { City } from '@/entities/cities';
-import { ResourceType } from '@/systems/resources';
-
-// Initialize game with 20x20 grid
-const gameState = new GameState({ rows: 20, cols: 20 });
-
-// Create nations
-const rome = new Nation('nation-1', 'Rome', '#FF0000');
-const persia = new Nation('nation-2', 'Persia', '#0000FF');
-gameState.addNation(rome);
-gameState.addNation(persia);
-
-// Set diplomatic relations
-rome.declareWar(persia.getId());
-
-// Create a city
-const city = new City('city-1', 'Roma', rome.getId(), { row: 5, col: 5 });
-gameState.addCity(city);
-
-// Add resources to nation treasury
-rome.getTreasury().addResource(ResourceType.GOLD, 1000);
-rome.getTreasury().addResource(ResourceType.IRON, 500);
-
-// Create units
-const infantry = new Infantry('unit-1', rome.getId(), { row: 6, col: 5 });
-const archer = new Archer('unit-2', rome.getId(), { row: 7, col: 5 });
-gameState.addUnit(infantry);
-gameState.addUnit(archer);
-
-// Start turn-based gameplay
-gameState.setActiveNation(rome.getId());
-```
-
-## Next Steps
-
-1. Create Phaser scenes in `src/scenes/` to visualize the grid and entities
-2. Implement combat system and pathfinding
-3. Add AI logic for computer-controlled nations
-4. Create UI for unit/city management
-5. Add more unit types, buildings, and game mechanics
-6. Import game assets into `assets/` folder
+MIT

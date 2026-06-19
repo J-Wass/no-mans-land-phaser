@@ -272,12 +272,18 @@ export class CityMenuModal {
     const secs = (entry.ticks / TICK_RATE).toFixed(1);
     costLbl.textContent = `${formatCost(entry.cost as Record<string, number>)}  ${secs}s`;
 
+    const detailLbl = document.createElement('div');
+    detailLbl.className = 'text-caption text-wrap';
+    detailLbl.style.color = 'var(--color-dim)';
+    detailLbl.textContent = entry.detail;
+
     const statusLbl = document.createElement('div');
     statusLbl.className = 'text-caption text-wrap';
     statusLbl.style.color = 'var(--color-dim)';
 
     info.appendChild(name);
     info.appendChild(costLbl);
+    info.appendChild(detailLbl);
     info.appendChild(statusLbl);
 
     const btn = document.createElement('button');

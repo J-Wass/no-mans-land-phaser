@@ -7,6 +7,7 @@ import {
   mineralGoldBonus,
   airManaVisionBonus,
   shadowManaVisionReduction,
+  shadowManaWithdrawBonus,
   lightningManaSpeedBonus,
 } from './ResourceBonuses';
 import { TerritoryResourceType } from './TerritoryResourceType';
@@ -128,6 +129,23 @@ describe('shadowManaVisionReduction', () => {
   it('stays capped at 1 even with multiple shadow mines', () => {
     const counts3 = new Map([[T.SHADOW_MANA, 3]]);
     expect(shadowManaVisionReduction(new Set([T.SHADOW_MANA]), counts3)).toBe(1);
+  });
+});
+
+describe('shadowManaWithdrawBonus', () => {
+  it('returns 0 with no shadow mana', () => {
+    expect(shadowManaWithdrawBonus(new Set())).toBe(0);
+  });
+
+  it('returns +0.15 from the very first shadow mine', () => {
+    expect(shadowManaWithdrawBonus(new Set([T.SHADOW_MANA]))).toBeCloseTo(0.15);
+  });
+
+  it('adds +0.15 per mine, up to +0.45 at 3 mines', () => {
+    const counts2 = new Map([[T.SHADOW_MANA, 2]]);
+    const counts3 = new Map([[T.SHADOW_MANA, 3]]);
+    expect(shadowManaWithdrawBonus(new Set([T.SHADOW_MANA]), counts2)).toBeCloseTo(0.30);
+    expect(shadowManaWithdrawBonus(new Set([T.SHADOW_MANA]), counts3)).toBeCloseTo(0.45);
   });
 });
 

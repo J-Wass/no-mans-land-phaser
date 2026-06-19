@@ -79,3 +79,14 @@ export const TERRITORY_WALL_MITIGATION = 0.2;
 export const TERRITORY_RANGED_COUNTER_FACTOR = 0.85;
 /** HP a territory regains when its attacker withdraws. */
 export const TERRITORY_RETREAT_REGEN = 10;
+
+// ── Ranged fire (standalone) ─────────────────────────────────────────────────
+
+/**
+ * Fraction of standalone ranged-fire damage that CAVALRY takes. Cavalry is the
+ * anti-ranged unit: it shrugs off volleys as it charges, which is what lets it
+ * close on and counter ranged/siege units (the Cavalry > Ranged leg of the
+ * rock-paper-scissors triangle). Applied only in RangedFireSystem (pre-/kiting
+ * fire), never in melee battles.
+ */
+export const CAVALRY_RANGED_RESIST = 0.5;

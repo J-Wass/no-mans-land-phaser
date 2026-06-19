@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import type { Unit, BattleOrder } from '@/entities/units/Unit';
 import { effectiveBattleOrder, getMoraleBand } from '@/systems/morale/moraleRules';
-import { MoraleBand } from '@/config/moraleBalance';
+import { MoraleBand, MORALE_ADVANCE_BLOCK_AT_OR_BELOW } from '@/config/moraleBalance';
 import type { City } from '@/entities/cities/City';
 import type { GameState } from '@/managers/GameState';
 import type { GameSetup } from '@/types/gameSetup';
@@ -916,8 +916,11 @@ export class UIScene extends Phaser.Scene {
     STANCE_ORDERS.forEach(({ order, label, tooltip }, index) => {
       const bx = x + pad + index * (btnW + gap) + btnW / 2;
       const active = unit.getBattleOrder() === order;
-      // Block ADVANCE selection when the morale-aware effective order would override it.
-      const wouldBeBlocked = order === 'ADVANCE' && effectiveBattleOrder(unit) !== 'ADVANCE';
+      // Block ADVANCE selection when morale is too low to honor it (it would be
+      // downgraded to HOLD). Check morale directly rather than effectiveBattleOrder,
+      // which reflects the unit's *current* order — for a unit not already on ADVANCE
+      // that always reads as non-ADVANCE and would wrongly grey the button out.
+      const wouldBeBlocked = order === 'ADVANCE' && unit.getMorale() <= MORALE_ADVANCE_BLOCK_AT_OR_BELOW;
       const disabled = wouldBeBlocked && !active;
       const fill = active ? 0x34558e : disabled ? 0x1b2230 : 0x182235;
       const border = active ? 0x8cb4ff : disabled ? 0x344155 : 0x47628d;

@@ -36,7 +36,7 @@ import {
   getMoraleDamageMultiplier,
   getMoraleMitigationDelta,
 } from '@/systems/morale/moraleRules';
-import { LOSS_BATTLE_LOST, SHAKEN_WITHDRAW_BONUS, BAND_SHAKEN_MIN, BAND_WAVERING_MIN } from '@/config/moraleBalance';
+import { LOSS_BATTLE_LOST } from '@/config/moraleBalance';
 
 /** Round cadence for sieges and territory battles (1 s at TICK_RATE=10). */
 export const BATTLE_ROUND_TICKS = 1 * TICK_RATE;
@@ -427,11 +427,11 @@ export class BattleSystem {
     const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
     const counts = gameState.getNationActiveDepositCounts(unit.getOwnerId());
     const speedDelta = unit.getStats().speed - opponent.getStats().speed;
-    // SHAKEN units (morale 15-39) flee more readily.
-    const shakenBonus = unit.getMorale() >= BAND_SHAKEN_MIN && unit.getMorale() < BAND_WAVERING_MIN
-      ? SHAKEN_WITHDRAW_BONUS : 0;
+    // Morale does NOT affect the odds — it only gates whether WITHDRAW is the
+    // effective order (handled by effectiveBattleOrder above). Speed gap and
+    // Shadow Mana are the only modifiers.
     const chance = clamp(
-      WITHDRAW_BASE_CHANCE + speedDelta * WITHDRAW_SPEED_WEIGHT + shadowManaWithdrawBonus(deposits, counts) + shakenBonus,
+      WITHDRAW_BASE_CHANCE + speedDelta * WITHDRAW_SPEED_WEIGHT + shadowManaWithdrawBonus(deposits, counts),
       WITHDRAW_CHANCE_MIN,
       WITHDRAW_CHANCE_MAX,
     );
@@ -667,24 +667,29 @@ function getOrderMitigation(order: BattleOrder): number {
 }
 
 /**
- * Per-attack matchup modifier. Combines universal armor rules with unit-specific
- * rock-paper-scissors counters. All effects stack additively.
+ * Per-attack matchup modifier — the rock-paper-scissors triangle:
+ *   HEAVY INFANTRY (spears) > CAVALRY > RANGED (Longbow/Crossbow/siege) > HEAVY INFANTRY
+ * Infantry is a cheap generalist with no counter role; Scout is recon.
+ * All effects stack additively into one factor.
  *
  * Universal armor:
  *   ranged volley vs heavy armor:        +12%  (arrows punch plate)
  *   melee swing  vs heavy armor:          -6%  (sword glances off plate)
  *
- * Siege in close combat:
- *   siege attacker in melee:             -30%  (catapults can't brawl)
+ * Siege in melee (helpless — this is the Cavalry-counters-siege leg):
+ *   siege forced to melee (ADVANCE):     -30%  (catapults can't brawl)
+ *   siege pinned but firing point-blank: -80%  (caught in melee = near-useless)
  *   anything else hitting siege in melee: +8%  (catapults can't dodge)
  *
  * Unit-specific counters (offense):
  *   Heavy Infantry vs Cavalry:           +35%  (spear-wall / pike anti-cavalry)
  *   Heavy Infantry vs light armor:       +15%  (armored line crushes skirmishers)
  *   Crossbowman   vs heavy armor:        +10%  (armor-piercing bolts; stacks with the +12% ranged-vs-heavy)
- *   Crossbowman   vs Cavalry:            +35%  (well-aimed shots into the charge; stacks with the heavy-armor bonuses)
- *   Catapult / Trebuchet vs heavy armor: +20%  (boulders ignore plate)
- *   Catapult / Trebuchet vs light armor: -25%  (slow projectiles miss fast targets)
+ *   Crossbowman   vs light armor:        -30%  (slow heavy bolts wasted on cheap skirmishers)
+ *
+ * Ranged units' edge over shields (the RANGED > HEAVY INFANTRY leg) comes from
+ * AT-RANGE pre-damage (RangedFireSystem) plus the armor bonuses above — NOT from
+ * a melee bonus. A ranged unit that gets caught in melee is meant to lose.
  */
 function getMatchupAttackFactor(
   attackerType: UnitType,
@@ -709,15 +714,20 @@ function getMatchupAttackFactor(
   // Crossbowman: armor-piercing bolts (stacks with the universal ranged-vs-heavy)
   if (attackerType === 'CROSSBOWMAN' && defenderArmor === 'heavy') factor += 0.10;
 
-  // Crossbowman vs Cavalry: extra punishment for cavalry that closes on a crossbow line.
-  // Stacks with the heavy-armor bonuses above for a total of +57% offense.
-  if (attackerType === 'CROSSBOWMAN' && defenderType === 'CAVALRY') factor += 0.35;
+  // Crossbowman vs light armor: heavy bolts are slow-firing and wasted on cheap
+  // skirmishers — a crossbow still beats one Infantry but is left bloodied, so a
+  // second cheap light unit can finish it. Keeps the crossbow an anti-armor pick.
+  if (attackerType === 'CROSSBOWMAN' && defenderArmor === 'light') factor -= 0.30;
 
-  // Siege weapons: anti-armor specialists, hopeless against fast/light units
-  if ((attackerType === 'CATAPULT' || attackerType === 'TREBUCHET') && useRanged) {
-    if (defenderArmor === 'heavy') factor += 0.20;
-    if (defenderArmor === 'light') factor -= 0.25;
-  }
+  // (Crossbowman no longer counters Cavalry — under the rock-paper-scissors
+  // triangle Cavalry beats every ranged unit, Crossbow included.)
+
+  // Siege "pinned in melee": once an enemy reaches a ranged siege unit it can
+  // only fire point-blank — near-helpless. This is the leg that lets Cavalry
+  // counter siege. A siege unit's devastating AT-RANGE fire goes through
+  // RangedFireSystem (which never calls this), so its ranged attack only runs
+  // through here when it has been caught in a melee battle.
+  if ((attackerType === 'CATAPULT' || attackerType === 'TREBUCHET') && useRanged) factor -= 0.80;
 
   return factor;
 }
@@ -775,12 +785,11 @@ function getTerrainMitigation(unitType: UnitType, terrain: TerrainType, order: B
  *   Crossbowman    WITHDRAW:           +12% (kiting tax on pursuers)
  *   Siege hit in melee by non-siege:    -8% (sitting ducks if shoved up close)
  *
- * Anti-cavalry mitigation (applies in any stance, mitigation is clamped at MITIGATION_CAP):
+ * Anti-cavalry mitigation (the spears > Cavalry leg; clamped at MITIGATION_CAP):
  *   Heavy Infantry being hit by Cavalry: +20% (planted spears soak the charge)
- *   Crossbowman    being hit by Cavalry: +20% (stakes / pavise behind the line)
+ * (Crossbowman no longer soaks the charge — under the triangle, Cavalry beats it.)
  * These stack with the defender's own stance base (HOLD 0.22, WITHDRAW 0.16) and
- * the Heavy Infantry / Crossbowman defensive stance bonuses, which now actually
- * fire for the defender's own stance.
+ * the Heavy Infantry / Crossbowman defensive stance bonuses.
  */
 function getMatchupMitigation(unitType: UnitType, attackerType: UnitType, order: BattleOrder): number {
   let bonus = 0;
@@ -790,9 +799,8 @@ function getMatchupMitigation(unitType: UnitType, attackerType: UnitType, order:
     bonus -= 0.08;
   }
 
-  // Anti-cavalry defensive counters
+  // Anti-cavalry defensive counter (Heavy Infantry only — the spears > Cavalry leg)
   if (unitType === 'HEAVY_INFANTRY' && attackerType === 'CAVALRY') bonus += 0.20;
-  if (unitType === 'CROSSBOWMAN'    && attackerType === 'CAVALRY') bonus += 0.20;
 
   return bonus;
 }

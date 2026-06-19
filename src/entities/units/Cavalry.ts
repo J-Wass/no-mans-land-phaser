@@ -6,7 +6,7 @@ export class Cavalry extends Unit {
   constructor(id: EntityId, ownerId: EntityId, position: GridCoordinates) {
     super(id, UnitType.CAVALRY, ownerId, position, {
       maxHealth: 160,
-      meleeDamage: 40,
+      meleeDamage: 32,
       rangedDamage: 0,
       armorType: 'heavy',
       speed: 3,

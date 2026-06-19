@@ -21,7 +21,7 @@ import type { EntityId } from '@/types/common';
 import type { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { weaponTierDamageBonus, fireManaDamageFactor } from '@/systems/resources/ResourceBonuses';
 import { manhattan } from '@/systems/grid/geometry';
-import { healthFactor, damageVariance } from '@/config/combatBalance';
+import { healthFactor, damageVariance, CAVALRY_RANGED_RESIST } from '@/config/combatBalance';
 import { applyCombatMoraleHit } from '@/systems/morale/moraleRules';
 
 /** Ticks between consecutive shots from a stationary ranged unit (2 s at TICK_RATE=10). */
@@ -49,9 +49,14 @@ export class RangedFireSystem {
 
       const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
       const counts   = gameState.getNationActiveDepositCounts(unit.getOwnerId());
-      const damage   = this.calculateDamage(unit, deposits, counts);
+      const rawDamage = this.calculateDamage(unit, deposits, counts);
 
       if (target.type === 'unit') {
+        // Cavalry shrugs off ranged fire as it charges (its anti-ranged identity) —
+        // this is what lets it close on and counter ranged/siege units.
+        const damage = target.unit.getUnitType() === 'CAVALRY'
+          ? Math.max(1, Math.round(rawDamage * CAVALRY_RANGED_RESIST))
+          : rawDamage;
         target.unit.takeDamage(damage);
         applyCombatMoraleHit(target.unit, damage);
         eventBus.emit('ranged:fired', {
@@ -74,7 +79,7 @@ export class RangedFireSystem {
         }
       } else {
         // Ranged fire chips HP but cannot conquer; minimum 1 HP remains
-        const newHp = Math.max(1, target.city.getHealth() - damage);
+        const newHp = Math.max(1, target.city.getHealth() - rawDamage);
         target.city.setHealth(newHp);
         const cityDist = manhattan(unit.position, target.city.position);
         if (cityDist <= 3) {
@@ -87,7 +92,7 @@ export class RangedFireSystem {
           unitId:     unit.id,
           targetId:   target.city.id,
           targetType: 'city',
-          damage,
+          damage: rawDamage,
           from: { ...unit.position },
           to:   { ...target.city.position },
           tick: currentTick,
