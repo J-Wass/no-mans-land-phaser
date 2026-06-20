@@ -15,7 +15,6 @@ import type { CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { TechId } from '@/systems/research/TechTree';
 import type { Unit } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
-import type { Difficulty } from '@/types/gameSetup';
 import type { MoraleBand } from '@/config/moraleBalance';
 
 export type MoraleGainSource =
@@ -121,10 +120,6 @@ export type GameEventMap = {
   'ui:camera-panned':          Record<string, never>;
   /** A full-screen DOM menu/modal was opened (used by the tutorial to detect player navigation). */
   'ui:modal-opened':           { modal: 'cityMenu' | 'territoryMenu' | 'research' | 'diplomacy' };
-  /** Sandbox toolbar: player changed AI difficulty (or 'sandbox' = off). */
-  'sandbox:ai-difficulty-changed': { difficulty: Difficulty };
-  /** Sandbox toolbar: tile paint mode toggled. */
-  'sandbox:tile-edit-mode':    { active: boolean };
 };
 
 export class GameEventBus {

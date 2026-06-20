@@ -32,7 +32,7 @@ import type { GridCoordinates } from '@/types/common';
 import type { Unit } from '@/entities/units/Unit';
 import type { City } from '@/entities/cities/City';
 import {
-  TERRAIN_TEXTURE, TERRAIN_CYCLE, DEPOSIT_ICON, DEPOSIT_INFO,
+  TERRAIN_TEXTURE, DEPOSIT_ICON, DEPOSIT_INFO,
   unitInitial, stanceShortLabel, stanceBadgeColor, moraleBandFill,
 } from './gameSceneHelpers';
 import { effectiveBattleOrder, getMoraleBand } from '@/systems/morale/moraleRules';
@@ -86,9 +86,6 @@ export class GameScene extends Phaser.Scene {
   private currentVisible: Set<string> = new Set();
   private currentDiscovered: Set<string> = new Set();
   private visionSystem!: VisionSystem;
-  /** Terrain tile images tracked for sandbox tile editing */
-  private terrainImages: Map<string, Phaser.GameObjects.Image> = new Map();
-  private tileEditActive = false;
 
   private uiClickConsumed = false;
   private depositTooltip: Phaser.GameObjects.Container | null = null;
@@ -157,9 +154,7 @@ export class GameScene extends Phaser.Scene {
     this.citySprites.clear();
     this.cityLabels.clear();
     this.contactMarkers.clear();
-    this.terrainImages.clear();
     this.depositTooltip = null;
-    this.tileEditActive = false;
     this.selectedUnitId = null;
     this.selectedCityId = null;
     this.selectedTerritory = null;
@@ -440,13 +435,6 @@ export class GameScene extends Phaser.Scene {
         });
       }
     }
-    this.subs.on('sandbox:ai-difficulty-changed', ({ difficulty }) => {
-      this.aiSystem.setDifficulty(difficulty);
-    });
-    this.subs.on('sandbox:tile-edit-mode', ({ active }) => {
-      this.tileEditActive = active;
-    });
-
     this.scene.launch('UIScene', {
       setup:           this.setup,
       gameState:       this.gameState,
@@ -496,7 +484,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       // Left-click on a selected unit's owner starts a drag-to-paint-path session.
-      if (ptr.button === 0 && this.selectedUnitId && !this.tileEditActive) {
+      if (ptr.button === 0 && this.selectedUnitId) {
         const tile = this.worldToTile(ptr.worldX, ptr.worldY);
         if (!tile) return;
         this.leftDragActive = true;
@@ -584,11 +572,10 @@ export class GameScene extends Phaser.Scene {
         const cx = c * TILE_SIZE + TILE_SIZE / 2;
         const bottomY = (r + 1) * TILE_SIZE;
 
-        const img = this.add.image(cx, bottomY, TERRAIN_TEXTURE[territory.getTerrainType()])
+        this.add.image(cx, bottomY, TERRAIN_TEXTURE[territory.getTerrainType()])
           .setDisplaySize(TILE_SIZE, imgH)
           .setOrigin(0.5, 1)
           .setDepth(r);
-        this.terrainImages.set(`${r},${c}`, img);
       }
     }
   }
@@ -1154,11 +1141,6 @@ export class GameScene extends Phaser.Scene {
 
     if (!this.gameState.getGrid().isValidCoordinate(target)) return;
 
-    if (this.tileEditActive) {
-      this.cycleTileTerrain(row, col);
-      return;
-    }
-
     // ── Ranged target-selection mode ─────────────────────────────────────────
     // Double-click detection for city/territory menus
     const now = Date.now();
@@ -1416,16 +1398,6 @@ export class GameScene extends Phaser.Scene {
     }
 
     return Array.from(found);
-  }
-
-  private cycleTileTerrain(row: number, col: number): void {
-    const territory = this.gameState.getGrid().getTerritory({ row, col });
-    if (!territory) return;
-    const current = territory.getTerrainType();
-    const idx = TERRAIN_CYCLE.indexOf(current);
-    const next = TERRAIN_CYCLE[(idx + 1) % TERRAIN_CYCLE.length]!;
-    territory.setTerrainType(next);
-    this.terrainImages.get(`${row},${col}`)?.setTexture(TERRAIN_TEXTURE[next]);
   }
 
   private handleRightClick(): void {

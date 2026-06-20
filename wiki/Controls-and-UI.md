@@ -149,7 +149,7 @@ The main menu is a 3-card layout plus a load row. A random calm title track play
 
 - **Card 1 — Scenario picker.** Preset scenarios (★ marks the tutorial). Shows name, description, and "Player vs AI". Launches with **START SCENARIO / START TUTORIAL**.
 - **Card 2 — Standard Match.** Pick **1–4 opponents** and **Easy/Medium/Hard**; launches a procedural skirmish.
-- **Card 3 — Sandbox.** Start with 9999 of every resource; everything builds/researches in ~1s; no costs, no fog; live AI + terrain controls.
+- **Card 3 — Sandbox.** Start with 9999 of every resource; everything builds/researches in ~1s; no costs, no fog.
 - **Load row** — **LOAD SAVED GAME** loads your first non-empty save slot.
 
 New players see a banner nudging them toward the tutorial (until `localStorage 'nml:hasPlayed'` is set).

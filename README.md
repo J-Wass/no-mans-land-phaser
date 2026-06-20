@@ -37,7 +37,7 @@ Test files live next to the code they cover as `*.test.ts` (e.g. `BattleSystem.t
 ## Gameplay overview
 
 - **Tick model:** the world advances at `TICK_RATE = 10` ticks/sec (100 ms/tick). The clock reads "Day N HH:00" (100 ticks = 1 day). Speed is adjustable (Pause / 0.5× / 1× / 2× / 4×).
-- **Modes:** Scenario, Standard Match (procedural skirmish, 1–4 AI), Sandbox (no costs, no fog, live AI/terrain tools), and a guided Tutorial.
+- **Modes:** Scenario, Standard Match (procedural skirmish, 1–4 AI), Sandbox (no costs, no fog, instant builds), and a guided Tutorial.
 - **Difficulties:** Easy (passive-ish Noob AI), Medium (Basic AI), Hard (Advanced AI with a strategy state machine), Sandbox (passive).
 - **Win condition:** scenario-defined — usually eliminate all rivals; some scenarios are "survive N ticks".
 - **Controls:** mouse-driven. Left-click to select/move (left-drag paints a path), right-drag to pan, wheel to zoom, double-click cities/tiles for their menus, ESC for the pause menu. Attacking = moving a unit into an enemy; combat starts automatically.

@@ -191,18 +191,6 @@ export const HUD_STRINGS = {
 
   resourceValue: (emoji: string, amount: number) => `${emoji} ${amount}`,
 
-  sandbox: {
-    heading: 'SANDBOX',
-    aiLevel: 'AI LEVEL',
-    aiOff: 'OFF',
-    aiEasy: 'EASY',
-    aiMed: 'MED',
-    aiHard: 'HARD',
-    tools: 'TOOLS',
-    paintOn: 'PAINT ON',
-    paint: 'PAINT',
-  },
-
   notifications: {
     spyCaught: (r: number, c: number) => `Your spy was discovered and killed at (${r}, ${c}).`,
     tileCaptured: (nation: string, r: number, c: number, source: string) =>

@@ -44,7 +44,7 @@ Chosen from the main menu (see [Controls & UI → Menu flow](Controls-and-UI.md#
 |---|---|
 | **Scenario** | A hand-authored map and matchup from the [scenario list](Scenarios-and-Tutorial.md). Forces 1 opponent (or the scenario's defined nations). |
 | **Standard Match (skirmish)** | A procedurally generated map. You pick **1–4 opponents** and a **difficulty**. |
-| **Sandbox** | Free play: you start with **9999 of every resource**, **everything (units, buildings, outposts, upgrades, tech) finishes in ~1s**, **no resource costs**, **no fog of war**, plus a live toolbar to change AI difficulty and paint terrain mid-game. |
+| **Sandbox** | Free play: you start with **9999 of every resource**, **everything (units, buildings, outposts, upgrades, tech) finishes in ~1s**, **no resource costs**, and **no fog of war**. |
 | **Tutorial** | A guided scenario against a **passive opponent** with fog disabled. See [Tutorial](Scenarios-and-Tutorial.md#the-tutorial). |
 
 ## Difficulty levels

@@ -17,12 +17,6 @@ export const TERRAIN_TEXTURE: Record<TerrainType, string> = {
   [TerrainType.DESERT]: 'terrain_desert',
 };
 
-/** Order terrains cycle through when sandbox tile-painting. */
-export const TERRAIN_CYCLE: TerrainType[] = [
-  TerrainType.PLAINS, TerrainType.SNOW_FOREST, TerrainType.FOREST,
-  TerrainType.MOUNTAIN, TerrainType.DESERT, TerrainType.WATER,
-];
-
 /** Icon glyph drawn on a tile for each resource-deposit type. */
 export const DEPOSIT_ICON: Record<string, string> = {
   COPPER:         '⊛',

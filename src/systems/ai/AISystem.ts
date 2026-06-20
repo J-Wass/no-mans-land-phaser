@@ -26,17 +26,8 @@ export class AISystem {
     private readonly commandProcessor: CommandProcessor,
     private readonly movementSystem:   MovementSystem,
     private readonly pathfinder:       Pathfinder,
-    private difficulty:                Difficulty,
+    private readonly difficulty:       Difficulty,
   ) {
-    this.initControllers();
-  }
-
-  public setDifficulty(difficulty: Difficulty): void {
-    // Idempotent: rebuilding controllers resets each AdvancedProfile's strategy and
-    // every controller's evaluation phase, so skip when nothing actually changed.
-    if (difficulty === this.difficulty) return;
-    this.difficulty = difficulty;
-    this.controllers.clear();
     this.initControllers();
   }
 
