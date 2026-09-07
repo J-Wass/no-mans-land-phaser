@@ -14,22 +14,40 @@ export const SIZE_OPTIONS: ReadonlyArray<{ label: string; value: number }> = [
   { label: 'X-Large', value: 1.4  },
 ];
 
+/** Read a localStorage key, falling back to `fallback` if storage is blocked (private mode, quota, sandboxed iframe). */
+function readStorage(key: string, fallback: string | null): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return fallback;
+  }
+}
+
+/** Write a localStorage key; a no-op (in-memory defaults keep working) if storage is blocked. */
+function writeStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Blocked storage — accessibility settings just won't persist this session.
+  }
+}
+
 export function getFont(): string {
-  return localStorage.getItem(KEY_FONT) ?? 'monospace';
+  return readStorage(KEY_FONT, null) ?? 'monospace';
 }
 
 export function setFont(value: string): void {
-  localStorage.setItem(KEY_FONT, value);
+  writeStorage(KEY_FONT, value);
   applyAccessibilitySettings();
 }
 
 export function getFontSizeScale(): number {
-  const stored = localStorage.getItem(KEY_SIZE);
+  const stored = readStorage(KEY_SIZE, null);
   return stored ? parseFloat(stored) : 1.0;
 }
 
 export function setFontSizeScale(value: number): void {
-  localStorage.setItem(KEY_SIZE, String(value));
+  writeStorage(KEY_SIZE, String(value));
   applyAccessibilitySettings();
 }
 

@@ -83,11 +83,11 @@ export class City implements GameEntity, Serializable<CityData> {
   }
 
   public heal(amount: number): void {
-    this.data.currentHealth = Math.min(this.data.maxHealth, this.data.currentHealth + amount);
+    this.data.currentHealth = Math.min(this.getMaxHealth(), this.data.currentHealth + amount);
   }
 
   public setHealth(amount: number): void {
-    this.data.currentHealth = Math.max(0, Math.min(this.data.maxHealth, amount));
+    this.data.currentHealth = Math.max(0, Math.min(this.getMaxHealth(), amount));
   }
 
   public getCurrentOrder(): ProductionOrder | null { return this.data.currentOrder; }
@@ -119,6 +119,11 @@ export class City implements GameEntity, Serializable<CityData> {
     return this.data.productionQueue.splice(index, 1)[0] ?? null;
   }
 
+  /** Drop every queued order (current order is untouched). */
+  public clearQueue(): void {
+    this.data.productionQueue = [];
+  }
+
   /** Restore the queue directly (used by save/load). */
   public restoreQueue(queue: ProductionOrder[]): void {
     this.data.productionQueue = queue.map(o => ({ ...o }));
@@ -126,22 +131,28 @@ export class City implements GameEntity, Serializable<CityData> {
 
   /**
    * Advance production by one tick.
-   * @returns true when the order just completed this tick.
+   * @returns true when the order is ready to complete (ticksRemaining has hit
+   * zero). Does NOT advance the queue — callers that can actually apply the
+   * order's effect (e.g. a free tile exists to spawn the unit on) must call
+   * completeCurrentOrder() to consume it and promote the next queued order.
+   * A caller that can't yet apply the effect should leave the order in place
+   * and retry on a later tick instead of silently dropping it.
    */
   public tickProduction(): boolean {
     const order = this.data.currentOrder;
     if (!order) return false;
-    order.ticksRemaining = Math.max(0, order.ticksRemaining - 1);
-    if (order.ticksRemaining === 0) {
-      // Auto-advance the queue
-      this.data.currentOrder = this.data.productionQueue.shift() ?? null;
-      return true;
-    }
-    return false;
+    if (order.ticksRemaining > 0) order.ticksRemaining--;
+    return order.ticksRemaining === 0;
   }
 
+  /** Consume the current (completed) order and promote the next queued one. */
+  public completeCurrentOrder(): void {
+    this.data.currentOrder = this.data.productionQueue.shift() ?? null;
+  }
+
+  /** Cancel the active order and promote the next queued one, if any. */
   public cancelOrder(): void {
-    this.data.currentOrder = null;
+    this.data.currentOrder = this.data.productionQueue.shift() ?? null;
   }
 
   /** Progress as a 0–1 fraction (clamped to [0, 1]). */

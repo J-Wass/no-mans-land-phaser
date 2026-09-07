@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 
+HOST = "127.0.0.1"  # localhost only — matches the printed URL below
 PORT = 8000
 ROOT = Path(__file__).resolve().parent
 DIST_DIR = ROOT / "dist"
@@ -39,7 +40,7 @@ def ensure_dist() -> None:
 def main() -> None:
     ensure_dist()
 
-    with socketserver.TCPServer(("", PORT), PreviewHandler) as httpd:
+    with socketserver.TCPServer((HOST, PORT), PreviewHandler) as httpd:
         print(f"Serving dist preview at http://localhost:{PORT}", flush=True)
         print("Use `npm run dev` if you want Vite hot-reload for /src/main.ts.", flush=True)
         httpd.serve_forever()

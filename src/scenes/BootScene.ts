@@ -60,7 +60,14 @@ export class BootScene extends Phaser.Scene {
   create(data: BootSceneData): void {
     const setup: GameSetup = normalizeGameSetup(data?.setup);
     const totalNations = 1 + Math.min(setup.opponentCount, 4);
-    const GRID_SIZE = computeGridSize(totalNations);
+
+    // Scenarios ship their own hand-authored, fixed-size map. The grid must be
+    // built at that exact size, or scripted cities/units placed near the map's
+    // edges land outside the grid entirely and are silently dropped.
+    const scenario = setup.gameMode === 'scenario' ? getScenarioById(setup.scenarioId) : null;
+    const scenarioMapRows = scenario ? getScenarioMap(scenario.id) : null;
+    const GRID_SIZE = scenarioMapRows ? scenarioMapRows.length : computeGridSize(totalNations);
+
     // Seed comes from the setup (so a host can share it) or is freshly chosen.
     const seed = setup.seed ?? Rng.randomSeed();
     const gameState = new GameState({ rows: GRID_SIZE, cols: GRID_SIZE }, seed);
@@ -68,30 +75,20 @@ export class BootScene extends Phaser.Scene {
     // entire initial state is reproducible from the seed.
     const rng = gameState.getRng().fn();
     const grid = gameState.getGrid();
-    const waterBorder = Math.max(3, Math.round(GRID_SIZE * 0.12));
 
-    // Water border
-    for (let r = 0; r < GRID_SIZE; r++) {
-      for (let c = 0; c < GRID_SIZE; c++) {
-        if (r < waterBorder || r >= GRID_SIZE - waterBorder || c < waterBorder || c >= GRID_SIZE - waterBorder) {
-          grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
+    if (scenario) {
+      if (scenarioMapRows) applyScenarioMap(grid, scenarioMapRows);
+      applyScenarioDeposits(grid, scenario.deposits);
+      this.populateScenarioGameState(gameState, setup, grid, GRID_SIZE, rng);
+    } else {
+      const waterBorder = Math.max(3, Math.round(GRID_SIZE * 0.12));
+      for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+          if (r < waterBorder || r >= GRID_SIZE - waterBorder || c < waterBorder || c >= GRID_SIZE - waterBorder) {
+            grid.getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
+          }
         }
       }
-    }
-
-    if (setup.gameMode === 'scenario') {
-      const scenario = getScenarioById(setup.scenarioId);
-      if (scenario) {
-        const mapRows = getScenarioMap(scenario.id);
-        if (mapRows) applyScenarioMap(grid, mapRows);
-        applyScenarioDeposits(grid, scenario.deposits);
-        this.populateScenarioGameState(gameState, setup, grid, GRID_SIZE, rng);
-      } else {
-        placeProceduralTerrain(grid, GRID_SIZE, rng);
-        placeResourceDeposits(grid, GRID_SIZE, rng);
-        this.populateSkirmishGameState(gameState, setup, grid, GRID_SIZE, rng);
-      }
-    } else {
       placeProceduralTerrain(grid, GRID_SIZE, rng);
       placeResourceDeposits(grid, GRID_SIZE, rng);
       this.populateSkirmishGameState(gameState, setup, grid, GRID_SIZE, rng);

@@ -80,6 +80,41 @@ describe('DiplomacySystem', () => {
     expect(diplomacy.declareWar(nationA.getId(), nationB.getId(), 20 + PEACE_COOLDOWN_TICKS)).toBe(true);
   });
 
+  it('does not let a stray combat event auto-declare war during the peace cooldown', () => {
+    diplomacy.declareWar(nationA.getId(), nationB.getId(), 5);
+    expect(diplomacy.proposePeace(nationA.getId(), nationB.getId(), 20, movement).accepted).toBe(true);
+    expect(nationA.getRelation(nationB.getId())).toBe(DiplomaticStatus.NEUTRAL);
+
+    const attacker = new Infantry('unit-a', nationA.getId(), { row: 2, col: 2 });
+    const defender = new Infantry('unit-b', nationB.getId(), { row: 2, col: 3 });
+    state.addUnit(attacker);
+    state.addUnit(defender);
+
+    // Combat can still incidentally happen between neutral nations, but it
+    // must not restart the war while the post-peace cooldown is active.
+    eventBus.emit('battle:started', {
+      battleId: 'battle-1',
+      unitAId: attacker.id,
+      unitBId: defender.id,
+      position: { row: 2, col: 3 },
+      tick: 21,
+    });
+
+    expect(nationA.getRelation(nationB.getId())).toBe(DiplomaticStatus.NEUTRAL);
+    expect(nationB.getRelation(nationA.getId())).toBe(DiplomaticStatus.NEUTRAL);
+
+    // Once the cooldown has expired, the same kind of combat event may
+    // auto-declare war again.
+    eventBus.emit('battle:started', {
+      battleId: 'battle-2',
+      unitAId: attacker.id,
+      unitBId: defender.id,
+      position: { row: 2, col: 3 },
+      tick: 20 + PEACE_COOLDOWN_TICKS,
+    });
+    expect(nationA.getRelation(nationB.getId())).toBe(DiplomaticStatus.WAR);
+  });
+
   it('accepts gifts and applies rejection backoff that resets after inactivity', () => {
     nationB.getTreasury().addResource(ResourceType.GOLD, 100);
     nationB.getTreasury().addResource(ResourceType.FOOD, 100);

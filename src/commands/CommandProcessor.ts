@@ -40,6 +40,24 @@ const MANA_DEPOSITS = new Set<TerritoryResourceType>([
   TerritoryResourceType.SHADOW_MANA,
 ]);
 
+/**
+ * Silver/Gold deposits have no dedicated mine building yet — they're activated
+ * by building either ore mine on the tile (see GameState.territoryHasActiveMine).
+ * Without this, the deposit-match check below only ever accepted a Copper Mine
+ * on a Copper tile / Iron Mine on an Iron tile, so a Silver or Gold deposit
+ * could never actually be mined through the normal build command.
+ */
+function satisfiesDepositRequirement(
+  building: TerritoryBuildingType,
+  requiresDeposit: TerritoryResourceType,
+  actualDeposit: TerritoryResourceType | null,
+): boolean {
+  if (actualDeposit === requiresDeposit) return true;
+  const isOreMine = building === TerritoryBuildingType.COPPER_MINE || building === TerritoryBuildingType.IRON_MINE;
+  const isPreciousDeposit = actualDeposit === TerritoryResourceType.SILVER || actualDeposit === TerritoryResourceType.GOLD_DEPOSIT;
+  return isOreMine && isPreciousDeposit;
+}
+
 export class CommandProcessor {
   constructor(
     private gameState: GameState,
@@ -97,6 +115,12 @@ export class CommandProcessor {
     const nation = this.gameState.getNation(player.getControlledNationId());
     if (!nation || unit.getOwnerId() !== nation.getId())
       return { success: false, reason: 'Unit does not belong to this player' };
+
+    // Each path entry is billed as a single tile-step (see MovementSystem's
+    // per-step terrain cost) — without this, a path with a distant waypoint
+    // moves the unit there in one cheap step, i.e. teleports it.
+    if (!this.isPathContiguous(unit.position, command.path))
+      return { success: false, reason: 'Path is not a sequence of adjacent tiles' };
 
     this.movementSystem.issueOrder(unit, command.path);
     this.eventBus.emit('unit:move-ordered', {
@@ -171,7 +195,7 @@ export class CommandProcessor {
       if (!deposit || !MANA_DEPOSITS.has(deposit))
         return { success: false, reason: 'No mana deposit on this territory' };
     } else if (def.requiresDeposit) {
-      if (territory.getResourceDeposit() !== def.requiresDeposit)
+      if (!satisfiesDepositRequirement(command.building, def.requiresDeposit, territory.getResourceDeposit()))
         return { success: false, reason: 'Required resource deposit not present' };
     }
 
@@ -648,6 +672,18 @@ export class CommandProcessor {
       if (nbr?.getControllingNation() === nationId) return true;
     }
     return false;
+  }
+
+  /** Returns true if `start` → path[0] → path[1] → ... is an unbroken chain of single-tile steps. */
+  private isPathContiguous(start: GridCoordinates, path: GridCoordinates[]): boolean {
+    let prev = start;
+    for (const step of path) {
+      const rowDelta = Math.abs(step.row - prev.row);
+      const colDelta = Math.abs(step.col - prev.col);
+      if (Math.max(rowDelta, colDelta) !== 1) return false;
+      prev = step;
+    }
+    return true;
   }
 
   // ── OFFER_TRADE ───────────────────────────────────────────────────────────

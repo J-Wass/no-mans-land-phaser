@@ -62,7 +62,7 @@ export interface SavedBattleState {
 
 interface BattleState extends SavedBattleState {}
 
-type BattleEndReason = 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_DESTRUCTION';
+type BattleEndReason = 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_DESTRUCTION' | 'PEACE';
 
 export class BattleSystem {
   private battles: Map<string, BattleState> = new Map();
@@ -241,6 +241,39 @@ export class BattleSystem {
       if (battle.unitAId === unitId || battle.unitBId === unitId) return { ...battle };
     }
     return null;
+  }
+
+  /**
+   * Force-end any battle between these two nations (e.g. a peace treaty was
+   * just signed). No XP/morale penalty and no forced retreat move — callers
+   * are responsible for repositioning units (see DiplomacySystem.proposePeace,
+   * which already teleports units home). Without this, signing peace left the
+   * battle record intact and units kept damaging each other regardless.
+   */
+  public endBattlesBetweenNations(
+    gameState:   GameState,
+    nationA:     EntityId,
+    nationB:     EntityId,
+    eventBus:    GameEventBus,
+    currentTick: number,
+  ): void {
+    for (const battle of Array.from(this.battles.values())) {
+      const unitA = gameState.getUnit(battle.unitAId);
+      const unitB = gameState.getUnit(battle.unitBId);
+      const ownerA = unitA?.getOwnerId();
+      const ownerB = unitB?.getOwnerId();
+      const involvesBoth =
+        (ownerA === nationA && ownerB === nationB) ||
+        (ownerA === nationB && ownerB === nationA);
+      if (!involvesBoth) continue;
+
+      unitA?.setEngagedInBattle(false);
+      unitB?.setEngagedInBattle(false);
+      this.battles.delete(battle.id);
+      eventBus.emit('battle:ended', {
+        battleId: battle.id, winnerUnitId: null, loserUnitId: null, reason: 'PEACE', tick: currentTick,
+      });
+    }
   }
 
   /** Serialize all active battles for save-game (deep-copies coordinates). */

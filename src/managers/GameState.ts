@@ -19,6 +19,7 @@ import { createUnitFromData } from '@/entities/units/unitFactory';
 import type { ProductionOrder } from '@/systems/production/ProductionOrder';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import type { Territory } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import type { RegionSystem } from '@/systems/regions/RegionSystem';
 import { Rng } from '@/systems/random/Rng';
@@ -44,6 +45,13 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
    * Keyed by `${nationId}:${unitType}` so each nation has its own "101st Infantry" sequence.
    */
   private unitTypeCounters: Map<string, number>;
+  /**
+   * Serial used to mint unique ids for units spawned by city production
+   * (e.g. "unit-city-1001"). Lives on GameState (persisted with the save) so
+   * a fresh page load can't restart it at 1000 and mint an id that collides
+   * with a unit already in the loaded save.
+   */
+  private productionUnitSerial: number;
   /** Tiles each nation has ever had line-of-sight on. */
   private discoveredTiles:  Map<EntityId, Set<string>>;
   private regionSystem:     RegionSystem | null = null;
@@ -66,6 +74,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     this.currentTurn      = 1;
     this.activeNationId   = null;
     this.unitTypeCounters = new Map();
+    this.productionUnitSerial = 1000;
     this.discoveredTiles  = new Map();
     this.rng              = new Rng(seed);
     this.unitsByNation    = new Map();
@@ -81,6 +90,11 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     const next = current + 1;
     this.unitTypeCounters.set(key, next);
     return next;
+  }
+
+  /** Mint a unique id for a unit spawned by city production. */
+  public nextProductionUnitId(): EntityId {
+    return `unit-city-${++this.productionUnitSerial}`;
   }
 
   // ── Discovered tiles (fog of war) ─────────────────────────────────────────
@@ -224,6 +238,12 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
 
   // ── Unit management ───────────────────────────────────────────────────────
   public addUnit(unit: Unit): void  {
+    // Guard the ownership index against id collisions: if a unit with this id
+    // already exists (e.g. under a different owner), drop its old index entry
+    // first so the index never points a stale owner at another nation's unit.
+    const existing = this.units.get(unit.id);
+    if (existing) this.unitsByNation.get(existing.getOwnerId())?.delete(unit.id);
+
     this.units.set(unit.id, unit);
     let set = this.unitsByNation.get(unit.getOwnerId());
     if (!set) { set = new Set(); this.unitsByNation.set(unit.getOwnerId(), set); }
@@ -257,35 +277,34 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
    * Mana deposits need a MANA_MINE building.
    * Silver/GoldDeposit need a SILVER_MINE/GOLD_MINE — treated the same as copper mine for now.
    */
+  /** Whether this specific territory's own deposit has its matching mine built on it. */
+  private territoryHasActiveMine(territory: Territory, deposit: TerritoryResourceType): boolean {
+    const buildings = territory.getBuildings();
+    const isMana = (
+      deposit === TerritoryResourceType.WATER_MANA ||
+      deposit === TerritoryResourceType.FIRE_MANA ||
+      deposit === TerritoryResourceType.LIGHTNING_MANA ||
+      deposit === TerritoryResourceType.EARTH_MANA ||
+      deposit === TerritoryResourceType.AIR_MANA ||
+      deposit === TerritoryResourceType.SHADOW_MANA
+    );
+    if (isMana) return buildings.includes(TerritoryBuildingType.MANA_MINE);
+    if (deposit === TerritoryResourceType.COPPER) return buildings.includes(TerritoryBuildingType.COPPER_MINE);
+    if (deposit === TerritoryResourceType.IRON) return buildings.includes(TerritoryBuildingType.IRON_MINE);
+    if (deposit === TerritoryResourceType.FIRE_GLASS) return buildings.includes(TerritoryBuildingType.FIRE_GLASS_MINE);
+    if (deposit === TerritoryResourceType.SILVER || deposit === TerritoryResourceType.GOLD_DEPOSIT) {
+      // Silver/gold deposits activated by any ore mine (placeholder until dedicated buildings exist)
+      return buildings.includes(TerritoryBuildingType.COPPER_MINE) || buildings.includes(TerritoryBuildingType.IRON_MINE);
+    }
+    return false;
+  }
+
   public getNationActiveDeposits(nationId: EntityId): Set<TerritoryResourceType> {
     const result = new Set<TerritoryResourceType>();
     for (const territory of this.grid.getTerritoriesByNation(nationId)) {
       const deposit = territory.getResourceDeposit();
       if (!deposit) continue;
-      const buildings = territory.getBuildings();
-      const isMana = (
-        deposit === TerritoryResourceType.WATER_MANA ||
-        deposit === TerritoryResourceType.FIRE_MANA ||
-        deposit === TerritoryResourceType.LIGHTNING_MANA ||
-        deposit === TerritoryResourceType.EARTH_MANA ||
-        deposit === TerritoryResourceType.AIR_MANA ||
-        deposit === TerritoryResourceType.SHADOW_MANA
-      );
-      if (isMana && buildings.includes(TerritoryBuildingType.MANA_MINE)) {
-        result.add(deposit);
-      } else if (deposit === TerritoryResourceType.COPPER && buildings.includes(TerritoryBuildingType.COPPER_MINE)) {
-        result.add(deposit);
-      } else if (deposit === TerritoryResourceType.IRON && buildings.includes(TerritoryBuildingType.IRON_MINE)) {
-        result.add(deposit);
-      } else if (deposit === TerritoryResourceType.FIRE_GLASS && buildings.includes(TerritoryBuildingType.FIRE_GLASS_MINE)) {
-        result.add(deposit);
-      } else if (
-        (deposit === TerritoryResourceType.SILVER || deposit === TerritoryResourceType.GOLD_DEPOSIT) &&
-        (buildings.includes(TerritoryBuildingType.COPPER_MINE) || buildings.includes(TerritoryBuildingType.IRON_MINE))
-      ) {
-        // Silver/gold deposits activated by any ore mine (placeholder until dedicated buildings exist)
-        result.add(deposit);
-      }
+      if (this.territoryHasActiveMine(territory, deposit)) result.add(deposit);
     }
     return result;
   }
@@ -293,14 +312,17 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
   /**
    * Like getNationActiveDeposits but returns a count of active mines per deposit type.
    * Useful for "further advantage" scaling where two mines of the same type give extra bonuses.
+   *
+   * Counts only tiles that individually have their own mine built — a nation
+   * with one Copper Mine and four unmined Copper deposits has a count of 1,
+   * not 5.
    */
   public getNationActiveDepositCounts(nationId: EntityId): Map<TerritoryResourceType, number> {
     const result = new Map<TerritoryResourceType, number>();
-    const deposits = this.getNationActiveDeposits(nationId);
-    // Count active mines by iterating controlled territories again
     for (const territory of this.grid.getTerritoriesByNation(nationId)) {
       const deposit = territory.getResourceDeposit();
-      if (!deposit || !deposits.has(deposit)) continue;
+      if (!deposit) continue;
+      if (!this.territoryHasActiveMine(territory, deposit)) continue;
       result.set(deposit, (result.get(deposit) ?? 0) + 1);
     }
     return result;
@@ -336,6 +358,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
       units:            Array.from(this.units.values()).map(u => u.toJSON()),
       players:          Array.from(this.players.values()).map(p => p.toJSON()),
       unitTypeCounters: Object.fromEntries(this.unitTypeCounters),
+      productionUnitSerial: this.productionUnitSerial,
       discoveredTiles:  Array.from(this.discoveredTiles.entries()).map(([nationId, tiles]) => ({
         nationId,
         tiles: Array.from(tiles),
@@ -442,7 +465,11 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     state.activeNationId = data.activeNationId;
 
     // Restore unit type serial counters (may be absent in old saves)
-    const dataAny = data as { unitTypeCounters?: Record<string, number>; discoveredTiles?: Array<{ nationId: string; tiles: string[] }> };
+    const dataAny = data as {
+      unitTypeCounters?: Record<string, number>;
+      productionUnitSerial?: number;
+      discoveredTiles?: Array<{ nationId: string; tiles: string[] }>;
+    };
     if (dataAny.unitTypeCounters) {
       for (const [type, count] of Object.entries(dataAny.unitTypeCounters)) {
         state.unitTypeCounters.set(type, count);
@@ -456,6 +483,21 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
           const cur = state.unitTypeCounters.get(key) ?? 100;
           if (s > cur) state.unitTypeCounters.set(key, s);
         }
+      }
+    }
+
+    // Restore (or derive) the production-unit-id serial. Deriving it from the
+    // highest "unit-city-N" id already present guards against a fresh page
+    // load resetting a module-level counter and later minting an id that
+    // collides with a unit already in this save (see productionUnitSerial).
+    if (typeof dataAny.productionUnitSerial === 'number') {
+      state.productionUnitSerial = dataAny.productionUnitSerial;
+    } else {
+      for (const unitId of state.units.keys()) {
+        const match = /^unit-city-(\d+)$/.exec(unitId);
+        if (!match) continue;
+        const n = Number.parseInt(match[1]!, 10);
+        if (n > state.productionUnitSerial) state.productionUnitSerial = n;
       }
     }
 

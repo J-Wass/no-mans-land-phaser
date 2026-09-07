@@ -16,7 +16,7 @@ import type { NetworkAdapter } from '@/network/NetworkAdapter';
 import { AISystem } from '@/systems/ai/AISystem';
 import { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import { DiplomaticStatus } from '@/types/diplomacy';
-import { TILE_SIZE, TICK_INTERVAL_MS } from '@/config/constants';
+import { TILE_SIZE, TICK_INTERVAL_MS, MAX_TICK_CATCHUP } from '@/config/constants';
 import { normalizeGameSetup } from '@/types/gameSetup';
 import { getScenarioById } from '@/config/scenarios';
 import { VisionSystem } from '@/systems/vision/VisionSystem';
@@ -27,6 +27,8 @@ import { TutorialManager } from '@/systems/tutorial/TutorialManager';
 import { TutorialOverlay } from '@/ui/TutorialOverlay';
 
 const WATER_BORDER = 0;
+/** Reused empty set — shouldShowLiveUnitOverlay only cares about the 'visible' outcome. */
+const EMPTY_NEAR_VISIBLE: Set<string> = new Set();
 import type { GameSetup, GameSaveData } from '@/types/gameSetup';
 import type { GridCoordinates } from '@/types/common';
 import type { Unit } from '@/entities/units/Unit';
@@ -201,6 +203,11 @@ export class GameScene extends Phaser.Scene {
       this.musicManager.destroy();
       this.subs.disposeAll();
       this.tutorialManager?.dispose();
+      // this.scale is the global ScaleManager, not scene-scoped — without this,
+      // a stale listener bound to this (stopped) scene instance survives every
+      // return-to-menu-and-relaunch, piling up and firing against destroyed
+      // game objects on every future resize.
+      this.scale.off('resize', this.onResize, this);
     });
 
     const sceneData = this.scene.settings.data as GameSceneData;
@@ -209,6 +216,7 @@ export class GameScene extends Phaser.Scene {
       this.movementSystem.restoreStates(sceneData.saveData.movementStates);
       this.tickEngine.restoreBattleStates(sceneData.saveData.battleStates ?? []);
       this.tickEngine.restoreSiegeStates(sceneData.saveData.siegeStates ?? []);
+      this.tickEngine.restoreTerritoryBattleStates(sceneData.saveData.territoryBattleStates ?? []);
       this.diplomacySystem.restoreState(sceneData.saveData.peaceCooldowns ?? []);
     }
 
@@ -397,7 +405,10 @@ export class GameScene extends Phaser.Scene {
     this.subs.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
     this.subs.on('game:speed-change', ({ speed }) => { this.gameSpeed = speed; });
 
-    if (this.setup.gameMode !== 'sandbox') {
+    // The tutorial has its own scripted step chain that continues past the
+    // point where the enemy nation is defeated (research, diplomacy, bonus
+    // steps) — auto-opening the victory modal there would cut it short.
+    if (this.setup.gameMode !== 'sandbox' && !this.isTutorialMode) {
       this.subs.on('nation:defeated', ({ nationId, tick }) => {
         const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
         if (!localNationId) return;
@@ -412,8 +423,16 @@ export class GameScene extends Phaser.Scene {
         const condition = scenario?.victoryCondition ?? { type: 'eliminate_all' as const };
 
         if (condition.type === 'eliminate_all') {
+          // "Eliminate all" means all hostile nations, not literally every
+          // other nation — a scenario with allies (e.g. The Invaders) would
+          // otherwise never be winnable, since the player's own allies also
+          // count as "remaining".
+          const localNation = this.gameState.getNation(localNationId);
           const remaining = this.gameState.getAllNations();
-          if (remaining.length === 1 && remaining[0]!.getId() === localNationId) {
+          const hasOpponentRemaining = remaining.some(
+            n => n.getId() !== localNationId && !localNation?.isAlly(n.getId()),
+          );
+          if (!hasOpponentRemaining) {
             this.bridge.openGameOver('victory', tick);
             this.musicManager.notifyVictory();
           }
@@ -447,12 +466,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    this.tickAccumulator += delta;
-    const effectiveInterval = TICK_INTERVAL_MS / this.gameSpeed;
-    while (this.tickAccumulator >= effectiveInterval) {
-      this.tickAccumulator -= effectiveInterval;
-      this.tickEngine.advance();
-      this.aiSystem.tick(this.tickEngine.getCurrentTick());
+    // gameSpeed is 0 while paused. Skip accumulation entirely while paused so
+    // elapsed real time never turns into a backlog of ticks to drain on resume
+    // — otherwise a long pause fast-forwards the simulation on the next frame.
+    if (this.gameSpeed > 0) {
+      const effectiveInterval = TICK_INTERVAL_MS / this.gameSpeed;
+      // Cap the backlog so a long stall (tab backgrounded, breakpoint, etc.)
+      // can't dump a large burst of ticks into a single frame either.
+      const maxBacklogMs = effectiveInterval * MAX_TICK_CATCHUP;
+      this.tickAccumulator = Math.min(this.tickAccumulator + delta, maxBacklogMs);
+      while (this.tickAccumulator >= effectiveInterval) {
+        this.tickAccumulator -= effectiveInterval;
+        this.tickEngine.advance();
+        this.aiSystem.tick(this.tickEngine.getCurrentTick());
+      }
     }
     this.updateFog();
     this.updateUnitAnimations();
@@ -1099,7 +1126,13 @@ export class GameScene extends Phaser.Scene {
     if (this.setup.gameMode === 'sandbox' || this.isTutorialMode) return true;
     if (!localNationId) return true;
     if (unit.getOwnerId() === localNationId) return true;
-    return this.currentVisible.has(`${unit.position.row},${unit.position.col}`);
+    // Use the same visibility classification as the unit's sprite (which
+    // correctly hides an enemy spy) rather than raw tile visibility — a spy
+    // on a visible tile must not leak a path line / health bar either.
+    const vis = this.visionSystem.unitVisibility(
+      unit, this.currentVisible, EMPTY_NEAR_VISIBLE, this.gameState, localNationId,
+    );
+    return vis === 'visible';
   }
 
   /** Convert the current tutorial-highlight tile to a viewport-space rect, or null. */

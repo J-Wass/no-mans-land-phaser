@@ -216,5 +216,6 @@ export const HUD_STRINGS = {
     regionDominated: (region: string) => `You now dominate the ${region}! Bonus resources granted.`,
     moraleBand: (unit: string, band: string) => `${unit}: ${band}.`,
     gameSaved: 'Game saved to Slot 1',
+    gameSaveFailed: 'Failed to save game — your browser storage may be full or blocked.',
   },
 } as const;

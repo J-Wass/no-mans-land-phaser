@@ -48,7 +48,7 @@ export type GameEventMap = {
     battleId: string;
     winnerUnitId: EntityId | null;
     loserUnitId: EntityId | null;
-    reason: 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_DESTRUCTION';
+    reason: 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_DESTRUCTION' | 'PEACE';
     tick: number;
   };
   'unit:withdrew':             { unitId: EntityId; from: GridCoordinates; to: GridCoordinates; tick: number };

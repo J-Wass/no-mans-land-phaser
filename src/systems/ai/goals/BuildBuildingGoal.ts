@@ -18,6 +18,9 @@ const PREFERRED: CityBuildingType[] = [
 export class BuildBuildingGoal implements AIGoal {
   readonly id = 'build-building';
 
+  /** Restrict which buildings this goal will pursue (defaults to the full PREFERRED order). */
+  constructor(private readonly allowedTypes: readonly CityBuildingType[] = PREFERRED) {}
+
   priority(_ctx: AIContext): number { return 35; }
 
   isFeasible(ctx: AIContext): boolean {
@@ -48,7 +51,7 @@ export class BuildBuildingGoal implements AIGoal {
     for (const city of ctx.gameState.getCitiesByNation(ctx.nationId)) {
       if (city.getCurrentOrder()) continue;
 
-      for (const buildingType of PREFERRED) {
+      for (const buildingType of this.allowedTypes) {
         if (city.hasBuilding(buildingType)) continue;
 
         const def = CITY_BUILDING_CATALOG.find(d => d.type === buildingType);
@@ -64,7 +67,7 @@ export class BuildBuildingGoal implements AIGoal {
     for (const city of ctx.gameState.getCitiesByNation(ctx.nationId)) {
       if (city.getCurrentOrder()) continue;
 
-      for (const buildingType of PREFERRED) {
+      for (const buildingType of this.allowedTypes) {
         if (!city.hasBuilding(buildingType)) continue;
 
         const def = CITY_BUILDING_CATALOG.find(d => d.type === buildingType);

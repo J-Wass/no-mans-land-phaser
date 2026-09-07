@@ -197,6 +197,34 @@ export class CitySiegeSystem {
     return null;
   }
 
+  /**
+   * Force-end any siege between these two nations (e.g. a peace treaty was
+   * just signed). Without this, the siege record survived peace and kept
+   * dealing damage to the city and the besieging unit regardless of relation.
+   */
+  public endSiegesBetweenNations(
+    gameState:   GameState,
+    nationA:     EntityId,
+    nationB:     EntityId,
+    eventBus:    GameEventBus,
+    currentTick: number,
+  ): void {
+    for (const siege of Array.from(this.sieges.values())) {
+      const unit = gameState.getUnit(siege.unitId);
+      const city = gameState.getCity(siege.cityId);
+      const unitOwner = unit?.getOwnerId();
+      const cityOwner = city?.getOwnerId();
+      const involvesBoth =
+        (unitOwner === nationA && cityOwner === nationB) ||
+        (unitOwner === nationB && cityOwner === nationA);
+      if (!involvesBoth) continue;
+
+      unit?.setEngagedInBattle(false);
+      this.sieges.delete(siege.id);
+      eventBus.emit('territory:conquest-cancelled', { position: { ...siege.position }, tick: currentTick });
+    }
+  }
+
   public toSavedStates(): SavedSiegeState[] {
     return Array.from(this.sieges.values()).map(s => ({
       ...s,
@@ -244,6 +272,9 @@ export class CitySiegeSystem {
         const byNationId   = victor.getOwnerId();
         const fromNationId = city.getOwnerId();
         city.setOwnerId(byNationId);
+        // Wipe production entirely on capture — the old owner's queued
+        // orders shouldn't continue for free under the new owner.
+        city.clearQueue();
         city.cancelOrder();
         // Capturing a city damages its infrastructure: every building drops one level
         // (level-1 buildings are destroyed; City Hall is exempt).

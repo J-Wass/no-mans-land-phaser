@@ -121,6 +121,51 @@ describe('GameState', () => {
     );
   });
 
+  it('does not count unmined deposits once one mine of that type exists', () => {
+    const state = new GameState({ rows: 4, cols: 4 });
+    const nation = createNation('nation-a');
+    state.addNation(nation);
+
+    const minedCopper = state.getGrid().getTerritory({ row: 0, col: 0 });
+    minedCopper?.setControllingNation(nation.getId());
+    minedCopper?.setResourceDeposit(TerritoryResourceType.COPPER);
+    minedCopper?.setBuildings([TerritoryBuildingType.COPPER_MINE]);
+
+    // Same deposit type, but no mine built on this tile — a nation with one
+    // Copper Mine and three unmined Copper deposits must count 1, not 4.
+    for (const pos of [{ row: 0, col: 1 }, { row: 0, col: 2 }, { row: 0, col: 3 }]) {
+      const tile = state.getGrid().getTerritory(pos);
+      tile?.setControllingNation(nation.getId());
+      tile?.setResourceDeposit(TerritoryResourceType.COPPER);
+    }
+
+    expect(state.getNationActiveDeposits(nation.getId())).toEqual(new Set([TerritoryResourceType.COPPER]));
+    expect(state.getNationActiveDepositCounts(nation.getId())).toEqual(
+      new Map([[TerritoryResourceType.COPPER, 1]]),
+    );
+  });
+
+  it('addUnit keeps the ownership index consistent when a spawned id collides with an existing unit', () => {
+    const state = new GameState({ rows: 4, cols: 4 });
+    const nationA = createNation('nation-a');
+    const nationB = createNation('nation-b');
+    state.addNation(nationA);
+    state.addNation(nationB);
+
+    const original = new Infantry('unit-1', nationA.getId(), { row: 0, col: 0 });
+    state.addUnit(original);
+    expect(state.getUnitsByNation(nationA.getId())).toHaveLength(1);
+
+    // Simulate an id collision: a new unit reuses 'unit-1' under a different nation.
+    const collided = new Infantry('unit-1', nationB.getId(), { row: 1, col: 1 });
+    state.addUnit(collided);
+
+    // The old nation's index must not still point at (what is now) another
+    // nation's unit.
+    expect(state.getUnitsByNation(nationA.getId())).toHaveLength(0);
+    expect(state.getUnitsByNation(nationB.getId())).toEqual([collided]);
+  });
+
   it('rotates turns and resets only the next active nation units', () => {
     const state = new GameState({ rows: 4, cols: 4 });
     const nationA = createNation('nation-a');

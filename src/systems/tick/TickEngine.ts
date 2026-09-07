@@ -31,7 +31,7 @@ import { CARDINAL_OFFSETS } from '@/systems/grid/geometry';
 
 /** Ticks between water-mana heal pulses (same cadence as city heal). */
 const WATER_MANA_HEAL_INTERVAL_TICKS = TICK_RATE;
-import type { SavedSiegeState } from '@/types/gameSetup';
+import type { SavedSiegeState, SavedTerritoryBattleState } from '@/types/gameSetup';
 import type { EntityId } from '@/types/common';
 
 /** Ticks between city-healing pulses (1 s at TICK_RATE=10). */
@@ -72,6 +72,17 @@ export class TickEngine {
     // MoraleSystem subscribes to game events in its constructor; we only need
     // to call its tick() so it can emit `morale:band-changed` for the UI.
     this.moraleSystem          = new MoraleSystem(gameState, eventBus);
+
+    // A peace treaty resets relations and teleports units home, but that alone
+    // leaves any in-progress battle/siege/territory-battle record intact — the
+    // combat systems don't check diplomatic status, so units kept damaging
+    // each other after peace. Force-end all combat between the two nations
+    // the moment peace is signed.
+    this.eventBus.on('diplomacy:peace-signed', ({ fromNationId, toNationId, tick }) => {
+      this.battleSystem.endBattlesBetweenNations(this.gameState, fromNationId, toNationId, this.eventBus, tick);
+      this.citySiegeSystem.endSiegesBetweenNations(this.gameState, fromNationId, toNationId, this.eventBus, tick);
+      this.territoryBattleSystem.endBattlesBetweenNations(this.gameState, fromNationId, toNationId, this.eventBus, tick);
+    });
   }
 
   /** Advance one tick. Returns the new tick count. */
@@ -132,6 +143,11 @@ export class TickEngine {
     for (const unit of this.gameState.getAllUnits()) {
       if (!unit.isAlive()) continue;
       if (unit.isEngagedInBattle()) continue;
+      // Undercover spies infiltrate silently everywhere else (see
+      // MovementSystem) — this stranded-unit safety net must honor the same
+      // rule, or a spy left standing on a city (e.g. after it changed hands
+      // under them) starts a siege and declares war.
+      if (unit.isSpy()) continue;
       const territory = grid.getTerritory(unit.position);
       const cityId = territory?.getCityId();
       if (!cityId) continue;
@@ -353,5 +369,13 @@ export class TickEngine {
 
   public getTerritoryBattlesForDisplay() {
     return this.territoryBattleSystem.getAllBattles();
+  }
+
+  public getTerritoryBattleStates(): SavedTerritoryBattleState[] {
+    return this.territoryBattleSystem.toSavedStates();
+  }
+
+  public restoreTerritoryBattleStates(saved: SavedTerritoryBattleState[]): void {
+    this.territoryBattleSystem.restore(saved, this.gameState);
   }
 }

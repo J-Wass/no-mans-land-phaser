@@ -56,6 +56,16 @@ export interface SavedSiegeState {
   roundsElapsed: number;
 }
 
+export interface SavedTerritoryBattleState {
+  id: string;
+  unitId: string;
+  position: { row: number; col: number };
+  attackerOrigin: { row: number; col: number };
+  pendingPath?: Array<{ row: number; col: number }>;
+  ticksUntilRound: number;
+  roundsElapsed: number;
+}
+
 export interface SavedPeaceCooldown {
   key: string;          // sorted "nationA:nationB"
   expiresAtTick: number;
@@ -71,5 +81,6 @@ export interface GameSaveData {
   movementStates: SavedMovementState[];
   battleStates: SavedBattleState[];
   siegeStates?: SavedSiegeState[];
+  territoryBattleStates?: SavedTerritoryBattleState[];
   peaceCooldowns?: SavedPeaceCooldown[];
 }

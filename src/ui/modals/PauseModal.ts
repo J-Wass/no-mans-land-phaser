@@ -257,8 +257,12 @@ export class PauseModal {
   }
 
   private saveGame(slot: number): void {
-    this.bridge.saveToSlot(slot);
-    this.showFeedback(STR.savedToSlot(slot), 'var(--color-success)');
+    const ok = this.bridge.saveToSlot(slot);
+    if (ok) {
+      this.showFeedback(STR.savedToSlot(slot), 'var(--color-success)');
+    } else {
+      this.showFeedback(STR.saveFailed, 'var(--color-danger)');
+    }
     // Refresh the slot list
     this.refreshAccessibility();
   }
@@ -300,11 +304,27 @@ export class PauseModal {
       if (!file) return;
       try {
         const raw = await file.text();
-        const parsed = JSON.parse(raw) as GameSaveData;
-        if (parsed.version !== 1) throw new Error('Unsupported save version');
-        const targetSlot = SaveSystem.listSlots().find(s => !s.saveData)?.slot ?? 10;
-        SaveSystem.save(targetSlot, parsed);
-        this.showFeedback(STR.importedIntoSlot(targetSlot), 'var(--color-success)');
+        // Structurally validates the file, not just `version === 1` — a
+        // truncated/malformed import previously passed that check and could
+        // still crash when actually loaded.
+        const parsed = SaveSystem.parse(raw);
+        if (!parsed) { this.showFeedback(STR.importFailed, 'var(--color-danger)'); return; }
+
+        const emptySlot = SaveSystem.listSlots().find(s => !s.saveData)?.slot;
+        let targetSlot = emptySlot;
+        if (targetSlot === undefined) {
+          // Every slot is full — importing would silently destroy slot 10's
+          // save unless the player explicitly confirms that trade-off.
+          const confirmed = window.confirm(STR.confirmOverwriteSlot(10));
+          if (!confirmed) { this.showFeedback(STR.importCancelled, 'var(--color-dim)'); return; }
+          targetSlot = 10;
+        }
+
+        if (SaveSystem.save(targetSlot, parsed)) {
+          this.showFeedback(STR.importedIntoSlot(targetSlot), 'var(--color-success)');
+        } else {
+          this.showFeedback(STR.saveFailed, 'var(--color-danger)');
+        }
         this.refreshAccessibility();
       } catch {
         this.showFeedback(STR.importFailed, 'var(--color-danger)');

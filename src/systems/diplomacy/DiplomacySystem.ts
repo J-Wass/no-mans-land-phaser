@@ -289,6 +289,10 @@ export class DiplomacySystem {
     if (!n1 || !n2) return;
     if (n1.getRelation(nationId2) === DiplomaticStatus.WAR) return;
     if (n1.isAlly(nationId2)) return;
+    // Auto-war (from incidental combat) must respect the same cooldown as a
+    // manual declaration — otherwise a stray shot during the post-peace
+    // cooldown instantly restarts the war it was meant to prevent.
+    if (!this.canDeclareWar(nationId1, nationId2, tick)) return;
 
     n1.declareWar(nationId2);
     n2.declareWar(nationId1);

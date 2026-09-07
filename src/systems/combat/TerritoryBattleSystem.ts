@@ -16,6 +16,7 @@ import type { GameState } from '@/managers/GameState';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { MovementSystem } from '@/systems/movement/MovementSystem';
 import type { UnitMovementState } from '@/systems/movement/MovementState';
+import type { SavedTerritoryBattleState } from '@/types/gameSetup';
 import { BATTLE_ROUND_TICKS } from '@/systems/combat/BattleSystem';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { TerrainType } from '@/systems/grid/Territory';
@@ -37,15 +38,7 @@ import {
   effectiveBattleOrder,
 } from '@/systems/morale/moraleRules';
 
-export interface TerritoryBattleState {
-  id:              string;
-  unitId:          EntityId;
-  position:        GridCoordinates;
-  attackerOrigin:  GridCoordinates;
-  pendingMovement: UnitMovementState | null;
-  ticksUntilRound: number;
-  roundsElapsed:   number;
-}
+interface TerritoryBattleState extends SavedTerritoryBattleState {}
 
 export class TerritoryBattleSystem {
   private battles: Map<string, TerritoryBattleState> = new Map();
@@ -77,7 +70,7 @@ export class TerritoryBattleSystem {
       unitId:          unit.id,
       position:        { ...position },
       attackerOrigin:  { ...attackerOrigin },
-      pendingMovement: pausedMovement,
+      pendingPath:     pausedMovement?.path.map(step => ({ ...step })) ?? [],
       ticksUntilRound: BATTLE_ROUND_TICKS,
       roundsElapsed:   0,
     };
@@ -204,7 +197,81 @@ export class TerritoryBattleSystem {
     return Array.from(this.battles.values());
   }
 
+  /**
+   * Force-end any territory battle between these two nations (e.g. a peace
+   * treaty was just signed). Without this, the battle record survived peace
+   * and kept dealing damage to the territory and the attacking unit.
+   */
+  public endBattlesBetweenNations(
+    gameState:   GameState,
+    nationA:     EntityId,
+    nationB:     EntityId,
+    eventBus:    GameEventBus,
+    currentTick: number,
+  ): void {
+    for (const battle of Array.from(this.battles.values())) {
+      const unit = gameState.getUnit(battle.unitId);
+      const territory = gameState.getGrid().getTerritory(battle.position);
+      const unitOwner = unit?.getOwnerId();
+      const territoryOwner = territory?.getControllingNation();
+      const posKey = `${battle.position.row},${battle.position.col}`;
+      const involvesBoth =
+        (unitOwner === nationA && territoryOwner === nationB) ||
+        (unitOwner === nationB && territoryOwner === nationA);
+      if (!involvesBoth) continue;
+
+      unit?.setEngagedInBattle(false);
+      this.battles.delete(posKey);
+      eventBus.emit('territory:conquest-cancelled', { position: { ...battle.position }, tick: currentTick });
+    }
+  }
+
+  public toSavedStates(): SavedTerritoryBattleState[] {
+    return Array.from(this.battles.values()).map(battle => ({
+      ...battle,
+      position: { ...battle.position },
+      attackerOrigin: { ...battle.attackerOrigin },
+    }));
+  }
+
+  /**
+   * Rehydrate territory battles from a save. Without this, a save taken mid-
+   * battle would drop the battle record while the unit's engagedInBattle flag
+   * (saved as part of the unit itself) stayed true, permanently locking it out
+   * of movement/combat on reload.
+   */
+  public restore(saved: SavedTerritoryBattleState[], gameState: GameState): void {
+    this.battles.clear();
+    this.battleSerial = 0;
+
+    for (const battle of saved) {
+      const unit = gameState.getUnit(battle.unitId);
+      if (!unit) continue;
+
+      unit.setEngagedInBattle(true);
+      const posKey = `${battle.position.row},${battle.position.col}`;
+      this.battles.set(posKey, {
+        ...battle,
+        position: { ...battle.position },
+        attackerOrigin: { ...battle.attackerOrigin },
+        pendingPath: battle.pendingPath?.map(step => ({ ...step })) ?? [],
+      });
+
+      const suffix = Number.parseInt(battle.id.replace('tbattle-', ''), 10);
+      if (Number.isFinite(suffix)) this.battleSerial = Math.max(this.battleSerial, suffix);
+    }
+  }
+
   // ── Private helpers ──────────────────────────────────────────────────────────
+
+  private getPendingMovement(battle: TerritoryBattleState): UnitMovementState | null {
+    if (!battle.pendingPath || battle.pendingPath.length === 0) return null;
+    return {
+      unitId: battle.unitId,
+      path: battle.pendingPath.map(step => ({ ...step })),
+      ticksRemainingOnStep: 0,
+    };
+  }
 
   private finishBattle(
     battle:         TerritoryBattleState,
@@ -237,9 +304,10 @@ export class TerritoryBattleSystem {
         this.claimAdjacentImpassable(gameState, battle.position, victor.getOwnerId());
       }
 
-      if (battle.pendingMovement?.path.length) {
-        movementSystem.resumeOrder(battle.pendingMovement);
-      } else if (battle.pendingMovement) {
+      const pendingMovement = this.getPendingMovement(battle);
+      if (pendingMovement) {
+        movementSystem.resumeOrder(pendingMovement);
+      } else if (battle.pendingPath !== undefined) {
         eventBus.emit('unit:move-complete', {
           unitId: battle.unitId,
           destination: { ...battle.position },

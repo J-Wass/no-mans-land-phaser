@@ -45,4 +45,43 @@ describe('scenarios', () => {
       }
     }
   });
+
+  // BootScene sizes the grid to the scenario map's own dimensions (see
+  // getScenarioMap usage there), NOT to computeGridSize(totalNations). This
+  // test guards that relationship directly: every scripted row/col must fall
+  // within the map the grid will actually be built at, since a mismatch there
+  // previously caused most scripted cities/units to boot outside the grid and
+  // be silently dropped.
+  it('keeps scripted cities and units within the scenario map bounds', () => {
+    for (const scenario of SCENARIOS) {
+      const map = getScenarioMap(scenario.id);
+      expect(map).not.toBeNull();
+      if (!map) continue;
+
+      const gridSize = map.length;
+
+      for (const nation of scenario.nations) {
+        for (const city of nation.cities) {
+          expect(city.row).toBeGreaterThanOrEqual(0);
+          expect(city.row).toBeLessThan(gridSize);
+          expect(city.col).toBeGreaterThanOrEqual(0);
+          expect(city.col).toBeLessThan(gridSize);
+        }
+
+        for (const unit of nation.units) {
+          expect(unit.row).toBeGreaterThanOrEqual(0);
+          expect(unit.row).toBeLessThan(gridSize);
+          expect(unit.col).toBeGreaterThanOrEqual(0);
+          expect(unit.col).toBeLessThan(gridSize);
+        }
+      }
+
+      for (const deposit of scenario.deposits) {
+        expect(deposit.row).toBeGreaterThanOrEqual(0);
+        expect(deposit.row).toBeLessThan(gridSize);
+        expect(deposit.col).toBeGreaterThanOrEqual(0);
+        expect(deposit.col).toBeLessThan(gridSize);
+      }
+    }
+  });
 });

@@ -6,6 +6,7 @@ import { GameEventBus } from '@/systems/events/GameEventBus';
 import { Nation } from '@/entities/nations/Nation';
 import { City } from '@/entities/cities/City';
 import { Infantry } from '@/entities/units/Infantry';
+import { Scout } from '@/entities/units/Scout';
 import { TICK_RATE } from '@/config/constants';
 
 describe('TickEngine', () => {
@@ -61,6 +62,60 @@ describe('TickEngine', () => {
 
     // 5% of 100 maxHP = 5; ceil(5) = 5; 60 + 5 = 65
     expect(unit.getHealth()).toBeGreaterThan(60);
+  });
+
+  it('force-ends an active unit battle when peace is signed, instead of letting combat continue', () => {
+    const nationA = new Nation('nation-a', 'A', '#111111');
+    const nationB = new Nation('nation-b', 'B', '#222222');
+    gameState.addNation(nationA);
+    gameState.addNation(nationB);
+
+    const attacker = new Infantry('unit-a', 'nation-a', { row: 0, col: 0 });
+    const defender = new Infantry('unit-b', 'nation-b', { row: 0, col: 1 });
+    gameState.addUnit(attacker);
+    gameState.addUnit(defender);
+
+    movementSystem.issueOrder(attacker, [{ row: 0, col: 1 }]);
+    let tick = 0;
+    while (!tickEngine.getBattleForUnit(attacker.id) && tick < 50) {
+      tickEngine.advance();
+      tick++;
+    }
+    expect(tickEngine.getBattleForUnit(attacker.id)).not.toBeNull();
+    expect(attacker.isEngagedInBattle()).toBe(true);
+    expect(defender.isEngagedInBattle()).toBe(true);
+
+    eventBus.emit('diplomacy:peace-signed', { fromNationId: 'nation-a', toNationId: 'nation-b', tick });
+
+    expect(tickEngine.getBattleForUnit(attacker.id)).toBeNull();
+    expect(attacker.isEngagedInBattle()).toBe(false);
+    expect(defender.isEngagedInBattle()).toBe(false);
+
+    // Combat must not resume between them after peace.
+    const hpA = attacker.getHealth();
+    const hpB = defender.getHealth();
+    for (let i = 0; i < 30; i++) tickEngine.advance();
+    expect(attacker.getHealth()).toBe(hpA);
+    expect(defender.getHealth()).toBe(hpB);
+  });
+
+  it('does not start a siege for an undercover spy stranded on an enemy city', () => {
+    const nationA = new Nation('nation-a', 'A', '#111111');
+    const nationB = new Nation('nation-b', 'B', '#222222');
+    gameState.addNation(nationA);
+    gameState.addNation(nationB);
+
+    const city = new City('city-b', 'Bravo', 'nation-b', { row: 0, col: 0 });
+    gameState.addCity(city);
+
+    const spy = new Scout('spy-a', 'nation-a', { row: 0, col: 0 });
+    spy.setSpy(true);
+    gameState.addUnit(spy);
+
+    tickEngine.advance();
+
+    expect(spy.isEngagedInBattle()).toBe(false);
+    expect(tickEngine.getSiegeStates()).toHaveLength(0);
   });
 
   it('does not heal units that are engaged in battle', () => {

@@ -147,6 +147,43 @@ describe('ProductionSystem', () => {
     expect(nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(9);
   });
 
+  it('holds a completed unit order (instead of discarding it) until a spawn tile frees up', () => {
+    const city = new City('city-blocked', 'Blocked', nation.getId(), { row: 2, col: 2 });
+    city.startOrder({
+      kind: 'unit',
+      unitType: UnitType.INFANTRY,
+      label: 'Train Infantry',
+      ticksTotal: 1,
+      ticksRemaining: 1,
+    });
+    state.addCity(city);
+
+    // Occupy every candidate spawn tile (city tile + its 8 neighbors) so no
+    // free tile exists for the completed unit to spawn on.
+    const blockers: string[] = [];
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const id = `blocker-${dr}-${dc}`;
+        blockers.push(id);
+        state.addUnit(new Infantry(id, nation.getId(), { row: 2 + dr, col: 2 + dc }));
+      }
+    }
+
+    system.tick(state, eventBus, 1);
+
+    // The order must not be silently dropped: it's still there, ready to
+    // complete, and no new unit was spawned yet.
+    expect(city.getCurrentOrder()).not.toBeNull();
+    expect(state.getUnitsByNation(nation.getId())).toHaveLength(blockers.length);
+
+    // Free up a tile and tick again — the held order should now complete.
+    state.removeUnit('blocker-0-0');
+    system.tick(state, eventBus, 2);
+
+    expect(city.getCurrentOrder()).toBeNull();
+    expect(state.getUnitsByNation(nation.getId())).toHaveLength(blockers.length); // one blocker removed, one spawned
+  });
+
   it('drains upkeep and completes research on tick boundaries', () => {
     const unit = new Infantry('unit-a', nation.getId(), { row: 0, col: 0 });
     state.addUnit(unit);

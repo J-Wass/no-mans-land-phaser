@@ -10,6 +10,7 @@ import { Scout } from '@/entities/units/Scout';
 import { City } from '@/entities/cities/City';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { CityBuildingType } from '@/systems/territory/CityBuilding';
 import { UnitType } from '@/entities/units/Unit';
 
@@ -50,6 +51,47 @@ describe('CommandProcessor', () => {
 
     expect(result.success).toBe(true);
     expect(movementSystem.isMoving('unit-1')).toBe(true);
+  });
+
+  it('accepts a multi-step path where every step is adjacent to the last', () => {
+    // unit-1 starts at (0,0); each step below moves one tile.
+    const result = processor.dispatch({
+      type: 'MOVE_UNIT',
+      playerId: 'player-1',
+      unitId: 'unit-1',
+      path: [{ row: 0, col: 1 }, { row: 1, col: 1 }, { row: 1, col: 2 }],
+      issuedAtTick: 1,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a path with a non-adjacent waypoint (teleport)', () => {
+    // unit-1 starts at (0,0) — jumping straight to (4,4) skips every tile in between.
+    const result = processor.dispatch({
+      type: 'MOVE_UNIT',
+      playerId: 'player-1',
+      unitId: 'unit-1',
+      path: [{ row: 4, col: 4 }],
+      issuedAtTick: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.reason).toMatch(/adjacent/i);
+    expect(movementSystem.isMoving('unit-1')).toBe(false);
+  });
+
+  it('rejects a path that starts adjacent but later skips a tile', () => {
+    const result = processor.dispatch({
+      type: 'MOVE_UNIT',
+      playerId: 'player-1',
+      unitId: 'unit-1',
+      path: [{ row: 0, col: 1 }, { row: 3, col: 3 }],
+      issuedAtTick: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect(movementSystem.isMoving('unit-1')).toBe(false);
   });
 
   describe('CONVERT_TO_SPY', () => {
@@ -324,6 +366,53 @@ describe('CommandProcessor', () => {
     });
   });
 
+  describe('BUILD_TERRITORY (mines on Silver/Gold deposits)', () => {
+    // Silver/Gold deposits have no dedicated mine building — they're meant to
+    // be activated by either ore mine (see GameState.territoryHasActiveMine).
+    // Without the CommandProcessor fix, the exact-deposit-match check meant
+    // this was never actually buildable, even though the income logic
+    // supported it.
+    it('allows building a Copper Mine on a Silver deposit tile', () => {
+      const tile = gameState.getGrid().getTerritory({ row: 0, col: 0 });
+      tile?.setControllingNation('nation-1');
+      tile?.setResourceDeposit(TerritoryResourceType.SILVER);
+      tile?.setBuildings([TerritoryBuildingType.OUTPOST]);
+      nation.startResearch('masonry', 1);
+      nation.tickResearch();
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 80);
+
+      const result = processor.dispatch({
+        type: 'BUILD_TERRITORY',
+        playerId: 'player-1',
+        position: { row: 0, col: 0 },
+        building: TerritoryBuildingType.COPPER_MINE,
+        issuedAtTick: 1,
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('still rejects a Copper Mine on a tile with no deposit at all', () => {
+      const tile = gameState.getGrid().getTerritory({ row: 0, col: 0 });
+      tile?.setControllingNation('nation-1');
+      tile?.setBuildings([TerritoryBuildingType.OUTPOST]);
+      nation.startResearch('masonry', 1);
+      nation.tickResearch();
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 80);
+
+      const result = processor.dispatch({
+        type: 'BUILD_TERRITORY',
+        playerId: 'player-1',
+        position: { row: 0, col: 0 },
+        building: TerritoryBuildingType.COPPER_MINE,
+        issuedAtTick: 1,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toMatch(/deposit/i);
+    });
+  });
+
   describe('START_RESEARCH', () => {
     beforeEach(() => {
       nation.getTreasury().addResource(ResourceType.RESEARCH, 100);
@@ -582,8 +671,24 @@ describe('CommandProcessor', () => {
       }
     });
 
-    it('cancels the active order when no queue index is given', () => {
+    it('cancels the active order when no queue index is given, promoting the next queued order', () => {
       expect(city.getCurrentOrder()).not.toBeNull();
+      expect(city.getQueue()).toHaveLength(1);
+      const result = processor.dispatch({
+        type: 'CANCEL_CITY_PRODUCTION', playerId: 'player-1', cityId: 'city-1', issuedAtTick: 3,
+      });
+      expect(result.success).toBe(true);
+      // The queued order should take over immediately rather than leaving the
+      // city idle with a stalled queue behind it.
+      expect(city.getCurrentOrder()).not.toBeNull();
+      expect(city.getQueue()).toHaveLength(0);
+    });
+
+    it('leaves the city idle when cancelling the active order with nothing queued', () => {
+      // Drain the queued order first so only the active order remains.
+      city.cancelQueueItem(0);
+      expect(city.getQueue()).toHaveLength(0);
+
       const result = processor.dispatch({
         type: 'CANCEL_CITY_PRODUCTION', playerId: 'player-1', cityId: 'city-1', issuedAtTick: 3,
       });

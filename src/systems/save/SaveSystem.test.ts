@@ -89,4 +89,34 @@ describe('SaveSystem', () => {
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
   });
+
+  it('rejects a truncated save that has the right version but is missing required fields', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // This is the exact shape a truncated/malformed import would produce —
+    // passes a naive `version === 1` check but has none of the state a load
+    // actually needs.
+    expect(SaveSystem.parse('{"version":1}')).toBeNull();
+    errorSpy.mockRestore();
+  });
+
+  it('rejects save data larger than the maximum allowed size', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const huge = 'x'.repeat(21 * 1024 * 1024);
+    expect(SaveSystem.parse(huge)).toBeNull();
+    errorSpy.mockRestore();
+  });
+
+  it('save() reports failure instead of silently succeeding when storage throws', () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const failingStorage = {
+      ...storage,
+      setItem: () => { throw new Error('quota exceeded'); },
+    };
+    Object.defineProperty(globalThis, 'localStorage', {
+      value: failingStorage, configurable: true, writable: true,
+    });
+
+    expect(SaveSystem.save(1, makeSaveData(1000))).toBe(false);
+    errorSpy.mockRestore();
+  });
 });

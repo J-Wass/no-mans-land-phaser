@@ -188,6 +188,10 @@ export class UIScene extends Phaser.Scene {
       this.subs.disposeAll();
       this.minimap?.destroy();
       this.minimap = undefined;
+      // this.scale is the global ScaleManager, not scene-scoped — without
+      // this, a stale listener bound to this (stopped) scene instance
+      // survives every return-to-menu-and-relaunch.
+      this.scale.off('resize', this.rebuildHUD, this);
     });
   }
 
@@ -568,8 +572,8 @@ export class UIScene extends Phaser.Scene {
     this.researchBtnFullW = rightBtnW;
 
     this.makeButton(saveX, midY, rightBtnW, btnH, HUD_STRINGS.topBar.save, scale, () => {
-      this.bridge.saveToSlot(1);
-      this.pushNotification(HUD_STRINGS.notifications.gameSaved);
+      const ok = this.bridge.saveToSlot(1);
+      this.pushNotification(ok ? HUD_STRINGS.notifications.gameSaved : HUD_STRINGS.notifications.gameSaveFailed);
       this.rebuildHUD();
     }, 0x14321e);
 

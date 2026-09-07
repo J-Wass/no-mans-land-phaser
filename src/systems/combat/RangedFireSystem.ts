@@ -132,7 +132,7 @@ export class RangedFireSystem {
     const prefId = unit.getPreferredTargetId();
     if (prefId) {
       const pref = gameState.getUnit(prefId);
-      if (pref && pref.isAlive() && !nation.isAlly(pref.getOwnerId())) {
+      if (pref && pref.isAlive() && !pref.isSpy() && !nation.isAlly(pref.getOwnerId())) {
         const dist = manhattan(unit.position, pref.position);
         if (dist <= range) return { type: 'unit', unit: pref };
       }
@@ -151,6 +151,9 @@ export class RangedFireSystem {
       if (other.getOwnerId() === unit.getOwnerId()) continue;
       if (nation.isAlly(other.getOwnerId())) continue;
       if (!other.isAlive()) continue;
+      // Undercover spies are invisible to everything but SpyDetectionSystem —
+      // ranged fire must not auto-target (or reveal) one.
+      if (other.isSpy()) continue;
       const dist = manhattan(unit.position, other.position);
       if (dist <= range && dist < bestUnitDist) {
         bestUnitDist = dist;

@@ -1,58 +1,33 @@
 # Testing Notes
 
-## Current Issue
+## Test runner
 
-There's a known issue with Vitest 1.6+ on Windows with ESM modules where the test collector isn't properly initializing. The test files are structured correctly but Vitest fails to execute them with:
-
-```
-Error: Cannot read properties of undefined (reading 'test')
-```
-
-## Test Files Created
-
-All test files have been created with comprehensive coverage:
-
-- [src/systems/resources/ResourceType.test.ts](src/systems/resources/ResourceType.test.ts) - Resource management tests
-- [src/entities/units/Unit.test.ts](src/entities/units/Unit.test.ts) - Unit behavior tests
-- [src/systems/grid/Grid.test.ts](src/systems/grid/Grid.test.ts) - Grid system tests
-- [src/entities/nations/Nation.test.ts](src/entities/nations/Nation.test.ts) - Nation and diplomacy tests
-
-## Workarounds
-
-### Option 1: Manual Testing
-Test the game logic manually by importing and using the classes in your game scenes:
-
-```typescript
-import { ResourceStorage, ResourceType } from '@/systems/resources';
-
-const storage = new ResourceStorage();
-storage.addResource(ResourceType.GOLD, 100);
-console.log(storage.getAmount(ResourceType.GOLD)); // 100
-```
-
-### Option 2: Try on Linux/Mac
-The vitest issue appears to be Windows-specific with ESM. Try running tests on Linux/Mac/WSL2.
-
-### Option 3: Use Jest Instead
-If you need tests working immediately, consider switching to Jest:
+Tests run under **Jest** (`ts-jest`, configured in `jest.config.js`). This
+project previously used Vitest, which had an unresolved Windows/ESM collector
+issue; it was migrated to Jest and that issue no longer applies.
 
 ```bash
-npm uninstall vitest @vitest/ui @vitest/coverage-v8
-npm install -D jest @types/jest ts-jest
-npx ts-jest config:init
+npm test              # run the full suite
+npm test -- --watch   # watch mode
 ```
 
-Then rename test files from `.test.ts` to `.spec.ts` and update imports.
+As of this writing the suite has ~280 tests across ~30 files, all passing,
+plus a clean `tsc --noEmit` and `npm run lint`.
 
-### Option 4: Wait for Fix
-Monitor: https://github.com/vitest-dev/vitest/issues
+## What's covered
 
-## Test Coverage
+Simulation/rules code (entities, systems, commands) has real unit and
+integration test coverage — movement costs, pathfinding, combat resolution,
+morale, diplomacy, production, research, save/load round-trips, and so on.
 
-Even though tests aren't running, the test files demonstrate:
-- Proper module testing structure
-- Comprehensive test cases for all game systems
-- TypeScript type safety in tests
-- Best practices for unit testing
+## What's not covered
 
-The game logic itself is sound and follows proper software engineering principles.
+Anything that requires a running Phaser `Game` instance or a browser DOM has
+**no automated tests**: `src/scenes/*.ts` (camera, selection, custom paths,
+minimap, HUD) and `src/ui/**` (DOM modals). `jest.config.js` uses
+`testEnvironment: 'node'`, and importing `phaser` under Node throws
+(`ReferenceError: navigator is not defined`) — Phaser assumes browser globals.
+Adding coverage there would need either a `jsdom` test environment (the
+`jest-environment-jsdom` package isn't currently installed) with enough of the
+`navigator`/`canvas` surface mocked out, or a real browser-driven test (e.g.
+Playwright) for smoke-testing launch → play → save → reload flows.

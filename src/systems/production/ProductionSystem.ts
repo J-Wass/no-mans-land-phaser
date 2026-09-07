@@ -37,8 +37,6 @@ const TERRAIN_GOLD_INTERVAL    = 80;  // desert: +1 gold per 8s
 /** How often upkeep is drained — once every 3 seconds at TICK_RATE=10. */
 const UPKEEP_INTERVAL      = 30;
 
-let unitSerial = 1000;
-
 export class ProductionSystem {
   /** In sandbox mode, queued research is free and completes near-instantly. */
   constructor(private readonly sandboxMode = false) {}
@@ -129,24 +127,29 @@ export class ProductionSystem {
       const orderSnapshot = city.getCurrentOrder();
       if (!orderSnapshot) continue;
 
-      const completed = city.tickProduction();
-      if (!completed) continue;
+      const ready = city.tickProduction();
+      if (!ready) continue;
 
       if (orderSnapshot.kind === 'unit') {
+        // Don't complete the order until a tile is actually free to spawn on —
+        // otherwise the finished unit (and the resources/time paid for it) is
+        // just discarded. Leave it in place and retry on a later tick instead.
         const spawnPos = findSpawnNear(gameState, city.position);
-        if (spawnPos) {
-          const unitId = `unit-city-${++unitSerial}`;
-          const unit   = spawnUnit(orderSnapshot.unitType, unitId, city.getOwnerId(), spawnPos);
-          unit.setHomeCityId(city.id);
-          unit.setUnitSerial(gameState.nextUnitSerial(orderSnapshot.unitType, city.getOwnerId()));
-          gameState.addUnit(unit);
-          eventBus.emit('city:unit-spawned', {
-            cityId: city.id, unitId, unitType: orderSnapshot.unitType,
-            position: spawnPos, tick: currentTick,
-          });
-        }
+        if (!spawnPos) continue;
+
+        city.completeCurrentOrder();
+        const unitId = gameState.nextProductionUnitId();
+        const unit   = spawnUnit(orderSnapshot.unitType, unitId, city.getOwnerId(), spawnPos);
+        unit.setHomeCityId(city.id);
+        unit.setUnitSerial(gameState.nextUnitSerial(orderSnapshot.unitType, city.getOwnerId()));
+        gameState.addUnit(unit);
+        eventBus.emit('city:unit-spawned', {
+          cityId: city.id, unitId, unitType: orderSnapshot.unitType,
+          position: spawnPos, tick: currentTick,
+        });
 
       } else if (orderSnapshot.kind === 'building') {
+        city.completeCurrentOrder();
         city.addBuilding(orderSnapshot.buildingType);
         eventBus.emit('city:building-built', {
           cityId: city.id, building: orderSnapshot.buildingType, tick: currentTick,
@@ -154,6 +157,7 @@ export class ProductionSystem {
 
       } else {
         // resource order
+        city.completeCurrentOrder();
         const nation = gameState.getNation(city.getOwnerId());
         nation?.getTreasury().addResource(orderSnapshot.resourceType, orderSnapshot.resourceAmount);
         eventBus.emit('city:production-complete', {

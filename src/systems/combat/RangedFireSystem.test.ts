@@ -7,6 +7,7 @@ import { Trebuchet } from '@/entities/units/Trebuchet';
 import { Cavalry } from '@/entities/units/Cavalry';
 import { Infantry } from '@/entities/units/Infantry';
 import { HeavyInfantry } from '@/entities/units/HeavyInfantry';
+import { Scout } from '@/entities/units/Scout';
 
 /**
  * Cavalry's anti-ranged identity: it shrugs off standalone ranged fire while it
@@ -40,5 +41,44 @@ describe('RangedFireSystem — cavalry ranged resistance', () => {
 
   it('resistance is cavalry-specific — Heavy Infantry takes full damage', () => {
     expect(damageDealtTo(() => new HeavyInfantry('tgt', 'nb', { row: 1, col: 3 }))).toBe(50);
+  });
+});
+
+describe('RangedFireSystem — spy visibility', () => {
+  it('never auto-targets an undercover enemy spy', () => {
+    const gs = new GameState({ rows: 8, cols: 8 });
+    gs.addNation(new Nation('na', 'A', '#f00'));
+    gs.addNation(new Nation('nb', 'B', '#00f'));
+    const eb = new GameEventBus();
+    const rf = new RangedFireSystem(() => 0.5);
+
+    const treb = new Trebuchet('t', 'na', { row: 1, col: 1 });
+    const spy = new Scout('spy', 'nb', { row: 1, col: 3 });
+    spy.setSpy(true);
+    gs.addUnit(treb);
+    gs.addUnit(spy);
+
+    rf.tick(gs, eb, 0);
+
+    expect(gs.getUnit('spy')?.getHealth()).toBe(spy.getStats().maxHealth);
+  });
+
+  it('drops a preferred target that later goes undercover', () => {
+    const gs = new GameState({ rows: 8, cols: 8 });
+    gs.addNation(new Nation('na', 'A', '#f00'));
+    gs.addNation(new Nation('nb', 'B', '#00f'));
+    const eb = new GameEventBus();
+    const rf = new RangedFireSystem(() => 0.5);
+
+    const treb = new Trebuchet('t', 'na', { row: 1, col: 1 });
+    const spy = new Scout('spy', 'nb', { row: 1, col: 3 });
+    treb.setPreferredTargetId('spy');
+    spy.setSpy(true);
+    gs.addUnit(treb);
+    gs.addUnit(spy);
+
+    rf.tick(gs, eb, 0);
+
+    expect(gs.getUnit('spy')?.getHealth()).toBe(spy.getStats().maxHealth);
   });
 });

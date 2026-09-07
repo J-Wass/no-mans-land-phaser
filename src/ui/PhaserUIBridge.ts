@@ -200,13 +200,14 @@ export class PhaserUIBridge {
       movementStates,
       battleStates: this.tickEngine.getBattleStates(),
       siegeStates: this.tickEngine.getSiegeStates(),
+      territoryBattleStates: this.tickEngine.getTerritoryBattleStates(),
       peaceCooldowns: this.diplomacySystem.toSavedState(),
     };
   }
 
-  /** Save the current game to a slot. */
-  saveToSlot(slot: number): void {
-    SaveSystem.save(slot, this.buildSaveData());
+  /** Save the current game to a slot. @returns whether the write actually succeeded. */
+  saveToSlot(slot: number): boolean {
+    return SaveSystem.save(slot, this.buildSaveData());
   }
 
   loadGame(slot: number): void {

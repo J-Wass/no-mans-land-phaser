@@ -30,6 +30,11 @@ const MINE_DEPOSIT_MATCH: Partial<Record<TerritoryBuildingType, TerritoryResourc
   [TerritoryBuildingType.IRON_MINE]:       TerritoryResourceType.IRON,
   [TerritoryBuildingType.FIRE_GLASS_MINE]: TerritoryResourceType.FIRE_GLASS,
 };
+// Silver/Gold have no dedicated mine building yet — either ore mine activates
+// them (see GameState.territoryHasActiveMine / CommandProcessor's
+// satisfiesDepositRequirement), so both must be offered on those tiles too.
+const PRECIOUS_DEPOSITS = new Set([TerritoryResourceType.SILVER, TerritoryResourceType.GOLD_DEPOSIT]);
+const ORE_MINES = new Set([TerritoryBuildingType.COPPER_MINE, TerritoryBuildingType.IRON_MINE]);
 const MANA_DEPOSITS = new Set([
   TerritoryResourceType.WATER_MANA, TerritoryResourceType.FIRE_MANA,
   TerritoryResourceType.LIGHTNING_MANA, TerritoryResourceType.EARTH_MANA,
@@ -186,6 +191,8 @@ export class TerritoryMenuModal {
       if (!MINE_TYPES.has(b.type)) return true;
       if (b.type === TerritoryBuildingType.MANA_MINE)
         return deposit !== null && MANA_DEPOSITS.has(deposit as TerritoryResourceType);
+      if (deposit !== null && PRECIOUS_DEPOSITS.has(deposit as TerritoryResourceType) && ORE_MINES.has(b.type))
+        return true;
       return deposit !== null && MINE_DEPOSIT_MATCH[b.type] === deposit;
     });
 
@@ -271,6 +278,11 @@ export class TerritoryMenuModal {
   }
 
   private refreshButtons(): void {
+    // Sandbox bypasses tech/cost checks server-side (CommandProcessor's
+    // `!this.sandboxMode` guards) but not the building-prerequisite check —
+    // mirror that exactly so sandbox players can click buttons that would
+    // actually succeed.
+    const isSandbox = this.bridge.setup.gameMode === 'sandbox';
     const territory = this.bridge.gameState.getGrid().getTerritory(this.position);
     if (!territory) return;
     const ownerId = territory.getControllingNation();
@@ -292,10 +304,10 @@ export class TerritoryMenuModal {
       const maxLevel     = row.def.type === TerritoryBuildingType.WALLS ? MAX_WALLS_LEVEL : row.def.maxLevel;
       const atMax        = curLevel >= maxLevel;
       const prereqMet    = !row.def.requires || territory.hasBuilding(row.def.requires);
-      const techMet      = !row.def.requiresTech || (buyerNation?.hasResearched(row.def.requiresTech) ?? false);
-      const canAfford    = buyerTreasury?.hasResources(row.def.cost) ?? false;
+      const techMet      = isSandbox || !row.def.requiresTech || (buyerNation?.hasResearched(row.def.requiresTech) ?? false);
+      const canAfford    = isSandbox || (buyerTreasury?.hasResources(row.def.cost) ?? false);
 
-      const canUpgrade = !isOutpost && alreadyBuilt && !atMax && (buyerTreasury?.hasResources(row.def.upgradeCost) ?? false);
+      const canUpgrade = !isOutpost && alreadyBuilt && !atMax && (isSandbox || (buyerTreasury?.hasResources(row.def.upgradeCost) ?? false));
       const canBuild   = isOutpost
         ? (!owned && canAfford)               // outpost claims an unclaimed tile
         : (owned && !alreadyBuilt && prereqMet && techMet && canAfford);

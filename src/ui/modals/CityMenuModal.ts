@@ -431,6 +431,12 @@ export class CityMenuModal {
   }
 
   private refreshBuildButtons(): void {
+    // Sandbox bypasses tech/deposit/cost checks server-side (CommandProcessor
+    // — see the `!this.sandboxMode` guards in handleStartCityProduction /
+    // handleBuildCityBuilding) but NOT the building-prerequisite or
+    // queue-full checks. The UI must mirror that exactly, or sandbox players
+    // can't click buttons that would actually succeed.
+    const isSandbox = this.bridge.setup.gameMode === 'sandbox';
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
     const busy      = this.city.getCurrentOrder() !== null;
     const queueFull = this.city.isQueueFull();
@@ -438,12 +444,12 @@ export class CityMenuModal {
     const deposits  = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
 
     for (const row of this.unitRows) {
-      const canAfford   = treasury?.hasResources(row.entry.cost) ?? false;
-      const techsOk     = row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
+      const canAfford   = isSandbox || (treasury?.hasResources(row.entry.cost) ?? false);
+      const techsOk     = isSandbox || row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
       const buildingOk  = !row.entry.requiresBuilding
         || this.city.getBuildingLevel(row.entry.requiresBuilding) >= row.entry.requiresBuildingLevel;
-      const depositOk   = (!row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit))
-        && (!row.entry.requiresAnyDeposit || row.entry.requiresAnyDeposit.some(d => deposits.has(d)));
+      const depositOk   = isSandbox || ((!row.entry.requiresDeposit || deposits.has(row.entry.requiresDeposit))
+        && (!row.entry.requiresAnyDeposit || row.entry.requiresAnyDeposit.some(d => deposits.has(d))));
       const enabled     = !queueFull && canAfford && techsOk && buildingOk && depositOk;
 
       row.btn.disabled    = !enabled;
@@ -460,9 +466,9 @@ export class CityMenuModal {
       const alreadyBuilt = this.city.hasBuilding(row.def.type);
       const currentLevel = this.city.getBuildingLevel(row.def.type);
       const canUpgrade   = alreadyBuilt && currentLevel < row.def.maxLevel;
-      const techOk       = !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
+      const techOk       = isSandbox || !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
       const cost         = canUpgrade ? row.def.upgradeCost : row.def.cost;
-      const canAfford    = treasury?.hasResources(cost) ?? false;
+      const canAfford    = isSandbox || (treasury?.hasResources(cost) ?? false);
       const enabled      = !queueFull && techOk && canAfford && (!alreadyBuilt || canUpgrade);
 
       row.btn.disabled = !enabled;
@@ -495,43 +501,51 @@ export class CityMenuModal {
   }
 
   private getLockReasonForUnit(entry: CatalogEntry): string {
+    const isSandbox = this.bridge.setup.gameMode === 'sandbox';
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
     if (this.city.isQueueFull()) return STR.queueFull(CITY_QUEUE_MAX);
-    const missing = entry.requiresTechs.filter(t => !nation?.hasResearched(t));
-    if (missing.length) return STR.requiresResearch(missing.map(t => t.replace(/_/g, ' ')).join(', '));
+    if (!isSandbox) {
+      const missing = entry.requiresTechs.filter(t => !nation?.hasResearched(t));
+      if (missing.length) return STR.requiresResearch(missing.map(t => t.replace(/_/g, ' ')).join(', '));
+    }
     if (entry.requiresBuilding !== null) {
       const lvl = this.city.getBuildingLevel(entry.requiresBuilding);
       const name = entry.requiresBuilding.replace(/_/g, ' ').toLowerCase();
       if (lvl <= 0) return STR.requiresBuildingInCity(name);
       if (lvl < entry.requiresBuildingLevel) return STR.requiresBuildingLevel(name, entry.requiresBuildingLevel);
     }
-    if (entry.requiresDeposit) {
-      const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
-      if (!deposits.has(entry.requiresDeposit))
-        return STR.requiresDeposit(entry.requiresDeposit.replace(/_/g, ' ').toLowerCase());
+    if (!isSandbox) {
+      if (entry.requiresDeposit) {
+        const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
+        if (!deposits.has(entry.requiresDeposit))
+          return STR.requiresDeposit(entry.requiresDeposit.replace(/_/g, ' ').toLowerCase());
+      }
+      if (entry.requiresAnyDeposit) {
+        const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
+        if (!entry.requiresAnyDeposit.some(d => deposits.has(d)))
+          return STR.requiresAnyDeposit(entry.requiresAnyDeposit.map(d => d.replace(/_/g, ' ').toLowerCase()).join(' / '));
+      }
+      if (!nation?.getTreasury().hasResources(entry.cost)) return STR.insufficientResources;
     }
-    if (entry.requiresAnyDeposit) {
-      const deposits = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
-      if (!entry.requiresAnyDeposit.some(d => deposits.has(d)))
-        return STR.requiresAnyDeposit(entry.requiresAnyDeposit.map(d => d.replace(/_/g, ' ').toLowerCase()).join(' / '));
-    }
-    if (!nation?.getTreasury().hasResources(entry.cost)) return STR.insufficientResources;
     return STR.readyToQueue;
   }
 
   private getLockReasonForBuilding(def: CityBuildingDef): string {
+    const isSandbox = this.bridge.setup.gameMode === 'sandbox';
     if (this.city.isQueueFull()) return STR.queueFull(CITY_QUEUE_MAX);
     if (this.city.hasBuilding(def.type)) {
       const level = this.city.getBuildingLevel(def.type);
       if (level >= def.maxLevel) return def.maxLevel > 1 ? STR.alreadyAtMaxLevel : STR.alreadyBuilt;
       const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
-      if (!nation?.getTreasury().hasResources(def.upgradeCost)) return STR.insufficientResources;
+      if (!isSandbox && !nation?.getTreasury().hasResources(def.upgradeCost)) return STR.insufficientResources;
       return STR.readyToUpgradeToLevel(level + 1);
     }
     const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
-    if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech))
-      return STR.requiresResearchBuilding(def.requiresTech.replace(/_/g, ' ').toLowerCase());
-    if (!nation?.getTreasury().hasResources(def.cost)) return STR.insufficientResources;
+    if (!isSandbox) {
+      if (def.requiresTech !== null && !nation?.hasResearched(def.requiresTech))
+        return STR.requiresResearchBuilding(def.requiresTech.replace(/_/g, ' ').toLowerCase());
+      if (!nation?.getTreasury().hasResources(def.cost)) return STR.insufficientResources;
+    }
     return STR.readyToBuild;
   }
 
