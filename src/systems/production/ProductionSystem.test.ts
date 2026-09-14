@@ -51,12 +51,12 @@ describe('ProductionSystem', () => {
     const silverTile = state.getGrid().getTerritory({ row: 0, col: 2 });
     silverTile?.setControllingNation(nation.getId());
     silverTile?.setResourceDeposit(TerritoryResourceType.SILVER);
-    silverTile?.setBuildings([TerritoryBuildingType.COPPER_MINE]);
+    silverTile?.setBuildings([TerritoryBuildingType.SILVER_MINE]);
 
     const goldTile = state.getGrid().getTerritory({ row: 0, col: 3 });
     goldTile?.setControllingNation(nation.getId());
     goldTile?.setResourceDeposit(TerritoryResourceType.GOLD_DEPOSIT);
-    goldTile?.setBuildings([TerritoryBuildingType.IRON_MINE]);
+    goldTile?.setBuildings([TerritoryBuildingType.GOLD_MINE]);
 
     // tick 300: all intervals fire (food@5, material@10, gold@10, research@10 with 30s delay guard, terrain@50)
     system.tick(state, eventBus, 300);

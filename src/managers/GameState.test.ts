@@ -93,7 +93,7 @@ describe('GameState', () => {
     const silverTile = state.getGrid().getTerritory({ row: 0, col: 1 });
     silverTile?.setControllingNation(nation.getId());
     silverTile?.setResourceDeposit(TerritoryResourceType.SILVER);
-    silverTile?.setBuildings([TerritoryBuildingType.IRON_MINE]);
+    silverTile?.setBuildings([TerritoryBuildingType.SILVER_MINE]);
 
     const airTile = state.getGrid().getTerritory({ row: 0, col: 2 });
     airTile?.setControllingNation(nation.getId());

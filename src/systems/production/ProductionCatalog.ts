@@ -19,6 +19,9 @@ import type { ProductionOrder, UnitOrder } from './ProductionOrder';
 /** Each Barracks level above 1 reduces a unit's mobilization (production) time by this fraction. */
 export const BARRACKS_MOBILIZATION_SPEEDUP_PER_LEVEL = 0.05;
 
+/** Global production-time multiplier applied to every unit's base duration. */
+export const UNIT_PRODUCTION_SPEED_MULTIPLIER = 2;
+
 export interface CatalogEntry {
   id:               string;
   label:            string;
@@ -47,6 +50,7 @@ const unit = (
   requiresAnyDeposit: TerritoryResourceType[] | null = null,
 ): CatalogEntry => {
   const { label, detail } = CONTENT_STRINGS.units[unitType];
+  ticks = ticks * UNIT_PRODUCTION_SPEED_MULTIPLIER;
   return {
     id: `unit:${unitType}`,
     label,

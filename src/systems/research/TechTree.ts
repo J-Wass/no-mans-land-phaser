@@ -31,7 +31,7 @@ export interface TechNode {
 }
 
 /** Global research-time multiplier applied to every tech's base duration. */
-export const RESEARCH_SPEED_MULTIPLIER = 4;
+export const RESEARCH_SPEED_MULTIPLIER = 4 / 3;
 
 // T(id, branch, requires, ticks, cost)
 // ticks: BASE research duration (TICK_RATE=10 → 300 ticks = 30 s); scaled by

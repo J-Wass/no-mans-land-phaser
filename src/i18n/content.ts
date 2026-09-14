@@ -144,6 +144,14 @@ export const CONTENT_STRINGS = {
       label: 'Fire Glass Mine',
       perks: 'Mines the fire glass deposit here. Gives all your units Fire Glass weapons, adding +6 melee and ranged damage.',
     },
+    SILVER_MINE: {
+      label: 'Silver Mine',
+      perks: 'Mines the silver deposit here, granting a nation-wide economic bonus.',
+    },
+    GOLD_MINE: {
+      label: 'Gold Mine',
+      perks: 'Mines the gold deposit here, granting a larger nation-wide economic bonus.',
+    },
     MANA_MINE: {
       label: 'Mana Mine',
       perks: 'Activates the mana deposit on this tile, granting a nation-wide magical bonus (varies by mana type).',

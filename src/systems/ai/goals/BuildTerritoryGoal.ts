@@ -17,25 +17,22 @@ const MANA_DEPOSITS = new Set<TerritoryResourceType>([
   TerritoryResourceType.SHADOW_MANA,
 ]);
 
-/**
- * Map from deposit type to the mine that exploits it.
- *
- * SILVER and GOLD_DEPOSIT are intentionally absent: there is no dedicated mine
- * building for them, and each mine enforces a matching `requiresDeposit`, so
- * dispatching COPPER_MINE onto a silver/gold tile is always rejected by the
- * CommandProcessor. Mapping them here just made the AI spam failing commands.
- */
+/** Map from deposit type to the mine that exploits it. */
 const DEPOSIT_TO_MINE: Partial<Record<TerritoryResourceType, TerritoryBuildingType>> = {
   [TerritoryResourceType.COPPER]:         TerritoryBuildingType.COPPER_MINE,
   [TerritoryResourceType.IRON]:           TerritoryBuildingType.IRON_MINE,
   [TerritoryResourceType.FIRE_GLASS]:     TerritoryBuildingType.FIRE_GLASS_MINE,
+  [TerritoryResourceType.SILVER]:         TerritoryBuildingType.SILVER_MINE,
+  [TerritoryResourceType.GOLD_DEPOSIT]:   TerritoryBuildingType.GOLD_MINE,
 };
 
 /** Higher = prefer earlier. Mana and advanced ore mines are most impactful. */
 const MINE_PRIORITY: Record<TerritoryBuildingType, number> = {
   [TerritoryBuildingType.MANA_MINE]:       40,
   [TerritoryBuildingType.FIRE_GLASS_MINE]: 35,
+  [TerritoryBuildingType.GOLD_MINE]:       32,
   [TerritoryBuildingType.IRON_MINE]:       30,
+  [TerritoryBuildingType.SILVER_MINE]:     25,
   [TerritoryBuildingType.COPPER_MINE]:     20,
   // Non-mine entries (required for complete record)
   [TerritoryBuildingType.OUTPOST]:          0,

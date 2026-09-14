@@ -367,12 +367,27 @@ describe('CommandProcessor', () => {
   });
 
   describe('BUILD_TERRITORY (mines on Silver/Gold deposits)', () => {
-    // Silver/Gold deposits have no dedicated mine building — they're meant to
-    // be activated by either ore mine (see GameState.territoryHasActiveMine).
-    // Without the CommandProcessor fix, the exact-deposit-match check meant
-    // this was never actually buildable, even though the income logic
-    // supported it.
-    it('allows building a Copper Mine on a Silver deposit tile', () => {
+    it('allows building a Silver Mine on a Silver deposit tile', () => {
+      const tile = gameState.getGrid().getTerritory({ row: 0, col: 0 });
+      tile?.setControllingNation('nation-1');
+      tile?.setResourceDeposit(TerritoryResourceType.SILVER);
+      tile?.setBuildings([TerritoryBuildingType.OUTPOST]);
+      nation.startResearch('masonry', 1);
+      nation.tickResearch();
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 90);
+
+      const result = processor.dispatch({
+        type: 'BUILD_TERRITORY',
+        playerId: 'player-1',
+        position: { row: 0, col: 0 },
+        building: TerritoryBuildingType.SILVER_MINE,
+        issuedAtTick: 1,
+      });
+
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects a Copper Mine on a Silver deposit tile', () => {
       const tile = gameState.getGrid().getTerritory({ row: 0, col: 0 });
       tile?.setControllingNation('nation-1');
       tile?.setResourceDeposit(TerritoryResourceType.SILVER);
@@ -389,7 +404,8 @@ describe('CommandProcessor', () => {
         issuedAtTick: 1,
       });
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.reason).toMatch(/deposit/i);
     });
 
     it('still rejects a Copper Mine on a tile with no deposit at all', () => {

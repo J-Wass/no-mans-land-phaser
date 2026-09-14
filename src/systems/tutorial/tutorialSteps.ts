@@ -81,7 +81,7 @@ function depositTile(ctx: TutorialResolveCtx): GridCoordinates | null {
   return null;
 }
 
-const MINE_BUILDINGS = new Set(['COPPER_MINE', 'IRON_MINE', 'FIRE_GLASS_MINE', 'MANA_MINE']);
+const MINE_BUILDINGS = new Set(['COPPER_MINE', 'IRON_MINE', 'FIRE_GLASS_MINE', 'SILVER_MINE', 'GOLD_MINE', 'MANA_MINE']);
 
 // ── Typed payload helpers (the events list guarantees the shape) ────────────
 

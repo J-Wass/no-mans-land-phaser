@@ -22,6 +22,8 @@ export enum TerritoryBuildingType {
   COPPER_MINE     = 'COPPER_MINE',
   IRON_MINE       = 'IRON_MINE',
   FIRE_GLASS_MINE = 'FIRE_GLASS_MINE',
+  SILVER_MINE     = 'SILVER_MINE',
+  GOLD_MINE       = 'GOLD_MINE',
   MANA_MINE       = 'MANA_MINE',
 }
 
@@ -142,6 +144,30 @@ export const TERRITORY_BUILDING_CATALOG: TerritoryBuildingDef[] = [
     upgradeCost: {},
   },
   {
+    type: TerritoryBuildingType.SILVER_MINE,
+    label: CONTENT_STRINGS.territoryBuildings[TerritoryBuildingType.SILVER_MINE].label,
+    perks: CONTENT_STRINGS.territoryBuildings[TerritoryBuildingType.SILVER_MINE].perks,
+    cost: { [ResourceType.RAW_MATERIAL]: 90 },
+    ticks: 90,
+    requires: TerritoryBuildingType.OUTPOST,
+    requiresTech: 'masonry',
+    requiresDeposit: TerritoryResourceType.SILVER,
+    maxLevel: 1,
+    upgradeCost: {},
+  },
+  {
+    type: TerritoryBuildingType.GOLD_MINE,
+    label: CONTENT_STRINGS.territoryBuildings[TerritoryBuildingType.GOLD_MINE].label,
+    perks: CONTENT_STRINGS.territoryBuildings[TerritoryBuildingType.GOLD_MINE].perks,
+    cost: { [ResourceType.RAW_MATERIAL]: 100 },
+    ticks: 95,
+    requires: TerritoryBuildingType.OUTPOST,
+    requiresTech: 'trade',
+    requiresDeposit: TerritoryResourceType.GOLD_DEPOSIT,
+    maxLevel: 1,
+    upgradeCost: {},
+  },
+  {
     type: TerritoryBuildingType.MANA_MINE,
     label: CONTENT_STRINGS.territoryBuildings[TerritoryBuildingType.MANA_MINE].label,
     perks: CONTENT_STRINGS.territoryBuildings[TerritoryBuildingType.MANA_MINE].perks,
@@ -169,5 +195,7 @@ export const BUILDING_MAP_ICON: Record<TerritoryBuildingType, string> = {
   [TerritoryBuildingType.COPPER_MINE]:     '⊛',
   [TerritoryBuildingType.IRON_MINE]:       '⊗',
   [TerritoryBuildingType.FIRE_GLASS_MINE]: '◈',
+  [TerritoryBuildingType.SILVER_MINE]:     '☽',
+  [TerritoryBuildingType.GOLD_MINE]:       '☀',
   [TerritoryBuildingType.MANA_MINE]:       '◆',
 };

@@ -23,18 +23,17 @@ const MINE_TYPES = new Set([
   TerritoryBuildingType.COPPER_MINE,
   TerritoryBuildingType.IRON_MINE,
   TerritoryBuildingType.FIRE_GLASS_MINE,
+  TerritoryBuildingType.SILVER_MINE,
+  TerritoryBuildingType.GOLD_MINE,
   TerritoryBuildingType.MANA_MINE,
 ]);
 const MINE_DEPOSIT_MATCH: Partial<Record<TerritoryBuildingType, TerritoryResourceType>> = {
   [TerritoryBuildingType.COPPER_MINE]:     TerritoryResourceType.COPPER,
   [TerritoryBuildingType.IRON_MINE]:       TerritoryResourceType.IRON,
   [TerritoryBuildingType.FIRE_GLASS_MINE]: TerritoryResourceType.FIRE_GLASS,
+  [TerritoryBuildingType.SILVER_MINE]:     TerritoryResourceType.SILVER,
+  [TerritoryBuildingType.GOLD_MINE]:       TerritoryResourceType.GOLD_DEPOSIT,
 };
-// Silver/Gold have no dedicated mine building yet — either ore mine activates
-// them (see GameState.territoryHasActiveMine / CommandProcessor's
-// satisfiesDepositRequirement), so both must be offered on those tiles too.
-const PRECIOUS_DEPOSITS = new Set([TerritoryResourceType.SILVER, TerritoryResourceType.GOLD_DEPOSIT]);
-const ORE_MINES = new Set([TerritoryBuildingType.COPPER_MINE, TerritoryBuildingType.IRON_MINE]);
 const MANA_DEPOSITS = new Set([
   TerritoryResourceType.WATER_MANA, TerritoryResourceType.FIRE_MANA,
   TerritoryResourceType.LIGHTNING_MANA, TerritoryResourceType.EARTH_MANA,
@@ -68,6 +67,8 @@ export class TerritoryMenuModal {
   private buildingRows: RowRecord[] = [];
   private feedbackEl!: HTMLElement;
   private feedbackTimer = 0;
+  private builtVal!: HTMLElement;
+  private rafId = 0;
 
   constructor(private bridge: PhaserUIBridge, private position: GridCoordinates) {
     this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') this.close(); };
@@ -131,8 +132,6 @@ export class TerritoryMenuModal {
     panel.appendChild(hdr);
 
     // Current buildings
-    const buildings = territory?.getBuildings() ?? [];
-    const construction = territory?.getCurrentConstruction() ?? null;
     const builtWrap = document.createElement('div');
     builtWrap.className = 'panel-alt col tight';
 
@@ -140,25 +139,12 @@ export class TerritoryMenuModal {
     builtLabel.className = 'section-label';
     builtLabel.textContent = STR.built;
 
-    const builtVal = document.createElement('div');
-    builtVal.className = 'text-caption text-mono';
-    builtVal.style.color = '#44dd99';
-    builtVal.textContent = buildings.length === 0
-      ? STR.builtNone
-      : buildings.map(b => {
-          const lvl = territory?.getBuildingLevel(b) ?? 1;
-          const lvlTag = b === TerritoryBuildingType.WALLS ? STR.wallsLevelTag(lvl) : '';
-          return STR.builtEntry(BUILDING_MAP_ICON[b], b.replace(/_/g, ' '), lvlTag);
-        }).join('  ');
-    if (construction) {
-      const pct = construction.ticksTotal > 0
-        ? Math.round((1 - construction.ticksRemaining / construction.ticksTotal) * 100)
-        : 0;
-      builtVal.textContent += STR.constructionInProgress(construction.label, pct);
-    }
+    this.builtVal = document.createElement('div');
+    this.builtVal.className = 'text-caption text-mono';
+    this.builtVal.style.color = '#44dd99';
 
     builtWrap.appendChild(builtLabel);
-    builtWrap.appendChild(builtVal);
+    builtWrap.appendChild(this.builtVal);
     panel.appendChild(builtWrap);
 
     // Column headers
@@ -191,8 +177,6 @@ export class TerritoryMenuModal {
       if (!MINE_TYPES.has(b.type)) return true;
       if (b.type === TerritoryBuildingType.MANA_MINE)
         return deposit !== null && MANA_DEPOSITS.has(deposit as TerritoryResourceType);
-      if (deposit !== null && PRECIOUS_DEPOSITS.has(deposit as TerritoryResourceType) && ORE_MINES.has(b.type))
-        return true;
       return deposit !== null && MINE_DEPOSIT_MATCH[b.type] === deposit;
     });
 
@@ -210,8 +194,37 @@ export class TerritoryMenuModal {
     backdrop.appendChild(panel);
     document.addEventListener('keydown', this.escHandler);
     this.subscribeEvents();
-    this.refreshButtons();
+    this.scheduleUpdate();
     return backdrop;
+  }
+
+  /** Poll every frame so tech/resource/construction-progress changes reflect live, without reopening the panel. */
+  private scheduleUpdate(): void {
+    const tick = () => {
+      this.updateBuiltSection();
+      this.refreshButtons();
+      this.rafId = requestAnimationFrame(tick);
+    };
+    this.rafId = requestAnimationFrame(tick);
+  }
+
+  private updateBuiltSection(): void {
+    const territory = this.bridge.gameState.getGrid().getTerritory(this.position);
+    const buildings = territory?.getBuildings() ?? [];
+    const construction = territory?.getCurrentConstruction() ?? null;
+    this.builtVal.textContent = buildings.length === 0
+      ? STR.builtNone
+      : buildings.map(b => {
+          const lvl = territory?.getBuildingLevel(b) ?? 1;
+          const lvlTag = b === TerritoryBuildingType.WALLS ? STR.wallsLevelTag(lvl) : '';
+          return STR.builtEntry(BUILDING_MAP_ICON[b], b.replace(/_/g, ' '), lvlTag);
+        }).join('  ');
+    if (construction) {
+      const pct = construction.ticksTotal > 0
+        ? Math.round((1 - construction.ticksRemaining / construction.ticksTotal) * 100)
+        : 0;
+      this.builtVal.textContent += STR.constructionInProgress(construction.label, pct);
+    }
   }
 
   private buildRow(def: TerritoryBuildingDef): { row: HTMLElement; record: RowRecord } {
@@ -394,6 +407,7 @@ export class TerritoryMenuModal {
   destroy(): void {
     document.removeEventListener('keydown', this.escHandler);
     clearTimeout(this.feedbackTimer);
+    cancelAnimationFrame(this.rafId);
     (this as any)._unsub?.();
   }
 }

@@ -275,7 +275,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
    *
    * Material deposits (Copper/Iron/FireGlass) need their specific mine building.
    * Mana deposits need a MANA_MINE building.
-   * Silver/GoldDeposit need a SILVER_MINE/GOLD_MINE — treated the same as copper mine for now.
+   * Silver/Gold deposits need a SILVER_MINE/GOLD_MINE respectively.
    */
   /** Whether this specific territory's own deposit has its matching mine built on it. */
   private territoryHasActiveMine(territory: Territory, deposit: TerritoryResourceType): boolean {
@@ -292,10 +292,8 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
     if (deposit === TerritoryResourceType.COPPER) return buildings.includes(TerritoryBuildingType.COPPER_MINE);
     if (deposit === TerritoryResourceType.IRON) return buildings.includes(TerritoryBuildingType.IRON_MINE);
     if (deposit === TerritoryResourceType.FIRE_GLASS) return buildings.includes(TerritoryBuildingType.FIRE_GLASS_MINE);
-    if (deposit === TerritoryResourceType.SILVER || deposit === TerritoryResourceType.GOLD_DEPOSIT) {
-      // Silver/gold deposits activated by any ore mine (placeholder until dedicated buildings exist)
-      return buildings.includes(TerritoryBuildingType.COPPER_MINE) || buildings.includes(TerritoryBuildingType.IRON_MINE);
-    }
+    if (deposit === TerritoryResourceType.SILVER) return buildings.includes(TerritoryBuildingType.SILVER_MINE);
+    if (deposit === TerritoryResourceType.GOLD_DEPOSIT) return buildings.includes(TerritoryBuildingType.GOLD_MINE);
     return false;
   }
 

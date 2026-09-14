@@ -40,24 +40,6 @@ const MANA_DEPOSITS = new Set<TerritoryResourceType>([
   TerritoryResourceType.SHADOW_MANA,
 ]);
 
-/**
- * Silver/Gold deposits have no dedicated mine building yet — they're activated
- * by building either ore mine on the tile (see GameState.territoryHasActiveMine).
- * Without this, the deposit-match check below only ever accepted a Copper Mine
- * on a Copper tile / Iron Mine on an Iron tile, so a Silver or Gold deposit
- * could never actually be mined through the normal build command.
- */
-function satisfiesDepositRequirement(
-  building: TerritoryBuildingType,
-  requiresDeposit: TerritoryResourceType,
-  actualDeposit: TerritoryResourceType | null,
-): boolean {
-  if (actualDeposit === requiresDeposit) return true;
-  const isOreMine = building === TerritoryBuildingType.COPPER_MINE || building === TerritoryBuildingType.IRON_MINE;
-  const isPreciousDeposit = actualDeposit === TerritoryResourceType.SILVER || actualDeposit === TerritoryResourceType.GOLD_DEPOSIT;
-  return isOreMine && isPreciousDeposit;
-}
-
 export class CommandProcessor {
   constructor(
     private gameState: GameState,
@@ -195,7 +177,7 @@ export class CommandProcessor {
       if (!deposit || !MANA_DEPOSITS.has(deposit))
         return { success: false, reason: 'No mana deposit on this territory' };
     } else if (def.requiresDeposit) {
-      if (!satisfiesDepositRequirement(command.building, def.requiresDeposit, territory.getResourceDeposit()))
+      if (territory.getResourceDeposit() !== def.requiresDeposit)
         return { success: false, reason: 'Required resource deposit not present' };
     }
 

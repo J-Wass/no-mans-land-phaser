@@ -25,6 +25,7 @@ import { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import { MusicManager } from '@/managers/MusicManager';
 import { TutorialManager } from '@/systems/tutorial/TutorialManager';
 import { TutorialOverlay } from '@/ui/TutorialOverlay';
+import { BUILDING_MAP_ICON } from '@/systems/territory/TerritoryBuilding';
 
 const WATER_BORDER = 0;
 /** Reused empty set — shouldShowLiveUnitOverlay only cares about the 'visible' outcome. */
@@ -63,6 +64,8 @@ export class GameScene extends Phaser.Scene {
   private unitColors: Map<string, number> = new Map();   // nation color per unit (ring stroke)
   private citySprites: Map<string, Phaser.GameObjects.Image> = new Map();
   private cityLabels: Map<string, Phaser.GameObjects.Text> = new Map();
+  /** tileKey "r,c" → icon text showing that tile's territory buildings. Only visible when the tile is in sight. */
+  private buildingIconTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private selectionGraphic!: Phaser.GameObjects.Graphics;
   private pathGraphic!: Phaser.GameObjects.Graphics;
   private territoryGraphic!: Phaser.GameObjects.Graphics;
@@ -155,6 +158,7 @@ export class GameScene extends Phaser.Scene {
     this.unitColors.clear();
     this.citySprites.clear();
     this.cityLabels.clear();
+    this.buildingIconTexts.clear();
     this.contactMarkers.clear();
     this.depositTooltip = null;
     this.selectedUnitId = null;
@@ -223,6 +227,7 @@ export class GameScene extends Phaser.Scene {
     this.drawWaterBorder();
     this.drawGrid();
     this.drawResourceDeposits();
+    this.drawAllBuildingIcons();
 
     // Build named geographic regions from the grid
     const regionSystem = new RegionSystem();
@@ -349,6 +354,13 @@ export class GameScene extends Phaser.Scene {
     });
     this.subs.on('territory:claimed', ({ position }) => {
       this.activeConquests.delete(`${position.row},${position.col}`);
+      this.refreshBuildingIcons(position);
+    });
+    this.subs.on('territory:building-built', ({ position }) => {
+      this.refreshBuildingIcons(position);
+    });
+    this.subs.on('territory:building-upgraded', ({ position }) => {
+      this.refreshBuildingIcons(position);
     });
 
     // Camera bounds extend a bit past the water border so scrolling feels free at the edges
@@ -647,6 +659,52 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Draw the initial territory-building icon for every tile that already has buildings. */
+  private drawAllBuildingIcons(): void {
+    const grid = this.gameState.getGrid();
+    const { rows, cols } = grid.getSize();
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        this.refreshBuildingIcons({ row: r, col: c });
+      }
+    }
+  }
+
+  /**
+   * Rebuild the small building-icon text for one tile from its current buildings.
+   * Visibility is set by updateFog()/updateFogDisabled() based on line of sight,
+   * not here — a freshly (re)created icon starts hidden until the next fog pass.
+   */
+  private refreshBuildingIcons(position: GridCoordinates): void {
+    const key = `${position.row},${position.col}`;
+    const territory = this.gameState.getGrid().getTerritory(position);
+    const buildings = territory?.getBuildings() ?? [];
+    const existing = this.buildingIconTexts.get(key);
+
+    if (buildings.length === 0) {
+      existing?.destroy();
+      this.buildingIconTexts.delete(key);
+      return;
+    }
+
+    const iconStr = buildings.map(b => BUILDING_MAP_ICON[b]).join('');
+    if (existing) {
+      existing.setText(iconStr);
+      return;
+    }
+
+    const x = position.col * TILE_SIZE + 4;
+    const y = position.row * TILE_SIZE + 3;
+    const text = this.add.text(x, y, iconStr, {
+      fontSize: '9px',
+      color: '#dfe8ff',
+      fontFamily: 'monospace',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setOrigin(0, 0).setDepth(82).setVisible(false);
+    this.buildingIconTexts.set(key, text);
+  }
+
   /** Show the deposit hover tooltip above the given tile (world coords). */
   private showDepositTooltip(worldX: number, tileTopY: number, text: string): void {
     if (!this.depositTooltip) {
@@ -699,6 +757,7 @@ export class GameScene extends Phaser.Scene {
       fontFamily: 'monospace',
       stroke: '#000000',
       strokeThickness: 2,
+      resolution: Math.max(2, window.devicePixelRatio) * 2,
     }).setOrigin(0.5, 0).setDepth(52 + pos.row);
 
     this.citySprites.set(city.id, img);
@@ -867,6 +926,7 @@ export class GameScene extends Phaser.Scene {
       this.unitLabels.get(unit.id)?.setVisible(true);
       this.unitRings.get(unit.id)?.setVisible(true);
     }
+    for (const icon of this.buildingIconTexts.values()) icon.setVisible(true);
     for (const marker of this.contactMarkers.values()) marker.destroy();
     this.contactMarkers.clear();
   }
@@ -903,6 +963,12 @@ export class GameScene extends Phaser.Scene {
       const show = city.getOwnerId() === localNationId || discovered.has(`${pos.row},${pos.col}`);
       this.citySprites.get(city.id)?.setVisible(show);
       this.cityLabels.get(city.id)?.setVisible(show);
+    }
+
+    // Territory building icons: only in own territory or where a unit currently has sight
+    // (stricter than "discovered" — these reflect real-time enemy building state).
+    for (const [key, icon] of this.buildingIconTexts) {
+      icon.setVisible(visible.has(key));
     }
 
     // Clean up contact markers, rebuild below
