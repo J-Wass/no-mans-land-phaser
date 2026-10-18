@@ -44,7 +44,15 @@
       "Bash(grep -E '\\\\.\\(ts|js\\)$')",
       "Bash(npx eslint *)",
       "Bash(echo \"=== EXIT: $? ===\")",
-      "Bash(echo \"exit $?\")"
+      "Bash(echo \"exit $?\")",
+      "Bash(git push *)",
+      "PowerShell(npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 30)",
+      "Bash(echo \"---exit:$?---\")",
+      "Bash(git commit *)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(echo \"lint-exit:$?\")",
+      "PowerShell(npm test *)",
+      "PowerShell(git *)"
     ],
     "deny": [],
     "ask": []
