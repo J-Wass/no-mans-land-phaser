@@ -171,4 +171,29 @@ describe('DiplomacySystem', () => {
     expect(restored.canDeclareWar(nationA.getId(), nationB.getId(), 20 + PEACE_COOLDOWN_TICKS - 1)).toBe(false);
     expect(restored.canDeclareWar(nationA.getId(), nationB.getId(), 20 + PEACE_COOLDOWN_TICKS)).toBe(true);
   });
+
+  describe('canEngage', () => {
+    it('allows combat against a neutral nation (it will auto-declare war)', () => {
+      expect(diplomacy.canEngage(nationA.getId(), nationB.getId(), 0)).toBe(true);
+    });
+
+    it('allows combat against a nation already at war', () => {
+      diplomacy.declareWar(nationA.getId(), nationB.getId(), 0);
+      expect(diplomacy.canEngage(nationA.getId(), nationB.getId(), 0)).toBe(true);
+    });
+
+    it('never allows combat against an ally or itself', () => {
+      nationA.formAlliance(nationB.getId());
+      nationB.formAlliance(nationA.getId());
+      expect(diplomacy.canEngage(nationA.getId(), nationB.getId(), 0)).toBe(false);
+      expect(diplomacy.canEngage(nationA.getId(), nationA.getId(), 0)).toBe(false);
+    });
+
+    it('forbids combat with a neutral during the peace cooldown, then allows it again', () => {
+      diplomacy.declareWar(nationA.getId(), nationB.getId(), 0);
+      expect(diplomacy.proposePeace(nationA.getId(), nationB.getId(), 10, movement).accepted).toBe(true);
+      expect(diplomacy.canEngage(nationA.getId(), nationB.getId(), 11)).toBe(false);
+      expect(diplomacy.canEngage(nationA.getId(), nationB.getId(), 10 + PEACE_COOLDOWN_TICKS)).toBe(true);
+    });
+  });
 });

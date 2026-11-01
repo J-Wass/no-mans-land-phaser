@@ -5,7 +5,8 @@
  */
 
 import type { AIContext, AIGoal, GoalStatus } from '../AITypes';
-import { TECH_CATALOG } from '@/systems/research/TechTree';
+import { TECH_CATALOG, TECH_MAP } from '@/systems/research/TechTree';
+import { ResourceType } from '@/systems/resources/ResourceType';
 import type { TechId } from '@/systems/research/TechTree';
 
 /** General-purpose research order (economy → military → advanced). */
@@ -48,12 +49,17 @@ export class ResearchTechGoal implements AIGoal {
     const nation = ctx.gameState.getNation(ctx.nationId);
     if (!nation) return null;
 
+    // Only techs the nation can start right now — START_RESEARCH pays the RP cost
+    // upfront and would just fail (wasting this goal slot) if it can't.
+    const points = nation.getTreasury().getAmount(ResourceType.RESEARCH);
+    const startable = (id: TechId): boolean =>
+      nation.canResearch(id) && points >= (TECH_MAP.get(id)?.researchCost ?? Infinity);
     for (const tech of this.priorityList) {
-      if (nation.canResearch(tech)) return tech;
+      if (startable(tech)) return tech;
     }
-    // Fallback — pick any researchable tech
+    // Fallback — pick any startable tech
     for (const node of TECH_CATALOG) {
-      if (nation.canResearch(node.id)) return node.id;
+      if (startable(node.id)) return node.id;
     }
     return null;
   }

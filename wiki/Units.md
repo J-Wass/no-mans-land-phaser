@@ -24,7 +24,7 @@ There are **eight unit types**. Each is a thin subclass that only supplies a sta
 - **Range** — 1 = melee only. Ranged units fire automatically at targets within this Manhattan distance ([Ranged fire](Combat.md#4-ranged-fire-system)) and use their ranged stat in battles unless on ADVANCE.
 - **Vision** — Manhattan sight radius (+ Air Mana).
 - **Upkeep** — charged every 30 ticks while alive. If the treasury can't cover a unit's full upkeep, **nothing** is charged for that unit (there is no starvation penalty) — see [Economy → Upkeep](Economy-and-Resources.md#upkeep).
-- The HUD unit panel shows `Melee` and `Ranged` **plus** the nation's weapon-tier bonus (+2/+4/+6), and an "Armor" label that is really the weapon tier: Fire Glass (Fire Glass mine), Steel (Iron mine + Steel Working), Iron (Iron mine), Bronze (Copper mine), else Leather.
+- The HUD unit panel shows `Melee` and `Ranged` **plus** the nation's weapon-tier bonus (+2/+4/+6), the unit's armor (`Armor:Heavy` / `Armor:Light`), and the nation's weapon tier (`Weapons:` Fire Glass with a Fire Glass mine, Steel with an Iron mine + Steel Working, Iron with an Iron mine, Bronze with a Copper mine, else Basic — "Steel" is a name only; its bonus is Iron's +4).
 
 ---
 
@@ -65,6 +65,7 @@ Matchups are applied by the [BattleSystem](Combat.md#1-unit-vs-unit-battle) as o
 - Cavalry on Plains while advancing: ×1.12 offense, −0.04 mitigation. In Forest: ×0.82 offense and no forest cover.
 
 ### Ranged-fire specific
+- Standalone ranged fire automatically targets only nations you're **at war with** ([Combat → Ranged fire](Combat.md#4-ranged-fire-system)).
 - **Cavalry takes 50% of standalone ranged-fire damage** (`CAVALRY_RANGED_RESIST = 0.5`, rounded, minimum 1). This applies only in the RangedFireSystem, never inside melee battles.
 
 ---

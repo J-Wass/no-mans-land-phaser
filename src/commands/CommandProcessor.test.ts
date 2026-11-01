@@ -843,4 +843,56 @@ describe('CommandProcessor', () => {
       expect(result.reason).toMatch(/lacks/i);
     });
   });
+
+  it('rejects a diagonal step (movement is 4-directional)', () => {
+    const result = processor.dispatch({
+      type: 'MOVE_UNIT',
+      playerId: 'player-1',
+      unitId: 'unit-1',
+      path: [{ row: 1, col: 1 }],
+      issuedAtTick: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect(movementSystem.isMoving('unit-1')).toBe(false);
+  });
+
+  describe('queued city building orders', () => {
+    let city: City;
+
+    beforeEach(() => {
+      city = new City('city-1', 'Roma', 'nation-1', { row: 2, col: 2 });
+      gameState.addCity(city);
+      nation.setResearchedTechs(['masonry']);
+      nation.getTreasury().addResource(ResourceType.GOLD, 10_000);
+      nation.getTreasury().addResource(ResourceType.RAW_MATERIAL, 10_000);
+      nation.getTreasury().addResource(ResourceType.FOOD, 10_000);
+    });
+
+    const orderFarms = () => processor.dispatch({
+      type: 'BUILD_CITY_BUILDING',
+      playerId: 'player-1',
+      cityId: 'city-1',
+      building: CityBuildingType.FARMS,
+      issuedAtTick: 0,
+    });
+
+    it('prices and labels a second queued order as the next upgrade', () => {
+      const goldBefore = nation.getTreasury().getAmount(ResourceType.GOLD);
+      const rmBefore = nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL);
+      expect(orderFarms().success).toBe(true);   // build: 25 G, 80 M
+      expect(orderFarms().success).toBe(true);   // upgrade: 25 G, 70 M
+
+      expect(goldBefore - nation.getTreasury().getAmount(ResourceType.GOLD)).toBe(50);
+      expect(rmBefore - nation.getTreasury().getAmount(ResourceType.RAW_MATERIAL)).toBe(150);
+      expect(city.getQueue()[0]?.label).toBe('Farms Lvl 2');
+    });
+
+    it('refuses orders that would take a building past its max level', () => {
+      for (let i = 0; i < 5; i++) expect(orderFarms().success).toBe(true);  // levels 1..5
+      const sixth = orderFarms();
+      expect(sixth.success).toBe(false);
+      expect(sixth.reason).toMatch(/max level/i);
+    });
+  });
 });

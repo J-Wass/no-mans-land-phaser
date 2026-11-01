@@ -68,17 +68,17 @@ Scenario games use the difficulty selected on the menu's Standard Match card (de
 
 | # | Id | Title | Body | Completes on | Highlight |
 |---|---|---|---|---|---|
-| 1 | `select-unit` | Select a unit | Left-click on your unit (the glowing tile) to select it. Selected units show stats and stance buttons in the bottom bar. | `unit:selected` with one of your units | your first unit's tile |
+| 1 | `select-unit` | Select a unit | Left-click on your unit (the highlighted tile) to select it. Selected units show stats and stance buttons in the panel at the bottom left. | `unit:selected` with one of your units | your first unit's tile |
 | 2 | `move-unit` | Move it with a left-click | With your unit selected, left-click an empty tile to march there. Tip: left-click and DRAG to paint a custom multi-step path. | `unit:move-ordered` | your first unit's tile |
 | 3 | `pan-camera` | Pan the camera | Hold the RIGHT mouse button and drag to pan around the map. Try it — find the enemy unit to the north. | `ui:camera-panned` | — |
 | 4 | `open-city` | Open your city | Double-click your city (Rivervale) to open its management menu — that's where you train units and construct buildings. | `ui:modal-opened` = `cityMenu` | your first city |
-| 5 | `upgrade-barracks` | Upgrade the Barracks to Lvl 2 | On the Buildings tab, find the Barracks (already built at Lvl 1) and press ▲ UP to upgrade it. Lvl 2 unlocks the Longbowman. | `city:building-built` BARRACKS in your city with level ≥ 2 | — |
+| 5 | `upgrade-barracks` | Upgrade the Barracks to Lvl 2 | On the Buildings tab, find the Barracks (already built at Lvl 1) and press UPGRADE. Lvl 2 unlocks the Longbowman. | `city:building-built` BARRACKS in your city with level ≥ 2 | — |
 | 6 | `train-longbowman` | Train a Longbowman | Back on the Units tab, press BUILD next to the Longbowman. They out-range Infantry, so they're your edge against the enemy on the road. | `city:production-started` with LONGBOWMAN | DOM `produce-unit` (unit list) |
 | 7 | `defeat-enemy` | Defeat the enemy unit | Once your Longbowman musters, march it onto the enemy Infantry. Longbowmen out-range Infantry, so they win on open ground. | `unit:destroyed` of a non-local unit whose killer is yours | first living enemy unit |
-| 8 | `train-more` | Train more units for the siege | Re-open Rivervale and queue 2 more units. A city is too tough for one unit alone — you'll want a small force to take Greyhold. | `city:production-started` (any one order) | — |
-| 9 | `conquer-city` | Conquer Greyhold | March your units onto the enemy city — multiple attackers will pressure it down. Conquering a city rallies nearby troops with a morale boost. | `city:conquered` by you (records the tick) | first non-local city |
-| 10 | `research-tech` | Research a technology | Open the Research panel from the bottom bar and pick a tech. Better tech unlocks stronger units, mines, and buildings. | `nation:research-started` (any nation) | — |
-| 11 | `open-diplomacy` | Review diplomacy | Open the Diplomacy panel from the bottom bar to see relations, declare war, or sue for peace. | `ui:modal-opened` = `diplomacy` | — |
+| 8 | `train-more` | Train more units for the siege | Re-open Rivervale and queue 2 more units. A city is too tough for one unit alone — you'll want a small force to take Greyhold. | the **second** `city:production-started` after this step activates (counted in the tutorial's scratch state) | — |
+| 9 | `conquer-city` | Conquer Greyhold | March your units onto the enemy city. Only one of your units can stand on it at a time, so bring a few: if your besieger falls, the next one steps in. Conquering a city rallies nearby troops with a morale boost. | `city:conquered` by you (records the tick) | first non-local city |
+| 10 | `research-tech` | Research a technology | Press RESEARCH on the top bar and pick a tech. Better tech unlocks stronger units, mines, and buildings. | `nation:research-started` by your nation | — |
+| 11 | `open-diplomacy` | Review diplomacy | Press OPEN FULL on the Diplomacy panel (bottom right) to see relations, declare war, or sue for peace. | `ui:modal-opened` = `diplomacy` | — |
 
 ### Bonus steps
 
@@ -87,7 +87,7 @@ Scenario games use the difficulty selected on the menu's Standard Match card (de
 | `build-mine` | Bonus: build a mine on a deposit | A copper deposit sits north of your city. March a unit onto it, build an Outpost, then a Copper Mine to unlock bronze weapons. | `territory:building-built` of any mine type | first deposit tile (row-major) |
 | `raze-city` | Bonus: raze or downsize a city | In the captured city's menu, use RAZE or −1 LVL to tear down its buildings. Useful if you can't hold it. | `city:buildings-changed` with a tick later than the conquest tick | — |
 
-(The checklist labels drop the "Bonus: " prefix.) The step text has some inaccuracies relative to the UI — see [Known Quirks](Known-Quirks.md).
+(The checklist labels drop the "Bonus: " prefix.)
 
 ### New-player nudge
 If `localStorage['nml:hasPlayed']` is unset and a tutorial scenario exists, the menu shows a banner with START TUTORIAL. Launching anything or dismissing the banner sets the flag. Tutorial scenarios are prefixed with ★ in the scenario list.

@@ -84,7 +84,7 @@ Before generating goals, asks the current strategy `shouldSwitch(ctx)`; if true,
 
 ### ResearchTechGoal(priorityList = DEFAULT_ORDER) — priority 40
 - Feasible when nothing is being researched and some tech can be picked.
-- Pick the first tech in the list whose prerequisites are met (`canResearch`); fallback: the first researchable tech in catalog order. Execute `START_RESEARCH` (fails silently if RP is short; tried again next evaluation).
+- Pick the first tech in the list that can start **now** — prerequisites met **and** the treasury holds its RP cost; fallback: the first such tech in catalog order. If none qualifies the goal is infeasible (the evaluation slot goes to another goal). Execute `START_RESEARCH`.
 - `DEFAULT_ORDER = masonry, hunting, writing, scientific_method, mathematics, chemistry, biology, physics, animal_domestication, iron_working, mechanization, trade, education, steel_working, ancient_rituals, mana_studies` (The Wheel is reached only via fallback).
 
 ### BuildBuildingGoal(allowedTypes = PREFERRED) — priority 35

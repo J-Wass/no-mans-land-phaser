@@ -1,8 +1,8 @@
 import type { PhaserUIBridge } from '@/ui/PhaserUIBridge';
 import type { City } from '@/entities/cities/City';
-import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
+import { PRODUCTION_CATALOG, barracksAdjustedTicks } from '@/systems/production/ProductionCatalog';
 import type { CatalogEntry } from '@/systems/production/ProductionCatalog';
-import { CITY_BUILDING_CATALOG } from '@/systems/territory/CityBuilding';
+import { CITY_BUILDING_CATALOG, CityBuildingType } from '@/systems/territory/CityBuilding';
 import type { CityBuildingDef } from '@/systems/territory/CityBuilding';
 import type { UnitOrder } from '@/systems/production/ProductionOrder';
 import { CITY_QUEUE_MAX } from '@/entities/cities/City';
@@ -35,7 +35,9 @@ export class CityMenuModal {
   private subs?: EventSubscriptions;
 
   constructor(private bridge: PhaserUIBridge, private city: City) {
-    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') this.close(); };
+    // preventDefault marks the key as handled so Phaser's window-level keyboard
+    // listener (which skips defaultPrevented events) doesn't also open Pause.
+    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); this.close(); } };
   }
 
   render(): HTMLElement {
@@ -443,7 +445,12 @@ export class CityMenuModal {
     const treasury  = nation?.getTreasury();
     const deposits  = nation ? this.bridge.gameState.getNationActiveDeposits(nation.getId()) : new Set();
 
+    const barracksLevel = this.city.getBuildingLevel(CityBuildingType.BARRACKS);
     for (const row of this.unitRows) {
+      // Show the real (Barracks-adjusted) training time, as CommandProcessor will apply it.
+      const adjusted = barracksAdjustedTicks(row.entry.ticks, barracksLevel);
+      const ticks = isSandbox ? Math.min(10, adjusted) : adjusted;
+      row.costLbl.textContent = STR.unitCostLine(formatCost(row.entry.cost as Record<string, number>), (ticks / TICK_RATE).toFixed(1));
       const canAfford   = isSandbox || (treasury?.hasResources(row.entry.cost) ?? false);
       const techsOk     = isSandbox || row.entry.requiresTechs.every(t => nation?.hasResearched(t) ?? false);
       const buildingOk  = !row.entry.requiresBuilding
@@ -463,8 +470,10 @@ export class CityMenuModal {
     }
 
     for (const row of this.buildingRows) {
-      const alreadyBuilt = this.city.hasBuilding(row.def.type);
-      const currentLevel = this.city.getBuildingLevel(row.def.type);
+      // Count queued orders for this building so the row matches what
+      // BUILD_CITY_BUILDING will accept (and charge) next.
+      const currentLevel = this.effectiveLevel(row.def.type);
+      const alreadyBuilt = currentLevel > 0;
       const canUpgrade   = alreadyBuilt && currentLevel < row.def.maxLevel;
       const techOk       = isSandbox || !row.def.requiresTech || (nation?.hasResearched(row.def.requiresTech) ?? false);
       const cost         = canUpgrade ? row.def.upgradeCost : row.def.cost;
@@ -486,8 +495,9 @@ export class CityMenuModal {
       // Remove-one-level control: only for built buildings; shows the 5s countdown while pending.
       const pending = this.city.getPendingRemoval();
       const removalPending = pending?.building === row.def.type;
-      row.removeBtn.style.display = alreadyBuilt ? '' : 'none';
-      row.removeBtn.disabled = !alreadyBuilt || removalPending;
+      const actuallyBuilt = this.city.hasBuilding(row.def.type);
+      row.removeBtn.style.display = actuallyBuilt ? '' : 'none';
+      row.removeBtn.disabled = !actuallyBuilt || removalPending;
       row.removeBtn.textContent = removalPending
         ? STR.removeLevelPending((pending!.ticksRemaining / TICK_RATE).toFixed(0))
         : STR.removeLevel;
@@ -533,8 +543,8 @@ export class CityMenuModal {
   private getLockReasonForBuilding(def: CityBuildingDef): string {
     const isSandbox = this.bridge.setup.gameMode === 'sandbox';
     if (this.city.isQueueFull()) return STR.queueFull(CITY_QUEUE_MAX);
-    if (this.city.hasBuilding(def.type)) {
-      const level = this.city.getBuildingLevel(def.type);
+    const level = this.effectiveLevel(def.type);
+    if (level > 0) {
       if (level >= def.maxLevel) return def.maxLevel > 1 ? STR.alreadyAtMaxLevel : STR.alreadyBuilt;
       const nation = this.bridge.gameState.getNation(this.city.getOwnerId());
       if (!isSandbox && !nation?.getTreasury().hasResources(def.upgradeCost)) return STR.insufficientResources;
@@ -547,6 +557,13 @@ export class CityMenuModal {
       if (!nation?.getTreasury().hasResources(def.cost)) return STR.insufficientResources;
     }
     return STR.readyToBuild;
+  }
+
+  /** Built level plus any orders for this building already in the production queue. */
+  private effectiveLevel(building: CityBuildingType): number {
+    const orders = [this.city.getCurrentOrder(), ...this.city.getQueue()];
+    const pending = orders.filter(o => o?.kind === 'building' && o.buildingType === building).length;
+    return this.city.getBuildingLevel(building) + pending;
   }
 
   private async startProduction(entry: CatalogEntry): Promise<void> {

@@ -222,4 +222,22 @@ describe('BattleSystem', () => {
 
     expect(crossbow.isAlive()).toBe(false);
   });
+
+  it('ends with MUTUAL_ROUT (both survive, nobody wins) when both units break at once', () => {
+    const a = new Infantry('rout-a', 'nation-a', { row: 2, col: 2 });
+    const b = new Infantry('rout-b', 'nation-b', { row: 2, col: 2 });
+    a.setMorale(10);
+    b.setMorale(10);
+    gameState.addUnit(a);
+    gameState.addUnit(b);
+    const reasons: string[] = [];
+    eventBus.on('battle:ended', e => reasons.push(e.reason));
+
+    battleSystem.startBattle(a, b, { row: 2, col: 1 }, { row: 2, col: 2 }, 0, movementSystem, eventBus);
+    tickRounds(1);
+
+    expect(reasons).toEqual(['MUTUAL_ROUT']);
+    expect(a.isAlive() && b.isAlive()).toBe(true);
+    expect(a.isEngagedInBattle() || b.isEngagedInBattle()).toBe(false);
+  });
 });

@@ -14,10 +14,10 @@ Every command is a plain JSON object with `type`, `playerId` and `issuedAtTick` 
 
 | Command | Fields | Validation (in order) | Effect |
 |---|---|---|---|
-| `MOVE_UNIT` | `unitId, path[]` | path non-empty; player exists; unit exists, alive, not engaged; owned by the player's nation; each step at Chebyshev distance 1 from the previous | `MovementSystem.issueOrder` (replaces any order); emit `unit:move-ordered` |
+| `MOVE_UNIT` | `unitId, path[]` | path non-empty; player exists; unit exists, alive, not engaged; owned by the player's nation; each step exactly one orthogonal tile from the previous | `MovementSystem.issueOrder` (replaces any order); emit `unit:move-ordered` |
 | `BUILD_TERRITORY` | `position, building` | tile exists; known building; no construction in progress; tech (non-sandbox). **Outpost:** tile unclaimed; orthogonally adjacent to own tile (non-sandbox); affordable (non-sandbox). **Others:** tile owned; building absent; prerequisite present; deposit matches (Mana Mine: any mana); affordable (non-sandbox) | pay; start construction (`min(10, ticks)` in sandbox); emit `territory:building-started` |
 | `UPGRADE_TERRITORY` | `position, building` | tile owned; building present; below max (Walls 5, others 1); affordable (non-sandbox); no construction | pay `upgradeCost`; start construction with `isUpgrade` |
-| `BUILD_CITY_BUILDING` | `cityId, building` | city owned; queue not full; known; not already at max; tech (non-sandbox); affordable (non-sandbox) | pay (build or upgrade cost); enqueue a building order (`min(10, ticks‖10)` in sandbox) |
+| `BUILD_CITY_BUILDING` | `cityId, building` | city owned; queue not full; known; `builtLevel + ordersAlreadyQueued < maxLevel`; tech (non-sandbox); affordable (non-sandbox) | pay the build cost if the building neither exists nor is queued, else the upgrade cost; enqueue a building order labelled with the level it will reach (`min(10, ticks‖10)` in sandbox) |
 | `START_CITY_PRODUCTION` | `cityId, unitType` | city owned; queue not full; catalog entry exists; techs (non-sandbox); Barracks level (always); deposits (non-sandbox); affordable (non-sandbox) | pay; enqueue unit order with Barracks speed-up (then `min(10, …)` in sandbox); emit `city:production-started` |
 | `CANCEL_CITY_PRODUCTION` | `cityId, queueIndex?` | city owned; index valid | no index → cancel active order and promote the next; else remove that queue item. No refund. |
 | `RAZE_CITY` | `cityId, enabled` | city owned | `setRazing(enabled)` (starts the 50-tick countdown if not running); emit `city:buildings-changed` |
@@ -55,7 +55,7 @@ A typed wrapper over `eventemitter3` with `emit`, `on`, `off`. `EventSubscriptio
 | `spy:detected` | `{spyUnitId, ownerNationId, byNationId, byUnitId, position, tick}` | SpyDetectionSystem |
 | `battle:started` | `{battleId, unitAId, unitBId, position, tick}` | BattleSystem |
 | `battle:round-resolved` | `{battleId, round, unitAId, unitBId, damageToUnitA, damageToUnitB, tick}` | BattleSystem |
-| `battle:ended` | `{battleId, winnerUnitId, loserUnitId, reason: 'ELIMINATION'\|'WITHDRAW'\|'ROUT'\|'MUTUAL_DESTRUCTION'\|'PEACE', tick}` | BattleSystem |
+| `battle:ended` | `{battleId, winnerUnitId, loserUnitId, reason: 'ELIMINATION'\|'WITHDRAW'\|'ROUT'\|'MUTUAL_ROUT'\|'MUTUAL_DESTRUCTION'\|'PEACE', tick}` | BattleSystem |
 | `city:siege-started` | `{siegeId, unitId, cityId, position, tick}` | CitySiegeSystem |
 | `city:siege-round` | `{siegeId, unitId, cityId, damageToCity, damageToUnit, cityHealth, tick}` | CitySiegeSystem |
 | `city:conquered` | `{cityId, byUnitId, byNationId, fromNationId, position, tick}` | CitySiegeSystem |
@@ -90,7 +90,6 @@ A typed wrapper over `eventemitter3` with `emit`, `on`, `off`. `EventSubscriptio
 | `unit:selected` | `{unit \| null}` | GameScene → UIScene, tutorial |
 | `city:selected` | `{city \| null}` | GameScene → UIScene |
 | `territory:highlighted` | `{position \| null}` | GameScene → UIScene |
-| `ui:click-consumed` | `{}` | `makeButton` HUD buttons, widget rows, minimap → sets a flag that makes GameScene ignore its next left-click (see [Controls → How HUD clicks interact with the map](Controls-and-UI.md#how-hud-clicks-interact-with-the-map)) |
 | `ui:camera-panned` | `{}` | GameScene right-drag → tutorial |
 | `ui:modal-opened` | `{modal: 'cityMenu'\|'territoryMenu'\|'research'\|'diplomacy'}` | PhaserUIBridge → tutorial |
 

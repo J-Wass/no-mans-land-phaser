@@ -48,7 +48,7 @@ export type GameEventMap = {
     battleId: string;
     winnerUnitId: EntityId | null;
     loserUnitId: EntityId | null;
-    reason: 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_DESTRUCTION' | 'PEACE';
+    reason: 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_ROUT' | 'MUTUAL_DESTRUCTION' | 'PEACE';
     tick: number;
   };
   'unit:withdrew':             { unitId: EntityId; from: GridCoordinates; to: GridCoordinates; tick: number };
@@ -114,8 +114,6 @@ export type GameEventMap = {
   'city:selected':             { city: City | null };
   /** Player single-clicked a territory tile — show info panel without opening menu. */
   'territory:highlighted':     { position: GridCoordinates | null };
-  /** A UIScene interactive element consumed a click — GameScene should ignore it. */
-  'ui:click-consumed':         Record<string, never>;
   /** Player panned the camera (right-click drag) — used by the tutorial mouse-controls primer. */
   'ui:camera-panned':          Record<string, never>;
   /** A full-screen DOM menu/modal was opened (used by the tutorial to detect player navigation). */

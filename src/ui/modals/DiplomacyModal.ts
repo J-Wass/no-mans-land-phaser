@@ -31,7 +31,7 @@ export class DiplomacyModal {
 
   constructor(private bridge: PhaserUIBridge, targetNationId?: string) {
     this.targetNationId = targetNationId ?? null;
-    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') this.close(); };
+    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); this.close(); } };
   }
 
   render(): HTMLElement {
@@ -217,6 +217,10 @@ export class DiplomacyModal {
       statusRow.appendChild(statusText);
 
       const currentTick = this.bridge.tickEngine.getCurrentTick();
+      // Shows why a diplomatic action was refused (e.g. the AI is winning the war).
+      const relFeedback = document.createElement('div');
+      relFeedback.className = 'text-caption';
+      relFeedback.style.color = '#ff8888';
       if (status === DiplomaticStatus.WAR) {
         const cooldown = this.bridge.diplomacySystem.getPeaceCooldownRemaining(
           localNation.getId(), targetNation.getId(), currentTick);
@@ -229,13 +233,14 @@ export class DiplomacyModal {
           void (async () => {
             const lp = this.bridge.gameState.getLocalPlayer();
             if (!lp) return;
-            await this.bridge.networkAdapter.sendCommand({
+            const result = await this.bridge.networkAdapter.sendCommand({
               type: 'PROPOSE_PEACE',
               playerId: lp.getId(),
               targetNationId: targetNation.getId(),
-              issuedAtTick: currentTick,
+              issuedAtTick: this.bridge.tickEngine.getCurrentTick(),
             });
-            this.close();
+            if (result.success) this.close();
+            else relFeedback.textContent = result.reason ?? '';
           })();
         });
         statusRow.appendChild(peaceBtn);
@@ -253,13 +258,14 @@ export class DiplomacyModal {
           void (async () => {
             const lp = this.bridge.gameState.getLocalPlayer();
             if (!lp) return;
-            await this.bridge.networkAdapter.sendCommand({
+            const result = await this.bridge.networkAdapter.sendCommand({
               type: 'DECLARE_WAR',
               playerId: lp.getId(),
               targetNationId: targetNation.getId(),
-              issuedAtTick: currentTick,
+              issuedAtTick: this.bridge.tickEngine.getCurrentTick(),
             });
-            this.close();
+            if (result.success) this.close();
+            else relFeedback.textContent = result.reason ?? '';
           })();
         });
         statusRow.appendChild(warBtn);
@@ -267,6 +273,7 @@ export class DiplomacyModal {
 
       relSection.appendChild(relLabel);
       relSection.appendChild(statusRow);
+      relSection.appendChild(relFeedback);
       detailCol.appendChild(relSection);
 
       // Trade section
@@ -324,13 +331,13 @@ export class DiplomacyModal {
         plusOffer.className = 'step-btn';
         plusOffer.textContent = STR.stepPlus;
 
-        const maxOffer = localTreasury.getAmount(res.type);
         minusOffer.addEventListener('click', () => {
           this.tradeOffer[res.type] = Math.max(0, (this.tradeOffer[res.type] ?? 0) - 10);
           offerLbl.textContent = String(this.tradeOffer[res.type]);
         });
         plusOffer.addEventListener('click', () => {
-          this.tradeOffer[res.type] = Math.min(maxOffer, (this.tradeOffer[res.type] ?? 0) + 10);
+          // Cap at the treasury as it is now, not as it was when the modal opened.
+          this.tradeOffer[res.type] = Math.min(localTreasury.getAmount(res.type), (this.tradeOffer[res.type] ?? 0) + 10);
           offerLbl.textContent = String(this.tradeOffer[res.type]);
         });
 
@@ -358,13 +365,12 @@ export class DiplomacyModal {
         plusReq.className = 'step-btn';
         plusReq.textContent = STR.stepPlus;
 
-        const maxReq = targetTreasury.getAmount(res.type);
         minusReq.addEventListener('click', () => {
           this.tradeRequest[res.type] = Math.max(0, (this.tradeRequest[res.type] ?? 0) - 10);
           reqLbl.textContent = String(this.tradeRequest[res.type]);
         });
         plusReq.addEventListener('click', () => {
-          this.tradeRequest[res.type] = Math.min(maxReq, (this.tradeRequest[res.type] ?? 0) + 10);
+          this.tradeRequest[res.type] = Math.min(targetTreasury.getAmount(res.type), (this.tradeRequest[res.type] ?? 0) + 10);
           reqLbl.textContent = String(this.tradeRequest[res.type]);
         });
 
@@ -396,7 +402,7 @@ export class DiplomacyModal {
             targetNationId: targetNation.getId(),
             offer: { ...this.tradeOffer },
             request: { ...this.tradeRequest },
-            issuedAtTick: currentTick,
+            issuedAtTick: this.bridge.tickEngine.getCurrentTick(),
           });
           if (result.success) {
             tradeStatus.textContent = STR.tradeAccepted;

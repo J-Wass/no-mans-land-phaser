@@ -25,14 +25,19 @@ The diplomacy widget and modal only list **known** nations: those owning a tile 
 
 ## 2. Going to war
 
-- **Manual:** DECLARE WAR (modal) or WAR (widget) → command `DECLARE_WAR`. Fails if a peace cooldown is active or already at war. Sets WAR both ways and emits `diplomacy:war-declared`. (A WAR button is also offered against allies in the widget; it works and overwrites ALLY.)
+- **Manual:** DECLARE WAR (modal) or WAR (widget) → command `DECLARE_WAR`. Fails if a peace cooldown is active or already at war. Sets WAR both ways and emits `diplomacy:war-declared`. Allies get no war/peace button in the widget or the modal.
 - **Automatic** (`declareWarIfNeeded`), on:
   - `battle:started` — between the two units' nations,
   - `city:siege-started` — between the unit's and the city's nations,
   - `ranged:fired` — between the shooter's nation and the target unit's/city's nation.
 
-  Auto-war is skipped if the nations are the same, already at war, **allied**, or within a **peace cooldown**. Note the combat itself still happens in those cases.
-- **Move-into-neutral confirmation (UI only):** before dispatching a player move, the game scans the path. Any NEUTRAL nation that owns a tile on the path, owns a city on the path, or has a unit standing on a path tile is collected. If any are found, the **War Confirm** modal ("DECLARE WAR?" — "Moving this unit will pull the following nations into open conflict." — list "- {name}" — CANCEL / DECLARE WAR & MOVE) appears; confirming sends `DECLARE_WAR` for each, then the move.
+  Auto-war is skipped if the nations are the same, already at war, **allied**, or within a **peace cooldown**.
+- **Who can fight whom (engagement policy):** `DiplomacySystem.canEngage(attacker, target, tick)` is installed into the TickEngine and checked before a moving unit starts a battle or siege, before a stranded unit besieges a city, and before ranged fire at a preferred target:
+  ```ts
+  canEngage(a, b, tick) = a !== b && !a.isAlly(b) && (a.isAtWar(b) || canDeclareWar(a, b, tick))
+  ```
+  So allies never fight, and a neutral nation inside a peace cooldown can't be attacked (units just share tiles). Automatic ranged targeting is stricter still: only nations already at war. Without diplomacy wired in (unit tests), the default policy only rules out self and allies.
+- **Move-into-neutral confirmation (UI only):** before dispatching a player move, the game scans the path. Any NEUTRAL nation that owns a city on a path tile, or has a non-spy unit standing on one, is collected (walking through a neutral nation's land is peaceful, so territory alone doesn't count). If any are found, the **War Confirm** modal ("DECLARE WAR?" — "Moving this unit will pull the following nations into open conflict." — list "- {name}" — CANCEL / DECLARE WAR & MOVE) appears; confirming sends `DECLARE_WAR` for each, then the move.
 
 ---
 
@@ -40,7 +45,7 @@ The diplomacy widget and modal only list **known** nations: those owning a tile 
 
 `PROPOSE_PEACE` (modal PROPOSE PEACE or widget PEACE):
 1. Fails unless the two nations are at war.
-2. If the target is AI-controlled, it compares total current HP of all living units: **refuses if `aiStrength > proposerStrength × 1.4`** with the reason "`{name} refuses — they are winning this war.`" (the widget shows this as a toast; the modal just closes). Human-controlled targets always accept.
+2. If the target is AI-controlled, it compares total current HP of all living units: **refuses if `aiStrength > proposerStrength × 1.4`** with the reason "`{name} refuses — they are winning this war.`" (the widget shows it as a toast; the modal shows it under the relation status and stays open). Human-controlled targets always accept.
 3. On acceptance:
    - Both relations → NEUTRAL.
    - Peace cooldown: `PEACE_COOLDOWN_TICKS = 1200` (2 min) keyed by the sorted pair `"a:b"`. Neither manual nor automatic war is possible until it expires; the modal's war button shows "`WAR ({seconds}s)`".
@@ -53,7 +58,7 @@ Peace cooldowns are saved with the game.
 
 ## 4. Trading
 
-From the Diplomacy modal's TRADE section: for Gold, Materials and Food set "YOU GIVE" and "YOU RECEIVE" with −/+ steppers in steps of 10 (capped at your amount / their amount when the modal opened), then **⇄ EXECUTE TRADE** → `OFFER_TRADE {offer, request}`.
+From the Diplomacy modal's TRADE section: for Gold, Materials and Food set "YOU GIVE" and "YOU RECEIVE" with −/+ steppers in steps of 10 (each + is capped at the giver's current treasury), then **⇄ EXECUTE TRADE** → `OFFER_TRADE {offer, request}`.
 
 ### AI evaluation (`evaluateTradeForAI`)
 Keyed by `"{yourNation}:{aiNation}"`:

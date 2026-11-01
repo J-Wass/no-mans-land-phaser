@@ -92,7 +92,6 @@ export class GameScene extends Phaser.Scene {
   private currentDiscovered: Set<string> = new Set();
   private visionSystem!: VisionSystem;
 
-  private uiClickConsumed = false;
   private depositTooltip: Phaser.GameObjects.Container | null = null;
   private stanceBadges: Map<string, Phaser.GameObjects.Container> = new Map();
   private minZoom = 0.25;
@@ -166,6 +165,14 @@ export class GameScene extends Phaser.Scene {
     this.selectedTerritory = null;
     this.tickAccumulator = 0;
     this.activeConquests.clear();
+    // Phaser reuses scene instances, so per-game input/speed state must be reset
+    // here or it leaks in from the previous game of this page session.
+    this.gameSpeed = 1;
+    this.lastClickMs = 0;
+    this.lastClickTarget = '';
+    this.leftDragActive = false;
+    this.leftDragWaypoints = [];
+    this.stanceBadges.clear();
 
     this.movementSystem = new MovementSystem();
     this.pathfinder     = new Pathfinder(this.gameState.getGrid());
@@ -174,6 +181,11 @@ export class GameScene extends Phaser.Scene {
     const isSandbox = this.setup.gameMode === 'sandbox';
     this.tickEngine = new TickEngine(this.gameState, this.movementSystem, this.eventBus, isSandbox);
     this.diplomacySystem  = new DiplomacySystem(this.gameState, this.eventBus);
+    // Combat may only start where war is (or could be) on: never allies, never
+    // a neutral inside a peace cooldown.
+    this.tickEngine.setEngagementPolicy(
+      (attacker, target, tick) => this.diplomacySystem.canEngage(attacker, target, tick),
+    );
     this.visionSystem     = new VisionSystem();
     this.isTutorialMode =
       this.setup.gameMode === 'scenario' && !!getScenarioById(this.setup.scenarioId)?.isTutorial;
@@ -414,7 +426,6 @@ export class GameScene extends Phaser.Scene {
       this.bridge.openPause();
     });
 
-    this.subs.on('ui:click-consumed', () => { this.uiClickConsumed = true; });
     this.subs.on('game:speed-change', ({ speed }) => { this.gameSpeed = speed; });
 
     // The tutorial has its own scripted step chain that continues past the
@@ -515,6 +526,14 @@ export class GameScene extends Phaser.Scene {
     let hasPanned = false;
 
     this.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
+      // A pan released over a HUD button never reaches this scene's pointerup
+      // (UIScene captures it). A new press means that earlier one ended, so drop
+      // any stale pan state before handling it.
+      if (activePanPtr) {
+        activePanPtr = null;
+        panStart = null;
+        hasPanned = false;
+      }
       if (ptr.button === 2 && !activePanPtr) {
         const cam = this.cameras.main;
         activePanPtr = ptr;
@@ -868,7 +887,7 @@ export class GameScene extends Phaser.Scene {
           ? 'infantry_neutral_attack-left'
           : 'infantry_neutral_attack-right';
         if (sprite.anims.currentAnim?.key !== attackKey) sprite.play(attackKey, true);
-        return;
+        continue;
       }
 
       const movState = this.movementSystem.getAllStates().get(unit.id);
@@ -1233,7 +1252,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleLeftClick(worldX: number, worldY: number): void {
-    if (this.uiClickConsumed) { this.uiClickConsumed = false; return; }
     const col = Math.floor(worldX / TILE_SIZE);
     const row = Math.floor(worldY / TILE_SIZE);
     const target = { row, col };
@@ -1409,9 +1427,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Dispatch MOVE_UNIT, but first check whether the path crosses neutral
-   * territory or targets a neutral nation's unit/city.  If so, show the
-   * WarConfirmScene popup and only dispatch on confirmation.
+   * Dispatch MOVE_UNIT, but first check whether the path would attack a
+   * neutral nation's unit or city.  If so, show the War Confirm modal and
+   * only dispatch on confirmation.
    */
   private dispatchMoveWithWarCheck(
     playerId: string,
@@ -1461,8 +1479,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Returns IDs of neutral nations (not allied, not already at war) whose
-   * territory the path crosses or whose units/cities sit at the destination.
+   * Returns IDs of neutral nations (not allied, not already at war) that own a
+   * city or a (non-spy) unit on any tile of the path.
    */
   private findNeutralNationsOnPath(
     path:          GridCoordinates[],
@@ -1473,13 +1491,10 @@ export class GameScene extends Phaser.Scene {
 
     const found = new Set<string>();
 
+    // Walking through a neutral nation's land is peaceful (territory battles
+    // need an existing war), so only cities and units — which the move would
+    // actually attack — pull a neutral nation into the war.
     for (const pos of path) {
-      // Territory ownership
-      const ctrl = this.gameState.getGrid().getTerritory(pos)?.getControllingNation();
-      if (ctrl && ctrl !== localNationId &&
-          localNation.getRelation(ctrl) === DiplomaticStatus.NEUTRAL) {
-        found.add(ctrl);
-      }
       // Foreign cities on any path tile
       const city = this.getCityAt(pos);
       if (city && city.getOwnerId() !== localNationId &&
@@ -1489,6 +1504,7 @@ export class GameScene extends Phaser.Scene {
       // Enemy units on tiles along the path
       for (const u of this.gameState.getAllUnits()) {
         if (u.position.row === pos.row && u.position.col === pos.col &&
+            !u.isSpy() &&               // spies never fight (and must not be revealed)
             u.getOwnerId() !== localNationId &&
             localNation.getRelation(u.getOwnerId()) === DiplomaticStatus.NEUTRAL) {
           found.add(u.getOwnerId());

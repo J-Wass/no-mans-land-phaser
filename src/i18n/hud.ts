@@ -27,7 +27,7 @@ export const HUD_STRINGS = {
     orders: {
       withdraw: {
         label: 'WITHDRAW',
-        tooltip: 'Disengage from combat — moves away from enemies when threatened. Use to save a wounded unit.',
+        tooltip: 'Disengage from combat — in a battle the unit tries to break off and retreat each round; it always pulls out of a siege or territory assault. Use to save a wounded unit.',
       },
       hold: {
         label: 'HOLD',
@@ -62,8 +62,8 @@ export const HUD_STRINGS = {
     morale: (morale: number) => `${morale}`,
     primaryStats: (melee: number, ranged: number, speed: number) =>
       `Melee:${melee}  Ranged:${ranged}  Speed:${speed}`,
-    secondaryStats: (armor: string, range: number, vision: number) =>
-      `Armor:${armor}  Range:${range}  Vision:${vision}`,
+    secondaryStats: (armor: string, weapons: string, range: number, vision: number) =>
+      `Armor:${armor}  Weapons:${weapons}  Range:${range}  Vision:${vision}`,
     infoLine: (battles: number, home: string, rank: string, xp: string, status: string) =>
       `Battles:${battles}  Home:${home}  ${rank} XP:${xp}  ${status}`,
     xpMax: 'MAX',
@@ -78,11 +78,13 @@ export const HUD_STRINGS = {
     manaAir: (vis: number) => `Air+${vis}VIS`,
     manaShadow: (wdSuffix: string) => `Shadow:HIDDEN${wdSuffix}`,
     manaShadowWithdraw: (pct: number) => `+${pct}%WD`,
-    armorFireGlass: 'Fire Glass',
-    armorSteel: 'Steel',
-    armorIron: 'Iron',
-    armorBronze: 'Bronze',
-    armorLeather: 'Leather',
+    armorHeavy: 'Heavy',
+    armorLight: 'Light',
+    weaponFireGlass: 'Fire Glass',
+    weaponSteel: 'Steel',
+    weaponIron: 'Iron',
+    weaponBronze: 'Bronze',
+    weaponBasic: 'Basic',
     homeFallback: '-',
   },
 

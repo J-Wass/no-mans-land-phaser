@@ -19,9 +19,8 @@ A left-click acts on the tile under the pointer (`col = floor(worldX/40)`, `row 
 
 #### How HUD clicks interact with the map
 UIScene sits above GameScene, and Phaser (`globalTopOnly = true`) delivers each pointer event to the top-most scene that has an **interactive** object under the pointer and stops there. So:
-- Pressing, releasing, moving or wheeling over an **interactive** HUD object (any HUD button, resource button, stance/SPY button, diplomacy-widget row, the minimap) never reaches GameScene: no world click, no drag-path waypoint, no pan update, no zoom.
-- **Non-interactive** HUD areas (top-bar background, panel backgrounds and text, toasts, the resource-breakdown and alert-history panel bodies) do **not** capture input: a click there acts on the map tile underneath (e.g. it moves the selected unit), and the wheel zooms.
-- HUD buttons made with `makeButton` (SPEED, ALERTS, RESEARCH, SAVE, MENU, alert-history CLOSE, OPEN FULL, widget PEACE/WAR), diplomacy-widget rows, and the minimap also emit `ui:click-consumed`, which sets a flag in GameScene. Because that click never reached GameScene, the flag is still set at your **next** map left-click, which is then ignored (and clears the flag). Resource buttons and stance/SPY buttons don't set the flag. Drag-paths (≥ 2 waypoints) and right-clicks ignore the flag.
+- Pressing, releasing, moving or wheeling over an **interactive** HUD object (any HUD button, resource button, stance/SPY button, diplomacy-widget row, the minimap) never reaches GameScene: no world click, no drag-path waypoint, no pan update, no zoom. (A pan released over the HUD is cleaned up on the next mouse press.)
+- The HUD's panel **backgrounds** are interactive too (top bar, toasts, alert history, resource breakdown, diplomacy widget, unit/city/territory panels), so clicking or scrolling anywhere on a panel never acts on the map underneath.
 - While any DOM modal is open its backdrop covers the canvas, so the map gets no mouse input at all.
 
 Decision order:
@@ -56,11 +55,10 @@ Zoom ×0.9 (scroll down) or ×1.1 (scroll up), clamped to `[minZoom, 2.5]` with 
 Click anywhere on it to centre the camera on that point.
 
 ## 2. Keyboard
-- **ESC** is handled twice:
-  - every DOM modal (City, Territory, Research, Diplomacy, War Confirm, Pause) has a `document` keydown listener that closes it on Escape;
-  - Phaser queues the same key event (it listens on `window`) and GameScene's `keydown-ESC` handler opens **Pause** on the next game step if GameScene is running.
-  
-  Net effect: ESC with nothing open → Pause opens. ESC with a City/Territory/Research/Diplomacy/War-Confirm modal open → that modal closes **and** Pause opens. ESC on the Pause modal → it closes, the scenes resume (scene resume is queued to the start of the next step), then the queued ESC reopens Pause — so ESC can't dismiss Pause; use **RESUME**. The Game Over modal pauses the scenes and has no ESC handler.
+- **ESC:**
+  - With a DOM modal open (City, Territory, Research, Diplomacy, War Confirm, Pause), the modal's `document` keydown listener closes it **and calls `preventDefault()`**. Phaser's keyboard manager listens on `window` (reached after `document`) and ignores default-prevented events, so the same ESC never also opens Pause. ESC on Pause resumes the game.
+  - With nothing open, Phaser delivers ESC to GameScene's `keydown-ESC` handler → **Pause**.
+  - The Game Over modal pauses the scenes and has no ESC handler.
 - The HUD's MENU button emits `keydown-ESC` on GameScene's keyboard directly → Pause.
 
 ---
@@ -111,7 +109,7 @@ Title "`{emoji} {Food|Material|Gold|Research} Flow`", "Stored now: N", a **Sourc
 Rates: `count × 10 / interval` (city buildings are counted per city, not per level).
 
 ### Diplomacy widget (bottom-right, 298·s wide)
-"Diplomacy" / "Known nations" with an **OPEN FULL** button, then one row per known nation: colour dot, name, relation ("Allied" green `#8fe3a8`, "At War" red `#ff8686`, "At Peace" grey `#d9d9d9`), and a button **PEACE** (if at war → `PROPOSE_PEACE`) or **WAR** (otherwise → `DECLARE_WAR`). Clicking a row opens the Diplomacy modal on that nation. Defeated nations follow as greyed "RIP {name} / DEFEATED" rows. Hidden when there are no known or defeated nations.
+"Diplomacy" / "Known nations" with an **OPEN FULL** button, then one row per known nation: colour dot, name, relation ("Allied" green `#8fe3a8`, "At War" red `#ff8686`, "At Peace" grey `#d9d9d9`), and a button **PEACE** (if at war → `PROPOSE_PEACE`) or **WAR** (if neutral → `DECLARE_WAR`); allies get no button. Clicking a row opens the Diplomacy modal on that nation. Defeated nations follow as greyed "RIP {name} / DEFEATED" rows. Hidden when there are no known or defeated nations.
 
 ### Info panel (bottom-left, one at a time)
 
@@ -119,7 +117,7 @@ Rates: `count × 10 / interval` (city buildings are counted per city, not per le
 - Full unit name (purple `#c488e8` with "  · UNDERCOVER" for a spy) and owning nation.
 - **HP bar** (170·s wide; green `#44cc66` > 50%, yellow `#ddcc22` > 25%, red `#cc3322`) with "cur/max".
 - **Morale bar** in the band colour with the value and, if not STEADY/INSPIRED, the band name in red.
-- "`Melee:{m+tier}  Ranged:{r+tier}  Speed:{s}`", "`Armor:{tier label}  Range:{r}  Vision:{v}`".
+- "`Melee:{m+tier}  Ranged:{r+tier}  Speed:{s}`", "`Armor:{Heavy|Light}  Weapons:{Basic|Bronze|Iron|Steel|Fire Glass}  Range:{r}  Vision:{v}`".
 - "`Battles:{n}  Home:{city|-}  {Rank} XP:{xp}/{next}|MAX  {IN BATTLE|READY}`".
 - Stance hint line ([Stances](Stances.md#in-the-ui)).
 - Mana line if any mana is active: "`Mana: Fire+10%DMG  Earth+10%HP  Water+5%REGEN  Lightning+1SPD  Air+1VIS  Shadow:HIDDEN+15%WD`" (only the active parts).
@@ -127,9 +125,9 @@ Rates: `count × 10 / interval` (city buildings are counted per city, not per le
 - For Scouts once Ancient Rituals is researched: a 4th button **SPY** / **DROP** (disabled in battle or on foreign territory).
 - Only your own units can be selected, so the unit panel only ever shows your units. Clicking a tile with an enemy unit (and nothing selected) shows the territory panel.
 
-**City panel** (340·s wide): name (`#ffd9a8`), owner, "Health: cur/max", "Buildings: City Hall, Barracks, …", and either "Production: {label}  ({s}s left)" with a green progress bar or "Production: Idle".
+**City panel** (340·s wide, redrawn every 10 ticks while shown): name (`#ffd9a8`), owner, "Health: cur/max", "Buildings: City Hall, Barracks, …", and either "Production: {label}  ({s}s left)" with a green progress bar or "Production: Idle".
 
-**Territory panel** (380·s wide): "`(r,c) {Terrain} in|near {Region}`", owner (or "Unclaimed"), "Deposit: {TYPE}" (gold) or "None", building list "`{icon} {NAME}`", construction "Building: {label} {pct}%", or the region control line.
+**Territory panel** (380·s wide, redrawn every 10 ticks while shown): "`(r,c) {Terrain} in|near {Region}`", owner (or "Unclaimed"), "Deposit: {TYPE}" (gold) or "None", building list "`{icon} {NAME}`", construction "Building: {label} {pct}%", or the region control line.
 
 ### Minimap
 Fixed top-right below the bar: width `clamp(viewWidth × 0.2, 120, 190)` px, height proportional, 10 px from the right edge, frame `#0a0f1c` @ 85% with a `#3355bb` border. See [Presentation → Minimap](Presentation.md#6-minimap).
@@ -142,8 +140,8 @@ A wide modal (`min(900px, 92vw)` × 90vh):
 - **Header:** city name, owner nation, CLOSE.
 - **Status panel:** current order "`{label}  |  {s}s remaining`" (gold) with progress bar and **CANCEL**; queue rows "`n. {label}  ({s}s)`" each with **✕**; the four treasury amounts.
 - **Tabs: UNITS | BUILDINGS.**
-- **UNITS:** one row per catalog unit — name, cost "`🍎400  🧱300  🪙30  24.0s`" (base ticks), the stat detail line, a status line, and a button: **LOCKED** (tech/barracks/deposit missing), **FULL** (queue full), **QUEUE** (city busy), **BUILD**. Disabled if unaffordable. Status line reasons: "Queue full (max 5 items).", "Requires research: {techs}.", "Requires barracks in this city.", "Requires barracks level N.", "Requires an active copper / iron / fire glass deposit.", "Insufficient resources.", "Ready to queue.". Hovering a row shows the unit's flavor quote.
-- **BUILDINGS:** first a **Raze City** row ("Destroys a random building level every 5s until none remain." — RAZE / STOP), then each constructible building: name, perks, cost (switches to upgrade cost once built), status, a main button (**BUILD / QUEUE / FULL / UPGRADE / BUILT n/max / LOCKED**) and a **−1 LVL** button (only when built; shows "−1 LVL Ns" while pending).
+- **UNITS:** one row per catalog unit — name, cost "`🍎400  🧱300  🪙30  24.0s`" (training time after this city's Barracks speed-up; ≤ 1 s in sandbox), the stat detail line, a status line, and a button: **LOCKED** (tech/barracks/deposit missing), **FULL** (queue full), **QUEUE** (city busy), **BUILD**. Disabled if unaffordable. Status line reasons: "Queue full (max 5 items).", "Requires research: {techs}.", "Requires barracks in this city.", "Requires barracks level N.", "Requires an active copper / iron / fire glass deposit.", "Insufficient resources.", "Ready to queue.". Hovering a row shows the unit's flavor quote.
+- **BUILDINGS:** first a **Raze City** row ("Destroys a random building level every 5s until none remain." — RAZE / STOP), then each constructible building: name, perks, cost (switches to upgrade cost once the building exists **or is already queued**), status, a main button (**BUILD / QUEUE / FULL / UPGRADE / BUILT n/max / LOCKED**) and a **−1 LVL** button (only when built; shows "−1 LVL Ns" while pending).
 - Sandbox: the UI skips tech/deposit/cost checks to match the command processor, but still requires the Barracks level and a non-full queue.
 - Refreshes every animation frame and on spawn/build/research events.
 
@@ -164,15 +162,15 @@ See [Research → Research modal](Research.md#4-research-modal).
 ## 7. Diplomacy modal
 Opened by the widget (OPEN FULL or a row), or by double-clicking a foreign city. `min(860px, 94vw)`:
 - Left column: known nations (dot, name, relation in green/red/yellow) — clicking re-opens the modal on that nation; defeated nations ("RIP {name}" / DEFEATED).
-- Right column for the selected nation: big name; **RELATIONS** "Status: AT WAR / AT PEACE / ALLIED" with **PROPOSE PEACE** (at war; "PEACE (Ns)" while on cooldown) or **DECLARE WAR** (neutral; "WAR (Ns)" during a peace cooldown). Allies get no button. Clicking either sends the command and closes the modal.
-- **TRADE:** rows Gold 🪙 / Materials 🪨 / Food 🍎 with −/+ steppers for YOU GIVE and YOU RECEIVE, **⇄ EXECUTE TRADE**, and a status line ("Trade accepted!" or the rejection reason).
+- Right column for the selected nation: big name; **RELATIONS** "Status: AT WAR / AT PEACE / ALLIED" with **PROPOSE PEACE** (at war; "PEACE (Ns)" while on cooldown) or **DECLARE WAR** (neutral; "WAR (Ns)" during a peace cooldown). Allies get no button. Clicking either sends the command; on success the modal closes, on refusal the reason is shown in red under the status.
+- **TRADE:** rows Gold 🪙 / Materials 🪨 / Food 🍎 with −/+ steppers for YOU GIVE and YOU RECEIVE (capped at the giver's current amount), **⇄ EXECUTE TRADE**, and a status line ("Trade accepted!" or the rejection reason).
 - "No other nations have been discovered yet." if nothing is known.
 
 ## 8. Pause modal (ESC / MENU)
 Pauses GameScene and UIScene. `min(980px, 92vw)`:
 - "Paused" + description, **RESUME**; "LOCAL SLOTS" + **MAIN MENU**.
 - **Save Slots:** 10 rows "Slot N" with "`{saved date/time}  |  Day N  |  {gameMode}`" or "Empty slot", and **SAVE** / **LOAD**.
-- **EXPORT FILE** — downloads the **first non-empty slot** as `phaser-rts-save-slot-{N}.json`. **IMPORT FILE** — picks a `.json`, validates it, writes it to the first empty slot (or, after a `confirm()`, overwrites slot 10).
+- **EXPORT FILE** — downloads the **most recently saved slot** as `phaser-rts-save-slot-{N}.json`. **IMPORT FILE** — picks a `.json`, validates it, writes it to the first empty slot (or, after a `confirm()`, overwrites slot 10).
 - **Accessibility:** Font (Monospace / Sans-serif / Serif) and Size (Small 0.85 / Normal 1.0 / Large 1.2 / X-Large 1.4), applied live and stored in localStorage.
 - Feedback line cleared after 2.2 s.
 
@@ -193,7 +191,7 @@ Full-screen DOM page (background `#050914`, a 5 px `#8dd7ff` accent bar at the t
   1. **SCENARIO PICKER** — selected scenario name, "Choose a preset scenario.", one button per scenario (★ prefix for tutorials), the description + "`Player: {name} vs {AI names}`", and **START SCENARIO** / **START TUTORIAL**. Launches `{gameMode: 'scenario', opponentCount: 1, scenarioId}` with the currently selected difficulty (default Medium); tutorials force `difficulty: 'sandbox'`.
   2. **STANDARD MATCH** "Custom Setup" — Opponents 1/2/3/4, Difficulty EASY/MEDIUM/HARD, a summary "`N Opponent(s)  |  DIFFICULTY`", **START STANDARD MATCH** (`gameMode: 'skirmish'`, `scenarioId: null`).
   3. **SANDBOX** "Free Play" — **START SANDBOX** (`gameMode: 'sandbox'`, `difficulty: 'sandbox'`, 1 opponent).
-- Load row: "Or continue from your last local save." + **LOAD SAVED GAME** (loads the **first non-empty slot**; disabled if none).
+- Load row: "Or continue from your last local save." + **LOAD SAVED GAME** (loads the **most recently saved slot**; disabled if none).
 - Version "v0.1" bottom-right.
 - Every launch sets `nml:hasPlayed = '1'`.
 

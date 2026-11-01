@@ -22,6 +22,15 @@ export const BARRACKS_MOBILIZATION_SPEEDUP_PER_LEVEL = 0.05;
 /** Global production-time multiplier applied to every unit's base duration. */
 export const UNIT_PRODUCTION_SPEED_MULTIPLIER = 2;
 
+/**
+ * Production time for a unit trained at a city whose Barracks is at
+ * `barracksLevel`: −5% per level above 1 (multiplier floored at 0.5).
+ */
+export function barracksAdjustedTicks(ticks: number, barracksLevel: number): number {
+  const speedMult = Math.max(0.5, 1 - BARRACKS_MOBILIZATION_SPEEDUP_PER_LEVEL * Math.max(0, barracksLevel - 1));
+  return Math.max(1, Math.round(ticks * speedMult));
+}
+
 export interface CatalogEntry {
   id:               string;
   label:            string;

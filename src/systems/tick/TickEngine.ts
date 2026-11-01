@@ -14,6 +14,8 @@ import { RangedFireSystem } from '@/systems/combat/RangedFireSystem';
 import { SpyDetectionSystem } from '@/systems/combat/SpyDetectionSystem';
 import { ProductionSystem } from '@/systems/production/ProductionSystem';
 import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
+import { defaultEngagementPolicy } from '@/systems/combat/EngagementPolicy';
+import type { EngagementPolicy } from '@/systems/combat/EngagementPolicy';
 import { MAX_MORALE } from '@/entities/units/Unit';
 import { MoraleSystem } from '@/systems/morale/MoraleSystem';
 import {
@@ -53,6 +55,8 @@ export class TickEngine {
   private readonly spyDetectionSystem:      SpyDetectionSystem;
   private readonly territoryBattleSystem:   TerritoryBattleSystem;
   private readonly moraleSystem:            MoraleSystem;
+  /** Who may start combat against whom; replaced with a diplomacy-aware policy by GameScene. */
+  private canEngage:                        EngagementPolicy;
 
   constructor(
     private gameState: GameState,
@@ -72,6 +76,7 @@ export class TickEngine {
     // MoraleSystem subscribes to game events in its constructor; we only need
     // to call its tick() so it can emit `morale:band-changed` for the UI.
     this.moraleSystem          = new MoraleSystem(gameState, eventBus);
+    this.canEngage             = defaultEngagementPolicy(gameState);
 
     // A peace treaty resets relations and teleports units home, but that alone
     // leaves any in-progress battle/siege/territory-battle record intact — the
@@ -88,13 +93,13 @@ export class TickEngine {
   /** Advance one tick. Returns the new tick count. */
   public advance(): number {
     this.currentTick++;
-    this.movementSystem.tickWithBattles(this.gameState, this.eventBus, this.currentTick, this.battleSystem, this.citySiegeSystem, this.territoryBattleSystem);
+    this.movementSystem.tickWithBattles(this.gameState, this.eventBus, this.currentTick, this.battleSystem, this.citySiegeSystem, this.territoryBattleSystem, this.canEngage);
     this.spyDetectionSystem.tick(this.gameState, this.eventBus, this.currentTick);
     this.battleSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.startSiegesForStrandedEnemiesOnCities();
     this.citySiegeSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
     this.territoryBattleSystem.tick(this.gameState, this.movementSystem, this.eventBus, this.currentTick);
-    this.rangedFireSystem.tick(this.gameState, this.eventBus, this.currentTick);
+    this.rangedFireSystem.tick(this.gameState, this.eventBus, this.currentTick, this.canEngage);
     this.productionSystem.tick(this.gameState, this.eventBus, this.currentTick);
     this.tickTerritoryConstruction();
     this.sweepDeadUnits();
@@ -154,6 +159,7 @@ export class TickEngine {
       const city = this.gameState.getCity(cityId);
       if (!city || !city.isAlive()) continue;
       if (city.getOwnerId() === unit.getOwnerId()) continue;
+      if (!this.canEngage(unit.getOwnerId(), city.getOwnerId(), this.currentTick)) continue;
       this.citySiegeSystem.startSiege(
         unit,
         city,
@@ -328,6 +334,11 @@ export class TickEngine {
       const ceilinged = Math.min(unit.getMorale() + recovery, RECOVERY_CEILING);
       if (ceilinged > unit.getMorale()) unit.setMorale(ceilinged);
     }
+  }
+
+  /** Install the rule deciding who may start combat against whom (e.g. DiplomacySystem.canEngage). */
+  public setEngagementPolicy(policy: EngagementPolicy): void {
+    this.canEngage = policy;
   }
 
   public getCurrentTick(): number {

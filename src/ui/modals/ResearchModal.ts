@@ -62,7 +62,7 @@ export class ResearchModal {
   private rafId = 0;
 
   constructor(private bridge: PhaserUIBridge) {
-    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') this.close(); };
+    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); this.close(); } };
   }
 
   render(): HTMLElement {

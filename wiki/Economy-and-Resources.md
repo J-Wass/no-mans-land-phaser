@@ -53,7 +53,7 @@ The economy has two layers: four **treasury resources** that pay for everything,
 | Gold Mines | +4 Gold per active Gold mine (max 3 counted) | 10 ticks (+4/s each) |
 | [Region domination](Cities-Territory-Regions.md#3-regions) | `max(1, floor(regionTiles / 3))` of the region's resource | 50 ticks |
 
-The HUD's resource breakdown panels (click a resource on the top bar) list these as "+X/s" lines. They count **cities that have the building, not building levels**, so they understate leveled Farms/Workshops/Markets/Schools (see [Known Quirks](Known-Quirks.md)).
+The HUD's resource breakdown panels (click a resource on the top bar) list these as "+X/s" lines. City building lines sum building **levels** across your cities.
 
 ### Upkeep
 Every **30 ticks**, for every living unit (in insertion order), the owner pays the unit's upkeep (Food + Raw Material, see [Units](Units.md#1-stats)) with `consumeResources`. If the treasury can't cover that unit's whole upkeep, **nothing is deducted for it and nothing bad happens** — there is no starvation, desertion or debt.
@@ -99,11 +99,11 @@ Metal deposits also gate units: Cavalry, Crossbowman and Catapult need any activ
 
 ### Deposit tooltips (hover a discovered deposit on the map)
 ```
-Copper         Copper Mine → Bronze weapons (+2 melee & ranged). Enables Cavalry & Crossbowman.
-Iron           Iron Mine → Iron weapons (+4 melee & ranged). Enables Heavy Infantry, Catapult & Crossbowman.
-Fire Glass     Fire Glass Mine → Fire Glass weapons (+6 melee & ranged). Enables Trebuchet & Crossbowman.
-Silver         A valuable precious-metal deposit.
-Gold           A rich precious-metal deposit.
+Copper         Copper Mine → Bronze weapons (+2 melee & ranged). Enables Cavalry, Crossbowman & Catapult.
+Iron           Iron Mine → Iron weapons (+4 melee & ranged). Enables Cavalry, Crossbowman, Catapult, Heavy Infantry & Trebuchet.
+Fire Glass     Fire Glass Mine → Fire Glass weapons (+6 melee & ranged). Enables Cavalry, Crossbowman, Catapult, Heavy Infantry & Trebuchet.
+Silver         Silver Mine → +2 Gold per second.
+Gold           Gold Mine → +4 Gold per second (requires Trade).
 Water Mana     Mana Mine → heals your whole army (+5% max HP per pulse, up to +15%).
 Fire Mana      Mana Mine → +10% unit damage per mine (up to +30%).
 Lightning Mana Mana Mine → +1 movement speed per mine (up to +3).

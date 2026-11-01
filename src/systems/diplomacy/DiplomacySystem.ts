@@ -161,6 +161,21 @@ export class DiplomacySystem {
     return true;
   }
 
+  /**
+   * Whether a unit of `attackerNationId` may start combat against `targetNationId`
+   * right now: never against itself or an ally; always against a nation it is
+   * at war with; against a neutral nation only if war could be declared (no
+   * peace cooldown) — combat with a neutral auto-declares that war.
+   */
+  public canEngage(attackerNationId: EntityId, targetNationId: EntityId, currentTick: number): boolean {
+    if (attackerNationId === targetNationId) return false;
+    const attacker = this.gameState.getNation(attackerNationId);
+    if (!attacker) return false;
+    if (attacker.isAlly(targetNationId)) return false;
+    if (attacker.isAtWar(targetNationId)) return true;
+    return this.canDeclareWar(attackerNationId, targetNationId, currentTick);
+  }
+
   /** Returns true if the pair may go to war (no active cooldown). */
   public canDeclareWar(
     nationId1:   EntityId,

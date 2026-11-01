@@ -12,7 +12,7 @@ import type { UnitType, UnitStats } from '@/entities/units/Unit';
 import { stepCost, WHEEL_SPEED_MULTIPLIER } from '@/systems/movement/MovementCosts';
 import type { GameState } from '@/managers/GameState';
 
-/** Extra cost added per tile when entering enemy-controlled territory. */
+/** Extra cost added per tile when entering another (non-allied) nation's territory. */
 const ENEMY_TERRITORY_PENALTY = 12;
 
 interface AStarNode {
@@ -55,6 +55,7 @@ export class Pathfinder {
     const ownerCounts = ownerNationId && gameState
       ? gameState.getNationActiveDepositCounts(ownerNationId)
       : undefined;
+    const ownerNation = ownerNationId && gameState ? gameState.getNation(ownerNationId) : null;
     const hasWheel = !!ownerNationId && !!gameState
       && (gameState.getNation(ownerNationId)?.hasResearched('the_wheel') ?? false);
     const ownerSpeedMult = hasWheel ? WHEEL_SPEED_MULTIPLIER : 1;
@@ -115,10 +116,10 @@ export class Pathfinder {
         let cost = stepCost(terrain, unitType, stats, ownerDeposits, ownerCounts, ownerSpeedMult);
         if (!isFinite(cost)) continue; // impassable
 
-        // Penalise enemy-controlled tiles so the path prefers to go around them.
+        // Penalise foreign (non-allied) tiles so the path prefers to go around them.
         if (ownerNationId && gameState) {
           const tOwner = neighbor.getControllingNation();
-          if (tOwner && tOwner !== ownerNationId) {
+          if (tOwner && tOwner !== ownerNationId && !(ownerNation?.isAlly(tOwner) ?? false)) {
             cost += ENEMY_TERRITORY_PENALTY;
           }
         }

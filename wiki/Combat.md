@@ -33,7 +33,7 @@ effectiveBattleOrder(unit):      see Stances
 *System: `BattleSystem`.*
 
 ### Starting
-`startBattle(attacker, defender, attackerOrigin, position)` returns `null` (no battle) if either unit is dead, they share an owner, either is already engaged, or either has `retreatCooldownUntilTick > currentTick`. **Diplomatic status is not checked** — allied or neutral units fight too (neutral contact then triggers auto-war; see [Diplomacy](Diplomacy.md)).
+`startBattle(attacker, defender, attackerOrigin, position)` returns `null` (no battle) if either unit is dead, they share an owner, either is already engaged, or either has `retreatCooldownUntilTick > currentTick`. Whether a battle may start at all is decided earlier, by the **engagement policy** (see [Diplomacy → Going to war](Diplomacy.md#2-going-to-war)): the mover only fights a unit of a nation it is at war with, or of a neutral nation when war could be declared (which then happens automatically). Allies, and neutrals inside a peace cooldown, just share the tile.
 
 On success: id `battle-{N}`; record `attackerOrigin` (the tile the attacker stepped from) and `defenderOrigin` (the defender's tile = the battle tile); `ticksUntilRound = 20`; both units marked engaged; both units' movement orders cancelled; emit `battle:started`.
 
@@ -91,7 +91,7 @@ The **attacker's own** effective order drives its offense; the **defender's own*
 #### Ending conditions (after damage)
 1. **Death:** a unit at 0 HP → `ELIMINATION` (survivor wins) or `MUTUAL_DESTRUCTION` (both dead).
 2. **Withdraw:** each unit whose effective order is WITHDRAW rolls (A first, then B); see [the WITHDRAW roll](Stances.md#the-withdraw-roll). The battle ends only if **exactly one** succeeds — that unit is the *loser* (reason `WITHDRAW`).
-3. **Rout:** a unit with morale ≤ 14. Exactly one routed → it loses (`ROUT`). **Both routed → the battle ends with no winner or loser; both units simply disengage where they stand** (reason `MUTUAL_DESTRUCTION`, nobody dies).
+3. **Rout:** a unit with morale ≤ 14. Exactly one routed → it loses (`ROUT`). **Both routed → `MUTUAL_ROUT`:** no winner or loser, nobody dies, both units disengage where they stand.
 
 #### Finishing (`finishBattle`)
 1. Clear both engaged flags, `battlesEngaged++` on both, cancel both movement orders.
@@ -125,7 +125,7 @@ Per resolved round: offense variance for B→A, then A→B; then, only for units
 *System: `CitySiegeSystem`.*
 
 ### Start
-When a unit enters a tile holding a city owned by **any other nation** (no diplomacy check, so allied cities can be besieged), or a non-spy unit is left standing on such a tile. `startSiege` fails if the unit or city is dead or the unit is already engaged. The unit's remaining path is **paused** (saved as `pendingPath`), the unit is marked engaged, id `siege-{N}`, `ticksUntilRound = 10`, emit `city:siege-started`.
+When a unit enters a tile holding a city owned by another nation that the engagement policy lets it attack (at war, or neutral with no peace cooldown — never an ally), or a non-spy unit is left standing on such a tile (same policy). `startSiege` fails if the unit or city is dead or the unit is already engaged. The unit's remaining path is **paused** (saved as `pendingPath`), the unit is marked engaged, id `siege-{N}`, `ticksUntilRound = 10`, emit `city:siege-started`.
 
 Each siege is one unit vs one city. Because a nation's units can't share a tile, **a nation can have only one besieger on a city at a time**; its other units wait on the path (retrying each tick) or soften the city with ranged fire, which can't take it below 1 HP. Units of different nations can besiege the same city simultaneously.
 
@@ -209,12 +209,13 @@ Every tick, for every unit (in insertion order) that is ranged, alive, **not eng
 
 1. **Target** (Manhattan distance ≤ attackRange):
    - The unit's `preferredTargetId` if it is alive, not a spy, not allied, and in range (otherwise the preference is cleared). No current UI sets a preference.
-   - Else the **closest** unit that is not the shooter's own, not allied, alive, and not a spy — **neutral nations' units are valid targets** — first found wins ties. Units already fighting someone else can be targeted.
-   - Else the closest non-own, non-allied **city**.
+   - Else the **closest** living, non-spy unit of a nation the shooter is **at war with** (first found wins ties). Units already fighting someone else can be targeted.
+   - Else the closest **city** of a nation it is at war with.
+   - Automatic fire therefore never starts a war. A preferred target may belong to a neutral nation if the engagement policy allows it (no peace cooldown); firing on it then auto-declares war.
 2. **Damage:** `raw = max(1, round((rangedDamage + weaponTierBonus) × healthFactor(shooter) × fireManaFactor × variance))` — no veterancy, morale, matchup or terrain.
 3. **vs unit:** Cavalry takes `max(1, round(raw × 0.5))`; others take `raw`. Apply the morale hit. If it dies → removed, `unit:destroyed` with the shooter as killer.
 4. **vs city:** `city HP = max(1, HP − raw)` — ranged fire can never reduce a city below 1 HP. If the shooter is within Manhattan 3 (always true for ranged units) it takes counterfire `max(1, round(cityMelee × healthFactor(city)))` (no variance) plus the morale hit, and may die.
-5. Emit `ranged:fired` (→ [DiplomacySystem](Diplomacy.md) auto-declares war on a neutral target's nation, subject to the peace cooldown). Set `nextFireTick = currentTick + 20`.
+5. Emit `ranged:fired` (→ [DiplomacySystem](Diplomacy.md) auto-declares war if the target's nation was neutral — only possible for a preferred target). Set `nextFireTick = currentTick + 20`.
 
 No XP is granted by standalone fire. Cooldowns aren't saved.
 
@@ -238,6 +239,6 @@ Veteran (5 XP) ×1.1 damage, Elite (15 XP) ×1.2. See [Units → Veterancy](Unit
 - Damage floors: battle/siege/territory hits floor at 1; counter-attacks from cities and territories can roll 0.
 - A losing unit with nowhere to retreat dies.
 - Sieges and territory battles ignore morale bands, matchups, terrain, weapon tier and mana; they only apply veterancy and the health factor.
-- Allied units can fight if one walks onto the other, and allied cities can be besieged (see [Known Quirks](Known-Quirks.md)).
+- Allied units never fight or besiege each other; they share tiles peacefully.
 
 → Continue to **[Stances](Stances.md)**

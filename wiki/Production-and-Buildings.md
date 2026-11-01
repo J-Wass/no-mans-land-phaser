@@ -42,8 +42,8 @@ Built and upgraded from the City Menu's **BUILDINGS** tab via the city queue. Ev
 (G = Gold, M = Raw Material, F = Food. L = building level.)
 
 - Ordering a building that already exists is the **upgrade** (cost = `upgradeCost`, time = the same build ticks, order label "`{Label} Lvl {n}`"). Ordering one at max level is refused.
-- Two orders for the same building can sit in the queue; each completion adds one level (capped at max).
-- **The city menu's "build" times shown are the base ticks**; upgrades take the same time.
+- Orders already queued count toward the level: a second Farms order while the first is still queued is charged the **upgrade** cost, labelled "Farms Lvl 2", and orders that would push past max level are refused. Each completion adds one level.
+- Upgrades take the same time as the initial build. The City Menu shows unit training times after the Barracks speed-up.
 
 ### Downgrading and razing
 - **−1 LVL** button (per built building except City Hall): schedules removal of one level of that building after **50 ticks** (5 s); the button shows a countdown. Only one pending removal per city; scheduling another replaces it. Level 1 → the building is removed.

@@ -80,20 +80,20 @@ Ticks per tile (no mana):
    2. **Friendly stacking is blocked:** if another living unit of the **same owner** stands on `next`, put it back and retry next tick (`ticksRemainingOnStep = 1`).
    3. Move the unit (`unit.moveTo(next)`), emit `unit:step-complete`.
    4. Unless the mover is an undercover **spy**:
-      - Another nation's living, non-spy unit that is **not already in a battle** on `next` → `BattleSystem.startBattle(mover, occupant)` (both now share the tile); stop processing this unit.
-      - Else a city on `next` owned by another nation → `CitySiegeSystem.startSiege`; stop.
+      - Another nation's living, non-spy unit that is **not already in a battle** on `next` **and that the [engagement policy](Diplomacy.md#2-going-to-war) lets the mover attack** → `BattleSystem.startBattle(mover, occupant)` (both now share the tile); stop processing this unit.
+      - Else a city on `next` owned by another nation the policy lets it attack → `CitySiegeSystem.startSiege`; stop.
       - Else the tile is owned by another nation, has no city, **and the mover's nation is at WAR with that owner** → `TerritoryBattleSystem.startBattle`; stop.
    5. If the path is now empty → drop the order, emit `unit:move-complete`. Otherwise pre-compute `stepCost` of the new `path[0]` (0 if impassable, which drops the order next tick).
 
 Consequences worth knowing:
 - A unit with a cost-25 step spends exactly 25 ticks before arriving.
-- Moving onto a **neutral** nation's land never starts a fight; moving onto a neutral nation's **unit** or **city** does (and auto-declares war — see [Diplomacy](Diplomacy.md)).
+- Moving onto a **neutral** nation's land never starts a fight; moving onto a neutral nation's **unit** or **city** does (and auto-declares war — see [Diplomacy](Diplomacy.md)) unless a peace cooldown is running. Allied units and cities are never attacked.
 - Walking onto an enemy unit that is already fighting someone else just shares its tile; the mover then gets the city/territory checks.
 - Units of different nations can share a tile; same-nation units cannot.
 - Stance never changes movement speed.
 
 ### Command validation
-`MOVE_UNIT` is rejected if the path is empty, the unit is dead or in battle, it isn't the player's, or the path isn't contiguous: each entry must be at **Chebyshev distance exactly 1** from the previous one (the validator accepts diagonal steps even though the pathfinder never produces them). Issuing a new order replaces the old one.
+`MOVE_UNIT` is rejected if the path is empty, the unit is dead or in battle, it isn't the player's, or the path isn't contiguous: each entry must be exactly one **orthogonal** step (Manhattan distance 1) from the previous one. Issuing a new order replaces the old one.
 
 ---
 
@@ -102,7 +102,7 @@ Consequences worth knowing:
 `Pathfinder.findPath(from, to, unitType, stats, ownerNationId?, gameState?)`:
 - **A\*** over the 4-connected grid with a linear-scan open list (lowest `f`, first found wins ties) and a closed set.
 - Destination check first: if `to` is impassable for this unit → `null`.
-- **Edge cost** = `stepCost` for the neighbour's terrain (with the owner's mana and The Wheel), **+12** if the neighbour is owned by a nation other than the mover's (`ENEMY_TERRITORY_PENALTY`, applies to any foreign tile including allies/neutrals).
+- **Edge cost** = `stepCost` for the neighbour's terrain (with the owner's mana and The Wheel), **+12** if the neighbour is owned by a nation other than the mover's that isn't its ally (`ENEMY_TERRITORY_PENALTY`; neutral and enemy tiles both count).
 - **Heuristic** = Manhattan distance (in tiles, not ticks — so it is very weak relative to edge costs of 14–100).
 - Neighbours are expanded in N, S, W, E order; a node is re-pushed when a strictly better `g` is found.
 - Returns the path **excluding `from`, including `to`**, or `null`. `from == to` returns `[]`.
@@ -143,7 +143,7 @@ On screen: own units always show; enemy units show only when `visible`; a `near`
 2. **Movement** (`tickWithBattles`) — steps, and starts battles / sieges / territory battles on arrival.
 3. **Spy detection** (only on ticks divisible by 10).
 4. **Unit-vs-unit battles.**
-5. **Stranded-unit sieges** — any living, non-engaged, non-spy unit standing on a city tile owned by another nation starts a siege there (e.g. after the city's defender withdrew).
+5. **Stranded-unit sieges** — any living, non-engaged, non-spy unit standing on a city tile owned by another nation it may attack (engagement policy) starts a siege there (e.g. after the city's defender withdrew).
 6. **City sieges** (city HP regen happens inside on ticks divisible by 50).
 7. **Territory battles** (territory HP regen inside on ticks divisible by 50).
 8. **Ranged fire.**

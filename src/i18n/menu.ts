@@ -48,7 +48,7 @@ export const MENU_STRINGS = {
     // Sandbox card
     sandboxLabel: 'SANDBOX',
     freePlayName: 'Free Play',
-    sandboxDescription: 'No resource costs. No fog of war. Adjust AI level and paint terrain mid-game using the left toolbar.',
+    sandboxDescription: 'No resource costs. No fog of war. Everything builds and researches in about a second, and the opponent stays passive.',
     startSandbox: 'START SANDBOX',
 
     // Load row

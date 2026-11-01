@@ -119,4 +119,12 @@ describe('SaveSystem', () => {
     expect(SaveSystem.save(1, makeSaveData(1000))).toBe(false);
     errorSpy.mockRestore();
   });
+
+  it('finds the most recently saved slot regardless of slot number', () => {
+    expect(SaveSystem.mostRecentSlot()).toBeNull();
+    SaveSystem.save(1, makeSaveData(1000));
+    SaveSystem.save(7, makeSaveData(9000));
+    SaveSystem.save(3, makeSaveData(5000));
+    expect(SaveSystem.mostRecentSlot()?.slot).toBe(7);
+  });
 });

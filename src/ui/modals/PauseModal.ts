@@ -15,7 +15,9 @@ export class PauseModal {
   private feedbackTimer = 0;
 
   constructor(private bridge: PhaserUIBridge) {
-    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') this.bridge.closePause(); };
+    // preventDefault stops Phaser's window keyboard listener from treating this ESC
+    // as a fresh 'open Pause' once the scenes resume.
+    this.escHandler = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); this.bridge.closePause(); } };
   }
 
   render(): HTMLElement {
@@ -281,7 +283,7 @@ export class PauseModal {
   }
 
   private exportSave(): void {
-    const slot = SaveSystem.listSlots().find(s => s.saveData)?.slot;
+    const slot = SaveSystem.mostRecentSlot()?.slot;
     if (!slot) { this.showFeedback(STR.saveBeforeExporting, 'var(--color-danger)'); return; }
     const saveData = SaveSystem.load(slot);
     if (!saveData) { this.showFeedback(STR.noSaveToExport, 'var(--color-danger)'); return; }

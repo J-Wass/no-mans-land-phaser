@@ -36,7 +36,7 @@ export const CONTENT_STRINGS = {
     },
     [UnitType.CAVALRY]: {
       label: 'Cavalry',
-      detail: 'HP 160  ATK 32  RNG 1  SPD 3  VIS 1  UPKEEP F2 M1  REQ COPPER  |  beats RANGED, weak vs SPEARS',
+      detail: 'HP 160  ATK 32  RNG 1  SPD 3  VIS 1  UPKEEP F2 M1  REQ COPPER/IRON/FIRE GLASS  |  beats RANGED, weak vs SPEARS',
     },
     [UnitType.CROSSBOWMAN]: {
       label: 'Crossbowman',
@@ -44,7 +44,7 @@ export const CONTENT_STRINGS = {
     },
     [UnitType.HEAVY_INFANTRY]: {
       label: 'Heavy Infantry',
-      detail: 'HP 250  ATK 20  RNG 1  SPD 1  VIS 1  UPKEEP F2 M1  REQ IRON  |  SPEARS: beats CAVALRY, weak vs RANGED',
+      detail: 'HP 250  ATK 20  RNG 1  SPD 1  VIS 1  UPKEEP F2 M1  REQ IRON/FIRE GLASS  |  SPEARS: beats CAVALRY, weak vs RANGED',
     },
     [UnitType.CATAPULT]: {
       label: 'Catapult',
@@ -52,7 +52,7 @@ export const CONTENT_STRINGS = {
     },
     [UnitType.TREBUCHET]: {
       label: 'Trebuchet',
-      detail: 'HP 250  ATK 50  RNG 3  SPD 1  VIS 1  UPKEEP F2 M3  REQ FIRE GLASS  |  SIEGE: anti-armor/building, helpless vs CAVALRY',
+      detail: 'HP 250  ATK 50  RNG 3  SPD 1  VIS 1  UPKEEP F2 M3  REQ IRON/FIRE GLASS  |  SIEGE: anti-armor/building, helpless vs CAVALRY',
     },
   } satisfies Record<UnitType, { label: string; detail: string }>,
 
@@ -118,7 +118,7 @@ export const CONTENT_STRINGS = {
     },
     WALLS: {
       label: 'Walls',
-      perks: 'Fortifies this territory. Each level adds HP and attack damage; higher levels also extend attack range. Up to 5 levels.',
+      perks: 'Fortifies this territory. Each level adds HP and counter-attack damage against a unit assaulting the tile, and blunts non-charging attacks. Up to 5 levels.',
     },
     FARMS: {
       label: 'Farms',
@@ -130,7 +130,7 @@ export const CONTENT_STRINGS = {
     },
     WATCHTOWER: {
       label: 'Watchtower',
-      perks: 'Removes fog of war in a 2-tile radius around this territory, even when no units are nearby.',
+      perks: 'Removes fog of war in a 3-tile radius around this territory, even when no units are nearby.',
     },
     COPPER_MINE: {
       label: 'Copper Mine',

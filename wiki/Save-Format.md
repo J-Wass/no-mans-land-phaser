@@ -14,8 +14,8 @@
 - `SaveSystem.save(slot, data)` → `true` on success, `false` if `localStorage` throws (full/blocked).
 - `SaveSystem.load(slot)` / `parse(raw)`: rejects JSON longer than 20 MiB, unparsable JSON, or data failing the structural check: `version === 1`, numeric `savedAt` and `currentTick`, object `setup` and `state`, array `movementStates` and `battleStates`.
 - `listSlots()` returns slots 1–10 with their parsed data (or null).
-- Quick-save (top-bar SAVE) writes slot 1. The menu's LOAD SAVED GAME loads the first non-empty slot.
-- Export downloads the first non-empty slot as `phaser-rts-save-slot-{N}.json` (pretty-printed). Import validates and writes to the first empty slot, or slot 10 after confirmation.
+- Quick-save (top-bar SAVE) writes slot 1. The menu's LOAD SAVED GAME loads the most recently saved slot (`SaveSystem.mostRecentSlot()`, by `savedAt`).
+- Export downloads the most recently saved slot as `phaser-rts-save-slot-{N}.json` (pretty-printed). Import validates and writes to the first empty slot, or slot 10 after confirmation.
 
 Loading starts `GameScene` with `{saveData, setup: saveData.setup}`; `GameState.fromJSON(saveData.state)` rebuilds the world, then the tick, movements, battles, sieges, territory battles and peace cooldowns are restored.
 
@@ -77,7 +77,7 @@ type ProductionOrder =
 6. In GameScene: `tickEngine.setTick`, `movementSystem.restoreStates` (orders with empty paths dropped), battles/sieges/territory battles restored (entries whose units no longer exist are skipped; surviving units re-marked engaged; id counters advanced past the highest restored id), peace cooldowns.
 
 ### Not saved (reset on load)
-Regions (recomputed from terrain — deterministic), ranged-fire cooldowns, trade rejection backoff, MoraleSystem band memory, AI timers and Advanced strategy, music state, camera, the tutorial overlay. Game speed, HUD notifications and the HUD's panel toggles are not saved either; they live on the GameScene/UIScene instances, which Phaser reuses, so they carry over from whatever game was running earlier in the same page session (see [Known Quirks](Known-Quirks.md)).
+Regions (recomputed from terrain — deterministic), ranged-fire cooldowns, trade rejection backoff, MoraleSystem band memory, AI timers and Advanced strategy, music state, camera, the tutorial overlay. Game speed (back to 1×), HUD notifications/alert history and open HUD panels are not saved either; GameScene and UIScene reset them in `create()` for every game.
 
 ---
 

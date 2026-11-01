@@ -62,7 +62,7 @@ export interface SavedBattleState {
 
 interface BattleState extends SavedBattleState {}
 
-type BattleEndReason = 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_DESTRUCTION' | 'PEACE';
+type BattleEndReason = 'ELIMINATION' | 'WITHDRAW' | 'ROUT' | 'MUTUAL_ROUT' | 'MUTUAL_DESTRUCTION' | 'PEACE';
 
 export class BattleSystem {
   private battles: Map<string, BattleState> = new Map();
@@ -230,7 +230,8 @@ export class BattleSystem {
       if (aRouted || bRouted) {
         const loser = aRouted && !bRouted ? unitA : bRouted && !aRouted ? unitB : null;
         const winner = loser ? (loser.id === unitA.id ? unitB : unitA) : null;
-        this.finishBattle(battle, gameState, movementSystem, eventBus, currentTick, winner, loser, loser ? 'ROUT' : 'MUTUAL_DESTRUCTION');
+        // Both breaking at once ends the fight with no winner; both survive and disengage.
+        this.finishBattle(battle, gameState, movementSystem, eventBus, currentTick, winner, loser, loser ? 'ROUT' : 'MUTUAL_ROUT');
       }
     }
   }

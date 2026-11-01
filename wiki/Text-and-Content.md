@@ -4,7 +4,7 @@
 
 All user-facing text lives in `src/i18n/` (`content.ts`, `hud.ts`, `modals.ts`, `menu.ts`, aggregated by `strings.ts` as `STRINGS`) plus flavor quotes in `src/config/flavorText.ts`. Static strings are constants; templated strings are arrow functions. This page reproduces the game content text verbatim. UI chrome strings (button labels, notifications, tooltips) appear on [Controls & UI](Controls-and-UI.md), [Stances](Stances.md#in-the-ui), [Diplomacy](Diplomacy.md) and [Scenarios & Tutorial](Scenarios-and-Tutorial.md) where they're used.
 
-Title: **NO MAN'S LAND** (browser tab title is "Phaser Game"; menu version label "v0.1").
+Title: **NO MAN'S LAND** (also the browser tab title; menu version label "v0.1").
 
 ---
 
@@ -15,11 +15,11 @@ Title: **NO MAN'S LAND** (browser tab title is "Phaser Game"; menu version label
 | Infantry | Infantry | `HP 100  ATK 10  RNG 1  SPD 2  VIS 1  UPKEEP F1 M1  \|  CHEAP LINE (loses to specialists)` |
 | Scout | Scout | `HP 100  ATK 2  RNG 1  SPD 3  VIS 2  UPKEEP F1 M1  \|  RECON (avoid combat)` |
 | Longbowman | Longbowman | `HP 100  ATK 12  RNG 3  SPD 2  VIS 1  UPKEEP F1 M1  \|  RANGED: pelts spears, weak vs CAVALRY` |
-| Cavalry | Cavalry | `HP 160  ATK 32  RNG 1  SPD 3  VIS 1  UPKEEP F2 M1  REQ COPPER  \|  beats RANGED, weak vs SPEARS` |
+| Cavalry | Cavalry | `HP 160  ATK 32  RNG 1  SPD 3  VIS 1  UPKEEP F2 M1  REQ COPPER/IRON/FIRE GLASS  \|  beats RANGED, weak vs SPEARS` |
 | Crossbowman | Crossbowman | `HP 150  ATK 15  RNG 2  SPD 1  VIS 1  UPKEEP F1 M1  REQ COPPER/IRON/FIRE GLASS  \|  anti-ARMOR, weak vs CAVALRY` |
-| Heavy Infantry | Heavy Infantry | `HP 250  ATK 20  RNG 1  SPD 1  VIS 1  UPKEEP F2 M1  REQ IRON  \|  SPEARS: beats CAVALRY, weak vs RANGED` |
+| Heavy Infantry | Heavy Infantry | `HP 250  ATK 20  RNG 1  SPD 1  VIS 1  UPKEEP F2 M1  REQ IRON/FIRE GLASS  \|  SPEARS: beats CAVALRY, weak vs RANGED` |
 | Catapult | Catapult | `HP 200  ATK 25  RNG 2  SPD 1  VIS 1  UPKEEP F1 M2  REQ COPPER/IRON/FIRE GLASS  \|  SIEGE: anti-armor/building, helpless vs CAVALRY` |
-| Trebuchet | Trebuchet | `HP 250  ATK 50  RNG 3  SPD 1  VIS 1  UPKEEP F2 M3  REQ FIRE GLASS  \|  SIEGE: anti-armor/building, helpless vs CAVALRY` |
+| Trebuchet | Trebuchet | `HP 250  ATK 50  RNG 3  SPD 1  VIS 1  UPKEEP F2 M3  REQ IRON/FIRE GLASS  \|  SIEGE: anti-armor/building, helpless vs CAVALRY` |
 
 Catalog order (City Menu rows): Infantry, Scout, Longbowman, Cavalry, Crossbowman, Heavy Infantry, Catapult, Trebuchet.
 
@@ -67,10 +67,10 @@ Building list order in the City Menu: Barracks, Walls, Farms, Workshop, Watchtow
 | Building | Label | Perks |
 |---|---|---|
 | OUTPOST | Outpost | Claims this tile for your nation. Prerequisite for all other territory buildings. |
-| WALLS | Walls | Fortifies this territory. Each level adds HP and attack damage; higher levels also extend attack range. Up to 5 levels. |
+| WALLS | Walls | Fortifies this territory. Each level adds HP and counter-attack damage against a unit assaulting the tile, and blunts non-charging attacks. Up to 5 levels. |
 | FARMS | Farms | Generates +2 Food per second from this territory. Food is used for unit upkeep and city growth. |
 | WORKSHOP | Workshop | Generates +1 Raw Material per second from this territory. Raw materials are used to build units and structures. |
-| WATCHTOWER | Watchtower | Removes fog of war in a 2-tile radius around this territory, even when no units are nearby. |
+| WATCHTOWER | Watchtower | Removes fog of war in a 3-tile radius around this territory, even when no units are nearby. |
 | COPPER_MINE | Copper Mine | Mines the copper deposit here. Gives all your units Bronze weapons, adding +2 melee and ranged damage. |
 | IRON_MINE | Iron Mine | Mines the iron deposit here. Gives all your units Iron weapons, adding +4 melee and ranged damage. |
 | FIRE_GLASS_MINE | Fire Glass Mine | Mines the fire glass deposit here. Gives all your units Fire Glass weapons, adding +6 melee and ranged damage. |
@@ -122,7 +122,7 @@ HUD terrain names: Plains, Snowy Forest, Forest, Mountain, Desert, Water. (The T
 
 | Control | Tooltip |
 |---|---|
-| WITHDRAW | Disengage from combat — moves away from enemies when threatened. Use to save a wounded unit. |
+| WITHDRAW | Disengage from combat — in a battle the unit tries to break off and retreat each round; it always pulls out of a siege or territory assault. Use to save a wounded unit. |
 | HOLD | Stand ground — best mitigation, no advance. Great for defenders, terrain, and walls. |
 | ADVANCE | Press the enemy — higher offense, weaker mitigation, costs morale per round. Use to push. |
 | SPY (available) | Go undercover: invisible to enemies, infiltrates enemy land for recon. Caught and killed if an enemy gets close. |
@@ -148,9 +148,8 @@ HUD terrain names: Plains, Snowy Forest, Forest, Mountain, Desert, Water. (The T
 | no scenario | No scenario configured / Add a scenario preset in src/config/scenarios.json to enable scenario mode. / SCENARIO UNAVAILABLE |
 | standard card | STANDARD MATCH / Custom Setup / Tune the opponent count and difficulty, then launch a normal match. / OPPONENTS / DIFFICULTY / START STANDARD MATCH |
 | summary | `{n} Opponent{s}  \|  {DIFFICULTY}` |
-| sandbox card | SANDBOX / Free Play / No resource costs. No fog of war. Adjust AI level and paint terrain mid-game using the left toolbar. / START SANDBOX |
+| sandbox card | SANDBOX / Free Play / No resource costs. No fog of war. Everything builds and researches in about a second, and the opponent stays passive. / START SANDBOX |
 | load row | Or continue from your last local save. / LOAD SAVED GAME |
 
-(The sandbox description still mentions a left toolbar that was removed — see [Known Quirks](Known-Quirks.md).)
 
 → Continue to **[Known Quirks](Known-Quirks.md)**

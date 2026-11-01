@@ -11,7 +11,7 @@ export class WarConfirmModal {
     private onClose: () => void,
   ) {
     this.escHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') this.close();
+      if (e.key === 'Escape') { e.preventDefault(); this.close(); }
     };
   }
 

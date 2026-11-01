@@ -10,6 +10,7 @@ import { CitySiegeSystem } from '@/systems/combat/CitySiegeSystem';
 import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { GameEventBus } from '@/systems/events/GameEventBus';
 import { TerrainType } from '@/systems/grid/Territory';
+import { City } from '@/entities/cities/City';
 
 describe('MovementSystem', () => {
   let gameState: GameState;
@@ -188,5 +189,77 @@ describe('MovementSystem', () => {
     tickN(10);
     expect(movementSystem.isMoving('unit-1')).toBe(false);
     expect(unit.position).toEqual({ row: 0, col: 0 });
+  });
+
+  describe('engagement policy', () => {
+    function setup(): { battle: BattleSystem; siege: CitySiegeSystem; terr: TerritoryBattleSystem } {
+      gameState.addNation(new Nation('na', 'A', '#f00'));
+      gameState.addNation(new Nation('nb', 'B', '#00f'));
+      return {
+        battle: new BattleSystem(() => 0.5),
+        siege: new CitySiegeSystem(() => 0.5),
+        terr: new TerritoryBattleSystem(() => 0.5),
+      };
+    }
+
+    it('moving onto an allied unit shares the tile instead of starting a battle', () => {
+      const { battle, siege, terr } = setup();
+      gameState.getNation('na')!.formAlliance('nb');
+      gameState.getNation('nb')!.formAlliance('na');
+      const mover = new Infantry('mover', 'na', { row: 1, col: 0 });
+      const ally = new Infantry('ally', 'nb', { row: 1, col: 1 });
+      gameState.addUnit(mover);
+      gameState.addUnit(ally);
+
+      movementSystem.issueOrder(mover, [{ row: 1, col: 1 }]);
+      for (let t = 1; t <= 25; t++) movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr);
+
+      expect(mover.position).toEqual({ row: 1, col: 1 });
+      expect(mover.isEngagedInBattle()).toBe(false);
+      expect(ally.isEngagedInBattle()).toBe(false);
+    });
+
+    it('moving onto an allied city does not besiege it', () => {
+      const { battle, siege, terr } = setup();
+      gameState.getNation('na')!.formAlliance('nb');
+      gameState.getNation('nb')!.formAlliance('na');
+      gameState.addCity(new City('c', 'Ally Town', 'nb', { row: 1, col: 1 }));
+      const mover = new Infantry('mover', 'na', { row: 1, col: 0 });
+      gameState.addUnit(mover);
+
+      movementSystem.issueOrder(mover, [{ row: 1, col: 1 }]);
+      for (let t = 1; t <= 25; t++) movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr);
+
+      expect(mover.isEngagedInBattle()).toBe(false);
+      expect(siege.getSiegeForUnit('mover')).toBeNull();
+    });
+
+    it('does not start a battle when the policy forbids it (e.g. a peace cooldown)', () => {
+      const { battle, siege, terr } = setup();
+      const mover = new Infantry('mover', 'na', { row: 1, col: 0 });
+      const neutral = new Infantry('neutral', 'nb', { row: 1, col: 1 });
+      gameState.addUnit(mover);
+      gameState.addUnit(neutral);
+
+      movementSystem.issueOrder(mover, [{ row: 1, col: 1 }]);
+      for (let t = 1; t <= 25; t++) {
+        movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr, () => false);
+      }
+
+      expect(mover.isEngagedInBattle()).toBe(false);
+      expect(battle.getBattleForUnit('mover')).toBeNull();
+    });
+
+    it('still fights a neutral unit by default (auto-war)', () => {
+      const { battle, siege, terr } = setup();
+      const mover = new Infantry('mover', 'na', { row: 1, col: 0 });
+      gameState.addUnit(mover);
+      gameState.addUnit(new Infantry('neutral', 'nb', { row: 1, col: 1 }));
+
+      movementSystem.issueOrder(mover, [{ row: 1, col: 1 }]);
+      for (let t = 1; t <= 25; t++) movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr);
+
+      expect(battle.getBattleForUnit('mover')).not.toBeNull();
+    });
   });
 });

@@ -10,6 +10,7 @@ import type { MovementSystem } from '@/systems/movement/MovementSystem';
 import type { GameEventBus } from '@/systems/events/GameEventBus';
 import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
 import type { Nation } from '@/entities/nations/Nation';
+import type { City } from '@/entities/cities/City';
 import type {
   GameCommand, CommandResult,
   MoveUnitCommand, BuildTerritoryCommand, BuildCityBuildingCommand,
@@ -20,7 +21,7 @@ import type {
   SetUnitBattleOrderCommand, ConvertToSpyCommand,
   DeclareWarCommand, ProposePeaceCommand, OfferTradeCommand,
 } from './GameCommand';
-import { PRODUCTION_CATALOG, BARRACKS_MOBILIZATION_SPEEDUP_PER_LEVEL } from '@/systems/production/ProductionCatalog';
+import { PRODUCTION_CATALOG, barracksAdjustedTicks } from '@/systems/production/ProductionCatalog';
 import { TERRITORY_BUILDING_MAP, TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import { MAX_WALLS_LEVEL } from '@/systems/grid/Territory';
 import { CITY_BUILDING_MAP, CityBuildingType } from '@/systems/territory/CityBuilding';
@@ -268,11 +269,12 @@ export class CommandProcessor {
     const def = CITY_BUILDING_MAP.get(command.building);
     if (!def) return { success: false, reason: 'Unknown building type' };
 
-    const alreadyBuilt = city.hasBuilding(command.building);
-    const currentLevel = city.getBuildingLevel(command.building);
-    const isUpgrade = alreadyBuilt && currentLevel < def.maxLevel;
-    if (alreadyBuilt && !isUpgrade)
-      return { success: false, reason: 'Building already at max level' };
+    // Count orders for this building already in production so a second order
+    // is priced and labelled as the next upgrade, and can't overshoot max level.
+    const currentLevel = city.getBuildingLevel(command.building) + this.pendingBuildingOrders(city, command.building);
+    const isUpgrade = currentLevel > 0;
+    if (currentLevel >= def.maxLevel)
+      return { success: false, reason: 'Building already at max level (including queued orders)' };
 
     if (!this.sandboxMode && def.requiresTech && !nation.hasResearched(def.requiresTech))
       return { success: false, reason: `Requires research: ${def.requiresTech}` };
@@ -291,6 +293,12 @@ export class CommandProcessor {
       ticksRemaining:  ticks,
     });
     return { success: true };
+  }
+
+  /** Number of building orders for `building` in the city's active order + queue. */
+  private pendingBuildingOrders(city: City, building: CityBuildingType): number {
+    const orders = [city.getCurrentOrder(), ...city.getQueue()];
+    return orders.filter(o => o?.kind === 'building' && o.buildingType === building).length;
   }
 
   // ── START_RESEARCH ────────────────────────────────────────────────────────
@@ -378,9 +386,7 @@ export class CommandProcessor {
     // Higher-level Barracks mobilize units faster.
     const order = entry.makeOrder();
     if (order.kind === 'unit' && entry.requiresBuilding === CityBuildingType.BARRACKS) {
-      const barracksLevel = city.getBuildingLevel(CityBuildingType.BARRACKS);
-      const speedMult = Math.max(0.5, 1 - BARRACKS_MOBILIZATION_SPEEDUP_PER_LEVEL * Math.max(0, barracksLevel - 1));
-      const ticks = Math.max(1, Math.round(order.ticksTotal * speedMult));
+      const ticks = barracksAdjustedTicks(order.ticksTotal, city.getBuildingLevel(CityBuildingType.BARRACKS));
       order.ticksTotal = ticks;
       order.ticksRemaining = ticks;
     }
@@ -656,13 +662,16 @@ export class CommandProcessor {
     return false;
   }
 
-  /** Returns true if `start` → path[0] → path[1] → ... is an unbroken chain of single-tile steps. */
+  /**
+   * Returns true if `start` → path[0] → path[1] → ... is an unbroken chain of
+   * single orthogonal steps (movement is 4-directional; diagonals are rejected).
+   */
   private isPathContiguous(start: GridCoordinates, path: GridCoordinates[]): boolean {
     let prev = start;
     for (const step of path) {
       const rowDelta = Math.abs(step.row - prev.row);
       const colDelta = Math.abs(step.col - prev.col);
-      if (Math.max(rowDelta, colDelta) !== 1) return false;
+      if (rowDelta + colDelta !== 1) return false;
       prev = step;
     }
     return true;

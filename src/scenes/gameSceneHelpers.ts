@@ -34,11 +34,11 @@ export const DEPOSIT_ICON: Record<string, string> = {
 
 /** Hover-tooltip text explaining what each deposit does (when its mine is built). */
 export const DEPOSIT_INFO: Record<string, string> = {
-  COPPER:         'Copper\nCopper Mine → Bronze weapons (+2 melee & ranged).\nEnables Cavalry & Crossbowman.',
-  IRON:           'Iron\nIron Mine → Iron weapons (+4 melee & ranged).\nEnables Heavy Infantry, Catapult & Crossbowman.',
-  FIRE_GLASS:     'Fire Glass\nFire Glass Mine → Fire Glass weapons (+6 melee & ranged).\nEnables Trebuchet & Crossbowman.',
-  SILVER:         'Silver\nA valuable precious-metal deposit.',
-  GOLD_DEPOSIT:   'Gold\nA rich precious-metal deposit.',
+  COPPER:         'Copper\nCopper Mine → Bronze weapons (+2 melee & ranged).\nEnables Cavalry, Crossbowman & Catapult.',
+  IRON:           'Iron\nIron Mine → Iron weapons (+4 melee & ranged).\nEnables Cavalry, Crossbowman, Catapult, Heavy Infantry & Trebuchet.',
+  FIRE_GLASS:     'Fire Glass\nFire Glass Mine → Fire Glass weapons (+6 melee & ranged).\nEnables Cavalry, Crossbowman, Catapult, Heavy Infantry & Trebuchet.',
+  SILVER:         'Silver\nSilver Mine → +2 Gold per second.',
+  GOLD_DEPOSIT:   'Gold\nGold Mine → +4 Gold per second (requires Trade).',
   WATER_MANA:     'Water Mana\nMana Mine → heals your whole army (+5% max HP per pulse, up to +15%).',
   FIRE_MANA:      'Fire Mana\nMana Mine → +10% unit damage per mine (up to +30%).',
   LIGHTNING_MANA: 'Lightning Mana\nMana Mine → +1 movement speed per mine (up to +3).',

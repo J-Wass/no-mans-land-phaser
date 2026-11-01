@@ -2,7 +2,7 @@
 
 A grid-based, **real-time** (tick-driven) strategy game built in TypeScript + Phaser 3. You command a nation: claim land, grow an economy, research technology, raise an army, and conquer rival cities. Combat resolves automatically using a stat model where **HP, morale, stance, terrain, unit matchups, veterancy and mined deposits** all feed the same damage math.
 
-This wiki is a complete specification: every rule, number, algorithm, screen, string, asset and data file needed to rebuild the game, taken from the source. Where the code behaves differently from its own in-game text, the wiki documents the code and lists the mismatch in [Known Quirks](Known-Quirks.md).
+This wiki is a complete specification: every rule, number, algorithm, screen, string, asset and data file needed to rebuild the game, taken from the source. Open design gaps and unused code are listed in [Known Quirks](Known-Quirks.md).
 
 > **Ticks:** the simulation runs at `TICK_RATE = 10` ticks per second (100 ms per tick). Durations are given in ticks; divide by 10 for seconds at 1× speed. The clock reads "Day N HH:00", where **100 ticks = 1 day**.
 
@@ -42,7 +42,7 @@ This wiki is a complete specification: every rule, number, algorithm, screen, st
 ### Reference
 - **[Text & Content](Text-and-Content.md)** — catalog text, flavor quotes, tooltips, menu text.
 - **[Scenario Data](Scenario-Data.md)** — `scenarios.json`, all three `.terrain` maps and `names.json`, verbatim.
-- **[Known Quirks](Known-Quirks.md)** — surprising behaviour, text/rule mismatches, dead code.
+- **[Known Quirks](Known-Quirks.md)** — open design gaps and dead code.
 - **[Constants & Glossary](Constants-and-Glossary.md)** — every tunable number in one place.
 
 ---

@@ -6,8 +6,11 @@
  *   - has an enemy unit or city within attackRange tiles (Manhattan distance)
  * …fires once, dealing scaled ranged damage directly.
  *
- * War declaration (if nations are neutral) is handled downstream by
- * DiplomacySystem which subscribes to the 'ranged:fired' event.
+ * Automatic targeting only picks units/cities of nations the shooter is already
+ * at WAR with, so a ranged unit never starts a war on its own. A player-assigned
+ * preferred target may be a neutral nation's unit (subject to the engagement
+ * policy); the resulting war declaration is handled downstream by
+ * DiplomacySystem, which subscribes to the 'ranged:fired' event.
  *
  * Cities can be chipped below full HP by ranged fire but not captured;
  * a unit must physically occupy the city tile to conquer it.
@@ -23,6 +26,8 @@ import { weaponTierDamageBonus, fireManaDamageFactor } from '@/systems/resources
 import { manhattan } from '@/systems/grid/geometry';
 import { healthFactor, damageVariance, CAVALRY_RANGED_RESIST } from '@/config/combatBalance';
 import { applyCombatMoraleHit } from '@/systems/morale/moraleRules';
+import { defaultEngagementPolicy } from '@/systems/combat/EngagementPolicy';
+import type { EngagementPolicy } from '@/systems/combat/EngagementPolicy';
 
 /** Ticks between consecutive shots from a stationary ranged unit (2 s at TICK_RATE=10). */
 export const RANGED_FIRE_INTERVAL_TICKS = 20;
@@ -33,7 +38,12 @@ export class RangedFireSystem {
 
   constructor(private readonly random: () => number = Math.random) {}
 
-  public tick(gameState: GameState, eventBus: GameEventBus, currentTick: number): void {
+  public tick(
+    gameState: GameState,
+    eventBus: GameEventBus,
+    currentTick: number,
+    canEngage: EngagementPolicy = defaultEngagementPolicy(gameState),
+  ): void {
     for (const unit of gameState.getAllUnits()) {
       if (!this.isRangedUnit(unit)) continue;
       if (!unit.isAlive()) continue;
@@ -44,7 +54,7 @@ export class RangedFireSystem {
       const nation = gameState.getNation(unit.getOwnerId());
       if (!nation) continue;
 
-      const target = this.findTarget(unit, gameState);
+      const target = this.findTarget(unit, gameState, canEngage, currentTick);
       if (!target) continue;
 
       const deposits = gameState.getNationActiveDeposits(unit.getOwnerId());
@@ -122,6 +132,8 @@ export class RangedFireSystem {
   private findTarget(
     unit: Unit,
     gameState: GameState,
+    canEngage: EngagementPolicy,
+    currentTick: number,
   ): { type: 'unit'; unit: Unit } | { type: 'city'; city: City } | null {
     const nation = gameState.getNation(unit.getOwnerId());
     if (!nation) return null;
@@ -132,7 +144,7 @@ export class RangedFireSystem {
     const prefId = unit.getPreferredTargetId();
     if (prefId) {
       const pref = gameState.getUnit(prefId);
-      if (pref && pref.isAlive() && !pref.isSpy() && !nation.isAlly(pref.getOwnerId())) {
+      if (pref && pref.isAlive() && !pref.isSpy() && canEngage(unit.getOwnerId(), pref.getOwnerId(), currentTick)) {
         const dist = manhattan(unit.position, pref.position);
         if (dist <= range) return { type: 'unit', unit: pref };
       }
@@ -140,7 +152,7 @@ export class RangedFireSystem {
       unit.setPreferredTargetId(null);
     }
 
-    // ── Auto: closest enemy unit, then closest enemy city ────────────────────
+    // ── Auto: closest unit, then closest city, of a nation we're at WAR with ──
     let bestUnit: Unit | null = null;
     let bestUnitDist = Infinity;
     let bestCity: City | null = null;
@@ -148,8 +160,7 @@ export class RangedFireSystem {
 
     for (const other of gameState.getAllUnits()) {
       if (other.id === unit.id) continue;
-      if (other.getOwnerId() === unit.getOwnerId()) continue;
-      if (nation.isAlly(other.getOwnerId())) continue;
+      if (!nation.isAtWar(other.getOwnerId())) continue;
       if (!other.isAlive()) continue;
       // Undercover spies are invisible to everything but SpyDetectionSystem —
       // ranged fire must not auto-target (or reveal) one.
@@ -162,8 +173,7 @@ export class RangedFireSystem {
     }
 
     for (const city of gameState.getAllCities()) {
-      if (city.getOwnerId() === unit.getOwnerId()) continue;
-      if (nation.isAlly(city.getOwnerId())) continue;
+      if (!nation.isAtWar(city.getOwnerId())) continue;
       const dist = manhattan(unit.position, city.position);
       if (dist <= range && dist < bestCityDist) {
         bestCityDist = dist;

@@ -337,7 +337,8 @@ export class MenuPage {
   }
 
   private buildLoadRow(): HTMLElement {
-    const firstSave = SaveSystem.listSlots().find(s => !!s.saveData) ?? null;
+    // Continue the most recently saved game, whichever slot it's in.
+    const latestSave = SaveSystem.mostRecentSlot();
     const row = document.createElement('div');
     row.className = 'row spread';
 
@@ -346,12 +347,12 @@ export class MenuPage {
     lbl.textContent = MENU_STRINGS.menu.loadHint;
 
     const loadBtn = document.createElement('button');
-    loadBtn.className = `btn btn-secondary${firstSave ? '' : ' disabled'}`;
-    loadBtn.disabled = !firstSave;
+    loadBtn.className = `btn btn-secondary${latestSave ? '' : ' disabled'}`;
+    loadBtn.disabled = !latestSave;
     loadBtn.textContent = MENU_STRINGS.menu.loadSavedGame;
     loadBtn.addEventListener('click', () => {
-      if (!firstSave) return;
-      const saveData = SaveSystem.load(firstSave.slot);
+      if (!latestSave) return;
+      const saveData = SaveSystem.load(latestSave.slot);
       if (!saveData) return;
       this.startGame({ setup: saveData.setup, saveData });
     });

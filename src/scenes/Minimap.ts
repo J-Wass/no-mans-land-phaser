@@ -10,7 +10,6 @@
 
 import Phaser from 'phaser';
 import type { GameState } from '@/managers/GameState';
-import type { GameEventBus } from '@/systems/events/GameEventBus';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TILE_SIZE } from '@/config/constants';
 import { coordsToKey } from '@/systems/grid/Grid';
@@ -45,7 +44,6 @@ export class Minimap {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly gameState: GameState,
-    private readonly eventBus: GameEventBus,
     depth = 5000,
   ) {
     const size = gameState.getGrid().getSize();
@@ -59,9 +57,9 @@ export class Minimap {
     this.hitZone = scene.add.rectangle(0, 0, 10, 10, 0x000000, 0.001)
       .setScrollFactor(0).setOrigin(0, 0).setDepth(depth + 3)
       .setInteractive({ useHandCursor: true });
+    // Being interactive, the hit zone captures the press so GameScene (below
+    // UIScene) never also treats it as a world click.
     this.hitZone.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      // Stop GameScene from also treating this as a world click.
-      this.eventBus.emit('ui:click-consumed', {});
       this.recenterCamera(p.x, p.y);
     });
 

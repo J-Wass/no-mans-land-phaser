@@ -19,6 +19,8 @@ describe('RangedFireSystem — cavalry ranged resistance', () => {
     const gs = new GameState({ rows: 8, cols: 8 });
     gs.addNation(new Nation('na', 'A', '#f00'));
     gs.addNation(new Nation('nb', 'B', '#00f'));
+    gs.getNation('na')!.declareWar('nb');
+    gs.getNation('nb')!.declareWar('na');
     const eb = new GameEventBus();
     const rf = new RangedFireSystem(() => 0.5); // variance = 1.0
     const treb = new Trebuchet('t', 'na', { row: 1, col: 1 });
@@ -80,5 +82,52 @@ describe('RangedFireSystem — spy visibility', () => {
     rf.tick(gs, eb, 0);
 
     expect(gs.getUnit('spy')?.getHealth()).toBe(spy.getStats().maxHealth);
+  });
+});
+
+describe('RangedFireSystem — diplomacy', () => {
+  function setup() {
+    const gs = new GameState({ rows: 8, cols: 8 });
+    gs.addNation(new Nation('na', 'A', '#f00'));
+    gs.addNation(new Nation('nb', 'B', '#00f'));
+    const eb = new GameEventBus();
+    const rf = new RangedFireSystem(() => 0.5);
+    const treb = new Trebuchet('t', 'na', { row: 1, col: 1 });
+    const target = new Infantry('tgt', 'nb', { row: 1, col: 3 });
+    gs.addUnit(treb);
+    gs.addUnit(target);
+    return { gs, eb, rf, treb, target };
+  }
+
+  it('does not auto-fire on a neutral nation (never starts a war on its own)', () => {
+    const { gs, eb, rf, target } = setup();
+    let fired = false;
+    eb.on('ranged:fired', () => { fired = true; });
+    rf.tick(gs, eb, 0);
+    expect(fired).toBe(false);
+    expect(target.getHealth()).toBe(target.getStats().maxHealth);
+  });
+
+  it('fires on a neutral unit the player explicitly targeted, if the policy allows it', () => {
+    const { gs, eb, rf, treb, target } = setup();
+    treb.setPreferredTargetId('tgt');
+    rf.tick(gs, eb, 0);
+    expect(target.getHealth()).toBeLessThan(target.getStats().maxHealth);
+  });
+
+  it('respects the engagement policy for a preferred target (e.g. a peace cooldown)', () => {
+    const { gs, eb, rf, treb, target } = setup();
+    treb.setPreferredTargetId('tgt');
+    rf.tick(gs, eb, 0, () => false);
+    expect(target.getHealth()).toBe(target.getStats().maxHealth);
+  });
+
+  it('never targets an ally, even when assigned', () => {
+    const { gs, eb, rf, treb, target } = setup();
+    gs.getNation('na')!.formAlliance('nb');
+    gs.getNation('nb')!.formAlliance('na');
+    treb.setPreferredTargetId('tgt');
+    rf.tick(gs, eb, 0);
+    expect(target.getHealth()).toBe(target.getStats().maxHealth);
   });
 });

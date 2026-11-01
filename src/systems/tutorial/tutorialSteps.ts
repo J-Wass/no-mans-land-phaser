@@ -95,7 +95,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'select-unit',
     title: 'Select a unit',
-    body: 'Left-click on your unit (the glowing tile) to select it. Selected units show stats and stance buttons in the bottom bar.',
+    body: 'Left-click on your unit (the highlighted tile) to select it. Selected units show stats and stance buttons in the panel at the bottom left.',
     events: ['unit:selected'],
     match: (payload, ctx) => {
       const u = (payload as GameEventMap['unit:selected']).unit;
@@ -129,7 +129,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'upgrade-barracks',
     title: 'Upgrade the Barracks to Lvl 2',
-    body: 'On the Buildings tab, find the Barracks (already built at Lvl 1) and press ▲ UP to upgrade it. Lvl 2 unlocks the Longbowman.',
+    body: 'On the Buildings tab, find the Barracks (already built at Lvl 1) and press UPGRADE. Lvl 2 unlocks the Longbowman.',
     events: ['city:building-built'],
     match: (payload, ctx) => {
       const p = payload as GameEventMap['city:building-built'];
@@ -172,11 +172,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: 'Train more units for the siege',
     body: 'Re-open Rivervale and queue 2 more units. A city is too tough for one unit alone — you\'ll want a small force to take Greyhold.',
     events: ['city:production-started'],
+    // Completes on the second unit queued after the Longbowman.
+    match: (_payload, ctx) => {
+      const queued = ((ctx.state['siegeUnitsQueued'] as number | undefined) ?? 0) + 1;
+      ctx.state['siegeUnitsQueued'] = queued;
+      return queued >= 2;
+    },
   },
   {
     id: 'conquer-city',
     title: 'Conquer Greyhold',
-    body: 'March your units onto the enemy city — multiple attackers will pressure it down. Conquering a city rallies nearby troops with a morale boost.',
+    body: 'March your units onto the enemy city. Only one of your units can stand on it at a time, so bring a few: if your besieger falls, the next one steps in. Conquering a city rallies nearby troops with a morale boost.',
     events: ['city:conquered'],
     match: (payload, ctx) =>
       (payload as GameEventMap['city:conquered']).byNationId === ctx.localNationId,
@@ -190,13 +196,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'research-tech',
     title: 'Research a technology',
-    body: 'Open the Research panel from the bottom bar and pick a tech. Better tech unlocks stronger units, mines, and buildings.',
+    body: 'Press RESEARCH on the top bar and pick a tech. Better tech unlocks stronger units, mines, and buildings.',
     events: ['nation:research-started'],
+    match: (payload, ctx) =>
+      (payload as GameEventMap['nation:research-started']).nationId === ctx.localNationId,
   },
   {
     id: 'open-diplomacy',
     title: 'Review diplomacy',
-    body: 'Open the Diplomacy panel from the bottom bar to see relations, declare war, or sue for peace.',
+    body: 'Press OPEN FULL on the Diplomacy panel (bottom right) to see relations, declare war, or sue for peace.',
     events: ['ui:modal-opened'],
     match: isModal('diplomacy'),
   },

@@ -15,7 +15,7 @@ import type { TickEngine } from '@/systems/tick/TickEngine';
 import { ResourceType } from '@/systems/resources/ResourceType';
 import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryBuildingType, BUILDING_MAP_ICON, TERRITORY_BUILDING_MAP } from '@/systems/territory/TerritoryBuilding';
-import { CITY_BUILDING_MAP } from '@/systems/territory/CityBuilding';
+import { CITY_BUILDING_MAP, CityBuildingType } from '@/systems/territory/CityBuilding';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { RESOURCE_EMOJI } from '@/utils/resourceIcons';
 import type { GridCoordinates } from '@/types/common';
@@ -109,17 +109,18 @@ function unitDisplayName(unit: Unit): string {
   return unit.getFullName();
 }
 
-function resolveArmorTier(
+/** Display name of the nation's weapon tier (best active metal mine; flavor only beyond the +2/+4/+6 bonus). */
+function resolveWeaponTier(
   deposits: ReadonlySet<TerritoryResourceType>,
   nation: ReturnType<GameState['getNation']>,
 ): string {
-  if (deposits.has(TerritoryResourceType.FIRE_GLASS)) return HUD_STRINGS.unitPanel.armorFireGlass;
+  if (deposits.has(TerritoryResourceType.FIRE_GLASS)) return HUD_STRINGS.unitPanel.weaponFireGlass;
   if (deposits.has(TerritoryResourceType.IRON)) {
     const hasSteelWorking = nation?.hasResearched('steel_working' as TechId) ?? false;
-    return hasSteelWorking ? HUD_STRINGS.unitPanel.armorSteel : HUD_STRINGS.unitPanel.armorIron;
+    return hasSteelWorking ? HUD_STRINGS.unitPanel.weaponSteel : HUD_STRINGS.unitPanel.weaponIron;
   }
-  if (deposits.has(TerritoryResourceType.COPPER)) return HUD_STRINGS.unitPanel.armorBronze;
-  return HUD_STRINGS.unitPanel.armorLeather;
+  if (deposits.has(TerritoryResourceType.COPPER)) return HUD_STRINGS.unitPanel.weaponBronze;
+  return HUD_STRINGS.unitPanel.weaponBasic;
 }
 
 export class UIScene extends Phaser.Scene {
@@ -176,11 +177,25 @@ export class UIScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Phaser reuses scene instances: reset per-game HUD state so nothing (speed,
+    // alerts, open panels, a stale selection) leaks in from the previous game.
+    this.gameSpeed = 1;
+    this.selectedUnit = null;
+    this.selectedCity = null;
+    this.selectedTerritoryPos = null;
+    this.activeResourceBreakdown = null;
+    this.showAlertHistory = false;
+    this.notifications = [];
+    this.toastIds = [];
+    this.nextAlertId = 1;
+    this.hudObjects = [];
+    this.stanceTooltip = null;
+
     this.subs = new EventSubscriptions(this.eventBus);
     this.setupEventListeners();
     this.rebuildHUD();
     // The minimap is created once (outside the rebuilt HUD objects) so it persists.
-    this.minimap = new Minimap(this, this.gameState, this.eventBus);
+    this.minimap = new Minimap(this, this.gameState);
     this.scale.on('resize', this.rebuildHUD, this);
     window.addEventListener('accessibility:changed', this.accessibilityHandler);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -264,6 +279,12 @@ export class UIScene extends Phaser.Scene {
       // genuine grow event.
       const newWidth = this.tickText?.width ?? 0;
       if (newWidth > prevWidth + 0.5) {
+        this.rebuildHUD();
+        return;
+      }
+      // City/territory panels are static drawings; redraw once a second so their
+      // production progress, HP and construction % stay current.
+      if ((this.selectedCity || this.selectedTerritoryPos) && tick % TICK_RATE === 0) {
         this.rebuildHUD();
         return;
       }
@@ -425,6 +446,9 @@ export class UIScene extends Phaser.Scene {
       const reachedGood = newBand === MoraleBand.STEADY || newBand === MoraleBand.INSPIRED;
       if (worsening || reachedGood) {
         this.pushNotification(HUD_STRINGS.notifications.moraleBand(unitDisplayName(unit), newBand));
+      } else if (this.selectedUnit?.id === unitId) {
+        // Re-evaluate the selected unit's stance buttons (ADVANCE availability).
+        this.rebuildHUD();
       }
     });
   }
@@ -482,7 +506,9 @@ export class UIScene extends Phaser.Scene {
     const btnH = Math.round((skinny ? 28 : 30) * scale);
     const gap = Math.round((skinny ? 6 : 8) * scale);
 
-    this.track(this.add.rectangle(W / 2, 0, W, barH, 0x0d1020, 0.94).setOrigin(0.5, 0));
+    // HUD backgrounds are interactive so clicks on them are captured here and
+    // don't fall through to the map tile underneath (GameScene sits below).
+    this.track(this.add.rectangle(W / 2, 0, W, barH, 0x0d1020, 0.94).setOrigin(0.5, 0).setInteractive());
     this.track(this.add.rectangle(W / 2, barH, W, 1, 0x3355bb, 0.7).setOrigin(0.5, 0));
 
     this.tickText = this.track(this.add.text(pad, midY, formatGameTime(this.tickEngine.getCurrentTick()), {
@@ -626,10 +652,7 @@ export class UIScene extends Phaser.Scene {
 
     bg.on('pointerover', () => bg.setFillStyle(fill + 0x101018));
     bg.on('pointerout', () => bg.setFillStyle(fill));
-    bg.on('pointerup', () => {
-      this.eventBus.emit('ui:click-consumed', {});
-      onClick();
-    });
+    bg.on('pointerup', () => onClick());
 
     void text;
   }
@@ -648,7 +671,7 @@ export class UIScene extends Phaser.Scene {
       const height = Math.round(30 * scale);
       this.track(this.add.rectangle(startX, y, width, height, 0x111a2a, 0.94)
         .setOrigin(0, 0)
-        .setStrokeStyle(1, 0x3355aa));
+        .setStrokeStyle(1, 0x3355aa).setInteractive());
       this.track(this.add.text(startX + Math.round(10 * scale), y + height / 2, HUD_STRINGS.toasts.entry(formatGameTime(entry.createdTick), entry.text), {
         ...MONO, fontSize: fs(11, scale), color: '#f2f6ff',
         wordWrap: { width: width - Math.round(20 * scale) },
@@ -670,7 +693,7 @@ export class UIScene extends Phaser.Scene {
 
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0c1220, 0.96)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x476ac2));
+      .setStrokeStyle(1, 0x476ac2).setInteractive());
     this.track(this.add.text(x + pad, y + pad, HUD_STRINGS.alertHistory.title, {
       ...MONO, fontSize: fs(14, scale), color: '#ffddb0', fontStyle: 'bold',
     }).setOrigin(0, 0));
@@ -700,7 +723,7 @@ export class UIScene extends Phaser.Scene {
 
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0d1426, 0.97)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x4a6ec7));
+      .setStrokeStyle(1, 0x4a6ec7).setInteractive());
     this.track(this.add.text(x + pad, y + pad, HUD_STRINGS.resourceBreakdown.panelTitle(RESOURCE_EMOJI[this.activeResourceBreakdown], breakdown.title), {
       ...MONO, fontSize: fs(14, scale), color: '#f6e0a0', fontStyle: 'bold',
     }).setOrigin(0, 0));
@@ -750,7 +773,7 @@ export class UIScene extends Phaser.Scene {
 
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0c1220, 0.95)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x4a6ec7));
+      .setStrokeStyle(1, 0x4a6ec7).setInteractive());
     this.track(this.add.text(x + pad, y + pad, HUD_STRINGS.diplomacy.title, {
       ...MONO, fontSize: fs(14, scale), color: '#d8e3ff', fontStyle: 'bold',
     }).setOrigin(0, 0));
@@ -769,10 +792,7 @@ export class UIScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setStrokeStyle(1, 0x2b426d)
         .setInteractive({ useHandCursor: true })) as Phaser.GameObjects.Rectangle;
-      row.on('pointerup', () => {
-        this.eventBus.emit('ui:click-consumed', {});
-        this.openDiplomacy(nation.getId());
-      });
+      row.on('pointerup', () => this.openDiplomacy(nation.getId()));
       row.on('pointerover', () => row.setFillStyle(0x17243a, 0.98));
       row.on('pointerout', () => row.setFillStyle(0x10192a, 0.98));
 
@@ -784,9 +804,11 @@ export class UIScene extends Phaser.Scene {
         ...MONO, fontSize: fs(10, scale), color: relationColor(relation),
       }).setOrigin(0, 0));
 
+      // Allies get no war/peace button — alliances are scenario-defined and not
+      // something the widget should be able to break with one click.
       const btnLabel = relation === DiplomaticStatus.WAR ? HUD_STRINGS.diplomacy.peace : HUD_STRINGS.diplomacy.war;
       const btnFill = relation === DiplomaticStatus.WAR ? 0x21402c : 0x402020;
-      this.makeButton(x + panelW - pad - Math.round(34 * scale), rowY + rowH / 2 - Math.round(2 * scale), Math.round(68 * scale), Math.round(24 * scale), btnLabel, scale, () => {
+      if (relation !== DiplomaticStatus.ALLY) this.makeButton(x + panelW - pad - Math.round(34 * scale), rowY + rowH / 2 - Math.round(2 * scale), Math.round(68 * scale), Math.round(24 * scale), btnLabel, scale, () => {
         if (relation === DiplomaticStatus.WAR) {
           this.networkAdapter.sendCommand({
             type: 'PROPOSE_PEACE',
@@ -850,7 +872,8 @@ export class UIScene extends Phaser.Scene {
     const deposits = nation ? this.gameState.getNationActiveDeposits(nation.getId()) : new Set<TerritoryResourceType>();
     const counts = nation ? this.gameState.getNationActiveDepositCounts(nation.getId()) : new Map<TerritoryResourceType, number>();
     const weaponBonus = weaponTierDamageBonus(deposits);
-    const armorLabel = resolveArmorTier(deposits, nation);
+    const weaponLabel = resolveWeaponTier(deposits, nation);
+    const armorLabel = unit.getStats().armorType === 'heavy' ? HUD_STRINGS.unitPanel.armorHeavy : HUD_STRINGS.unitPanel.armorLight;
 
     const manaParts: string[] = [];
     const fireFactor = fireManaDamageFactor(deposits, counts);
@@ -884,7 +907,7 @@ export class UIScene extends Phaser.Scene {
 
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x3355bb));
+      .setStrokeStyle(1, 0x3355bb).setInteractive());
     this.track(this.add.text(x + pad, y + pad, unitDisplayName(unit) + (unit.isSpy() ? HUD_STRINGS.unitPanel.undercoverSuffix : ''), {
       ...MONO, fontSize: fs(14, scale), color: unit.isSpy() ? '#c488e8' : '#dce6ff', fontStyle: 'bold',
     }).setOrigin(0, 0));
@@ -899,7 +922,7 @@ export class UIScene extends Phaser.Scene {
       HUD_STRINGS.unitPanel.primaryStats(unit.getStats().meleeDamage + weaponBonus, unit.getStats().rangedDamage + weaponBonus, unit.getStats().speed),
       { ...MONO, fontSize: fs(11, scale), color: '#c3d0f7' }).setOrigin(0, 0));
     this.track(this.add.text(x + pad, y + pad + Math.round(108 * scale),
-      HUD_STRINGS.unitPanel.secondaryStats(armorLabel, unit.getStats().attackRange, unit.getStats().vision),
+      HUD_STRINGS.unitPanel.secondaryStats(armorLabel, weaponLabel, unit.getStats().attackRange, unit.getStats().vision),
       { ...MONO, fontSize: fs(11, scale), color: '#9bb0de' }).setOrigin(0, 0));
 
     this.infoLineText = this.track(this.add.text(x + pad, y + pad + Math.round(130 * scale), '', {
@@ -1038,7 +1061,7 @@ export class UIScene extends Phaser.Scene {
 
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x3355bb));
+      .setStrokeStyle(1, 0x3355bb).setInteractive());
     this.track(this.add.text(x + pad, y + pad, city.getName(), {
       ...MONO, fontSize: fs(14, scale), color: '#ffd9a8', fontStyle: 'bold',
     }).setOrigin(0, 0));
@@ -1097,7 +1120,7 @@ export class UIScene extends Phaser.Scene {
 
     this.track(this.add.rectangle(x, y, panelW, panelH, 0x0a0f1c, 0.96)
       .setOrigin(0, 0)
-      .setStrokeStyle(1, 0x3355bb));
+      .setStrokeStyle(1, 0x3355bb).setInteractive());
     const terrain = TERRAIN_DISPLAY_NAME[territory?.getTerrainType() ?? ''] ?? territory?.getTerrainType() ?? HUD_STRINGS.territoryPanel.terrainUnknown;
     const titleText = region
       ? HUD_STRINGS.territoryPanel.titleInRegion(position.row, position.col, terrain, region.name)
@@ -1213,10 +1236,12 @@ export class UIScene extends Phaser.Scene {
     const cities = this.gameState.getCitiesByNation(nation.getId());
     const territories = this.gameState.getGrid().getTerritoriesByNation(nation.getId());
     const cityCount = cities.length;
-    const cityFarmCount = cities.filter(city => city.hasBuilding('FARMS' as never)).length;
-    const cityWorkshopCount = cities.filter(city => city.hasBuilding('WORKSHOP' as never)).length;
-    const citySchoolCount = cities.filter(city => city.hasBuilding('SCHOOL' as never)).length;
-    const cityMarketCount = cities.filter(city => city.hasBuilding('MARKET' as never)).length;
+    // City buildings yield per level, so sum levels (not just count cities that have one).
+    const levelSum = (b: CityBuildingType) => cities.reduce((sum, city) => sum + city.getBuildingLevel(b), 0);
+    const cityFarmCount = levelSum(CityBuildingType.FARMS);
+    const cityWorkshopCount = levelSum(CityBuildingType.WORKSHOP);
+    const citySchoolCount = levelSum(CityBuildingType.SCHOOL);
+    const cityMarketCount = levelSum(CityBuildingType.MARKET);
     const territoryFarmCount = territories.filter(territory => territory.hasBuilding(TerritoryBuildingType.FARMS)).length;
     const territoryWorkshopCount = territories.filter(territory => territory.hasBuilding(TerritoryBuildingType.WORKSHOP)).length;
     const plainsCount = territories.filter(territory => territory.getTerrainType() === TerrainType.PLAINS).length;

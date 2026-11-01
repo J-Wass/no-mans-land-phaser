@@ -84,6 +84,16 @@ export class SaveSystem {
     localStorage.removeItem(slotKey(slot));
   }
 
+  /** The slot holding the most recently saved game (by `savedAt`), or null if every slot is empty. */
+  public static mostRecentSlot(): SaveSlotSummary | null {
+    let best: SaveSlotSummary | null = null;
+    for (const summary of this.listSlots()) {
+      if (!summary.saveData) continue;
+      if (!best?.saveData || summary.saveData.savedAt > best.saveData.savedAt) best = summary;
+    }
+    return best;
+  }
+
   public static listSlots(): SaveSlotSummary[] {
     const slots: SaveSlotSummary[] = [];
     for (let slot = 1; slot <= SLOT_COUNT; slot++) {

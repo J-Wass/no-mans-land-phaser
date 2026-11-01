@@ -15,6 +15,8 @@ import type { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSyst
 import type { SavedMovementState } from '@/types/gameSetup';
 import { stepCost, WHEEL_SPEED_MULTIPLIER } from './MovementCosts';
 import type { UnitMovementState } from './MovementState';
+import { defaultEngagementPolicy } from '@/systems/combat/EngagementPolicy';
+import type { EngagementPolicy } from '@/systems/combat/EngagementPolicy';
 
 export class MovementSystem {
   private states: Map<EntityId, UnitMovementState> = new Map();
@@ -205,6 +207,7 @@ export class MovementSystem {
     battleSystem: BattleSystem,
     citySiegeSystem: CitySiegeSystem,
     territoryBattleSystem: TerritoryBattleSystem,
+    canEngage: EngagementPolicy = defaultEngagementPolicy(gameState),
   ): void {
     const grid = gameState.getGrid();
 
@@ -287,7 +290,9 @@ export class MovementSystem {
             !other.isEngagedInBattle() &&
             other.getOwnerId() !== unit.getOwnerId() &&
             other.position.row === nextCoords.row &&
-            other.position.col === nextCoords.col,
+            other.position.col === nextCoords.col &&
+            // Allies, and neutrals inside a peace cooldown, share the tile peacefully.
+            canEngage(unit.getOwnerId(), other.getOwnerId(), currentTick),
           );
 
           if (enemyOccupant) {
@@ -300,7 +305,8 @@ export class MovementSystem {
           const cityId = territory?.getCityId() ?? null;
           if (cityId) {
             const city = gameState.getCity(cityId);
-            if (city && city.getOwnerId() !== unit.getOwnerId()) {
+            if (city && city.getOwnerId() !== unit.getOwnerId()
+                && canEngage(unit.getOwnerId(), city.getOwnerId(), currentTick)) {
               citySiegeSystem.startSiege(unit, city, from, nextCoords, currentTick, this, eventBus);
               continue;
             }
