@@ -59,8 +59,11 @@ interface TrackedViolation extends Violation {
 }
 
 interface AdvanceOptions {
-  /** Event names that stop the advance early, or 'notable' for the default set. */
-  stopOn?:     string[] | 'notable' | 'none';
+  /**
+   * Event names that stop the advance early, or a preset: 'notable' (default),
+   * 'major' (losses, sieges, captures, war/peace, defeat only), 'none'.
+   */
+  stopOn?:     string[] | 'notable' | 'major' | 'none';
   /** Only stop on events that involve the local player (default true). */
   mineOnly?:   boolean;
   /** Stop as soon as a new error-level invariant violation or runtime error appears (default true). */
@@ -84,18 +87,29 @@ const NOISY_EVENTS = new Set<string>([
   'ui:camera-panned', 'unit:selected', 'city:selected', 'territory:highlighted',
 ]);
 
+// Morale band changes are recorded but deliberately not here: in any real fight they fire every few ticks.
 const NOTABLE_EVENTS = [
   'battle:started', 'battle:ended', 'city:siege-started', 'city:conquered', 'unit:destroyed',
   'diplomacy:war-declared', 'diplomacy:peace-signed', 'nation:defeated', 'spy:detected',
   'nation:research-complete', 'city:unit-spawned', 'city:production-complete', 'city:building-built',
-  'territory:building-built', 'territory:conquest-started', 'unit:withdrew', 'morale:band-changed',
+  'territory:building-built', 'territory:conquest-started', 'unit:withdrew', 'unit:move-blocked',
 ];
+
+const MAJOR_EVENTS = [
+  'unit:destroyed', 'city:siege-started', 'city:conquered', 'diplomacy:war-declared',
+  'diplomacy:peace-signed', 'nation:defeated',
+];
+
+type Tile = [number, number];
 
 const MAX_EVENTS = 5000;
 const INVARIANT_CHECK_EVERY = 10;
 /** A stretch this long with no event touching the player is logged as dead time. */
 const DEAD_TIME_TICKS = 300;
 const SCRATCH_SAVE_SLOT = SaveSystem.SLOT_COUNT - 1;
+const LOAD_SAVE_SLOT = SaveSystem.SLOT_COUNT - 2;
+/** How far (Manhattan) a group order looks for a free tile when its target is taken. */
+const GROUP_REDIRECT_RADIUS = 3;
 
 // ── Harness ─────────────────────────────────────────────────────────────────
 
@@ -120,6 +134,10 @@ class TestHarness {
   private tasks: Array<Record<string, unknown>> = [];
   /** Last known owner of every unit seen, so events about removed units still attribute correctly. */
   private unitOwners = new Map<string, string>();
+  /** Standing group orders (unit id → target tile), re-issued after every advance until they arrive. */
+  private groupOrders = new Map<string, Tile>();
+  /** Standing production plan: city id → unit types to train in rotation. */
+  private productionPlan = new Map<string, { types: string[]; next: number }>();
 
   /** Set by the event recorder while an advance() is running. */
   private stopReason: string | null = null;
@@ -148,7 +166,9 @@ class TestHarness {
       else this.clicks.dom++;
     }, { capture: true });
 
-    if (this.params.get('autostart') === '1') this.autostart();
+    const load = this.params.get('load');
+    if (load) void this.loadSave(load).catch(err => console.error('[TestHarness] load= failed:', err));
+    else if (this.params.get('autostart') === '1') this.autostart();
   }
 
   private autostart(): void {
@@ -430,7 +450,10 @@ class TestHarness {
   async advance(ticks: number, opts: AdvanceOptions = {}) {
     const h = this.need();
     const from = h.tickEngine.getCurrentTick();
-    const names = opts.stopOn === 'none' ? [] : opts.stopOn === undefined || opts.stopOn === 'notable' ? NOTABLE_EVENTS : opts.stopOn;
+    const names = opts.stopOn === 'none' ? []
+      : opts.stopOn === 'major' ? MAJOR_EVENTS
+      : opts.stopOn === undefined || opts.stopOn === 'notable' ? NOTABLE_EVENTS
+      : opts.stopOn;
     this.stopReason = null;
     this.stopFilter = { names: new Set(names), mineOnly: opts.mineOnly ?? true, onBug: opts.stopOnBug ?? true };
     const seqBefore = this.eventSeq;
@@ -460,6 +483,10 @@ class TestHarness {
       this.firsts['firstContact'] = h.tickEngine.getCurrentTick();
     }
     const to = h.tickEngine.getCurrentTick();
+    const auto = UIManager.isOpen('gameOver') ? null : {
+      reissued: await this.reissueGroupOrders(),
+      produced: await this.runProductionPlan(),
+    };
 
     await this.nextFrames(2);
     await new Promise(r => window.setTimeout(r, opts.settleMs ?? 300));
@@ -476,6 +503,8 @@ class TestHarness {
       gameOver:      UIManager.isOpen('gameOver'),
       lastEventSeq:  this.eventSeq,
       pageHidden:    document.hidden,
+      ...(auto && (auto.reissued.length || auto.produced.length) ? { auto } : {}),
+      ...(this.groupOrders.size ? { groupOrdersPending: this.groupOrders.size } : {}),
     };
   }
 
@@ -509,6 +538,205 @@ class TestHarness {
     if (!path || path.length === 0) return { success: false, reason: 'no path to that tile' };
     const result = await this.issue({ type: 'MOVE_UNIT', unitId, path });
     return { ...result, pathLength: path.length };
+  }
+
+  /**
+   * One-call status for an automated player: economy, cities, army by type,
+   * every unit in short form, visible enemies, known cities, standing orders.
+   * Fog applies (built from state()).
+   */
+  summary() {
+    const s = this.state();
+    const pct = (hp: string): number => {
+      const [cur, max] = hp.split('/').map(Number);
+      return max ? Math.round(((cur ?? 0) / max) * 100) : 0;
+    };
+    const army: Record<string, { count: number; avgHpPct: number }> = {};
+    for (const u of s.units) {
+      const a = army[u.type] ??= { count: 0, avgHpPct: 0 };
+      a.avgHpPct = Math.round((a.avgHpPct * a.count + pct(u.hp)) / (a.count + 1));
+      a.count++;
+    }
+    return {
+      tick:      s.tick,
+      resources: s.me.resources,
+      research:  { current: s.me.research.current, queued: s.me.research.queue.length, done: s.me.research.researched.length },
+      tiles:     s.me.territoryTiles,
+      cities:    s.cities.map(c => `${c.id} ${c.name} @${c.at.join(',')} ${c.hp} ${c.producing ?? 'idle'}${c.queue.length ? ` +${c.queue.length}` : ''}`),
+      army,
+      units:     s.units.map(u =>
+        `${u.id} ${u.type} @${u.at.join(',')} ${pct(u.hp)}%${u.movingTo ? ` >${u.movingTo.join(',')}` : ''}${u.inCombat ? ' C' : ''}${u.stance !== 'HOLD' ? ` ${u.stance}` : ''}`),
+      enemies:   s.visibleEnemies.map(e => `${String(e['id'])} ${String(e['type'])} @${(e['at'] as number[]).join(',')} ${String(e['hp'])}`),
+      contacts:  s.contacts.length,
+      foreignCities: s.foreignCities.map(c => `${c.id} ${c.name} @${c.at.join(',')} ${c.visible ? c.hp : '(not in sight)'}`),
+      wars:      s.nations.filter(n => n.relation === 'WAR').map(n => n.name),
+      groupOrders: this.groupOrders.size,
+      productionPlan: Object.fromEntries([...this.productionPlan].map(([id, p]) => [id, p.types])),
+    };
+  }
+
+  /**
+   * Standing move orders: each unit to its own tile. Issued now and re-issued
+   * after every advance() until the unit arrives or dies. A unit whose target
+   * is held by another of our units is redirected to the nearest free tile
+   * (within GROUP_REDIRECT_RADIUS). `replace` drops all previous group orders.
+   */
+  async orderGroup(assignments: Record<string, Tile> | Array<[string, number, number]>, opts: { replace?: boolean } = {}) {
+    if (opts.replace) this.groupOrders.clear();
+    const entries: Array<[string, Tile]> = Array.isArray(assignments)
+      ? assignments.map(([id, r, c]) => [id, [r, c]])
+      : Object.entries(assignments);
+    for (const [id, tile] of entries) this.groupOrders.set(id, tile);
+    return { issued: await this.reissueGroupOrders(true), pending: this.groupOrders.size };
+  }
+
+  /**
+   * Pair units with targets for a coordinated move: picks our units of `type`
+   * (at ≥ minHpFrac health, not already under a group order, not garrisoning
+   * a city unless includeGarrisons) and gives the one nearest `focus` the
+   * target nearest `focus`, and so on — so a column's front unit takes the
+   * deepest tile and nobody walks backwards through the column.
+   */
+  async orderWave(
+    targets: Tile[],
+    opts: { type?: string; minHpFrac?: number; focus?: Tile; includeGarrisons?: boolean } = {},
+  ) {
+    const h = this.need();
+    const me = this.myNationId();
+    if (!me || targets.length === 0) return { assigned: [] as string[] };
+    const focus = opts.focus ?? targets[0]!;
+    const d = (r: number, c: number): number => Math.abs(r - focus[0]) + Math.abs(c - focus[1]);
+    const cityTiles = new Set(h.gameState.getCitiesByNation(me).map(c => `${c.position.row},${c.position.col}`));
+    const units = h.gameState.getUnitsByNation(me)
+      .filter(u => u.isAlive() && !this.groupOrders.has(u.id))
+      .filter(u => !opts.type || u.getUnitType() === opts.type)
+      .filter(u => u.getHealth() >= u.getMaxHealth() * (opts.minHpFrac ?? 0.8))
+      .filter(u => opts.includeGarrisons || !cityTiles.has(`${u.position.row},${u.position.col}`))
+      .sort((a, b) => d(a.position.row, a.position.col) - d(b.position.row, b.position.col));
+    const sorted = [...targets].sort((a, b) => d(a[0], a[1]) - d(b[0], b[1]));
+    const pairs: Array<[string, number, number]> = [];
+    units.slice(0, sorted.length).forEach((u, i) => pairs.push([u.id, sorted[i]![0], sorted[i]![1]]));
+    const result = await this.orderGroup(pairs);
+    return { assigned: pairs.map(([id, r, c]) => `${id}>${r},${c}`), ...result };
+  }
+
+  /** Drop standing group orders (all, or just these units). Units keep whatever order they're on. */
+  cancelGroupOrders(unitIds?: string[]): number {
+    if (!unitIds) { const n = this.groupOrders.size; this.groupOrders.clear(); return n; }
+    let n = 0;
+    for (const id of unitIds) if (this.groupOrders.delete(id)) n++;
+    return n;
+  }
+
+  groupStatus() {
+    return [...this.groupOrders].map(([id, [r, c]]) => {
+      const u = this.h?.gameState.getUnit(id);
+      return `${id} @${u ? `${u.position.row},${u.position.col}` : 'gone'} >${r},${c}${u && this.h?.movementSystem.isMoving(id) ? ' moving' : ''}`;
+    });
+  }
+
+  private async reissueGroupOrders(force = false): Promise<string[]> {
+    const h = this.h;
+    if (!h || this.groupOrders.size === 0) return [];
+    const me = this.myNationId();
+    const out: string[] = [];
+    const occupied = new Map(h.gameState.getUnitsByNation(me ?? '').map(u => [`${u.position.row},${u.position.col}`, u.id]));
+    for (const [id, tile] of [...this.groupOrders]) {
+      const unit = h.gameState.getUnit(id);
+      if (!unit || !unit.isAlive()) { this.groupOrders.delete(id); continue; }
+      if (unit.position.row === tile[0] && unit.position.col === tile[1]) { this.groupOrders.delete(id); continue; }
+      if (!force && (h.movementSystem.isMoving(id) || unit.isEngagedInBattle())) continue;
+      let target = tile;
+      const holder = occupied.get(`${tile[0]},${tile[1]}`);
+      if (holder && holder !== id) {
+        const free = this.nearestFreeTile(tile, occupied, id);
+        if (!free) { out.push(`${id}: target held, no free tile nearby`); continue; }
+        target = free;
+        this.groupOrders.set(id, free);
+      }
+      const res = await this.moveTo(id, target[0], target[1]);
+      out.push(`${id}>${target.join(',')}${res.success ? '' : `: ${res.reason ?? 'failed'}`}`);
+      if (!res.success && res.reason === 'no path to that tile') this.groupOrders.delete(id);
+    }
+    return out;
+  }
+
+  private nearestFreeTile(around: Tile, occupied: Map<string, string>, forUnit: string): Tile | null {
+    const grid = this.need().gameState.getGrid();
+    const taken = new Set([...this.groupOrders].filter(([id]) => id !== forUnit).map(([, t]) => `${t[0]},${t[1]}`));
+    for (let dist = 1; dist <= GROUP_REDIRECT_RADIUS; dist++) {
+      for (let dr = -dist; dr <= dist; dr++) {
+        const dc = dist - Math.abs(dr);
+        for (const c of dc === 0 ? [around[1]] : [around[1] - dc, around[1] + dc]) {
+          const r = around[0] + dr;
+          const key = `${r},${c}`;
+          const terrain = grid.getTerritory({ row: r, col: c })?.getTerrainType();
+          if (!terrain || terrain === 'WATER' || terrain === 'MOUNTAIN') continue;
+          if (occupied.has(key) || taken.has(key)) continue;
+          return [r, c];
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Standing production: after every advance(), each listed city that has no
+   * queued order and isn't building something trains the next unit type in its
+   * rotation (types it can't train yet are skipped). Pass null to clear.
+   */
+  setProduction(plan: Record<string, string[]> | null) {
+    this.productionPlan.clear();
+    for (const [cityId, types] of Object.entries(plan ?? {})) {
+      if (types.length) this.productionPlan.set(cityId, { types: [...types], next: 0 });
+    }
+    return Object.fromEntries([...this.productionPlan].map(([id, p]) => [id, p.types]));
+  }
+
+  private async runProductionPlan(): Promise<string[]> {
+    const h = this.h;
+    if (!h || this.productionPlan.size === 0) return [];
+    const out: string[] = [];
+    for (const [cityId, plan] of this.productionPlan) {
+      const city = h.gameState.getCity(cityId);
+      if (!city || city.getOwnerId() !== this.myNationId()) { this.productionPlan.delete(cityId); continue; }
+      const current = city.getCurrentOrder();
+      if (city.getQueue().length > 0 || (current && current.kind !== 'unit')) continue;
+      // Try each type once, starting at the rotation point; skip ones the city can't train yet.
+      for (let i = 0; i < plan.types.length; i++) {
+        const type = plan.types[(plan.next + i) % plan.types.length]!;
+        const res = await this.issue({ type: 'START_CITY_PRODUCTION', cityId, unitType: type });
+        if (res.success) { plan.next = (plan.next + i + 1) % plan.types.length; out.push(`${cityId}: ${type}`); break; }
+        if (res.reason === 'Insufficient resources') break; // wait for resources rather than switching type
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Resume from a save: a path served by the dev server (e.g. a file written
+   * by dumpSave(): 'qa-reports/<session>/saves/<name>.json') or save data.
+   * Works from the menu or mid-game. Resolves once the game is running.
+   */
+  async loadSave(source: string | Record<string, unknown>) {
+    const raw = typeof source === 'string'
+      ? await (await fetch(source.startsWith('/') ? source : `/${source}`)).text()
+      : JSON.stringify(source);
+    const saveData = SaveSystem.parse(raw);
+    if (!saveData) throw new Error('not a valid save file');
+    const attached = new Promise<GameSceneHandles>(resolve => this.attachWaiters.push(resolve));
+    if (this.h) {
+      if (!SaveSystem.save(LOAD_SAVE_SLOT, saveData)) throw new Error('could not write the save slot');
+      this.h.bridge.loadGame(LOAD_SAVE_SLOT);
+    } else {
+      const tryStart = (): void => {
+        if (!UIManager.startGameFromMenu({ setup: saveData.setup, saveData })) window.setTimeout(tryStart, 100);
+      };
+      tryStart();
+    }
+    await attached;
+    await this.nextFrames(3);
+    return this.info();
   }
 
   /** Open DOM modals/overlays and the canvas HUD, with click coordinates in viewport CSS pixels. */

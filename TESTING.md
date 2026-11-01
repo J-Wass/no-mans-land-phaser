@@ -51,6 +51,9 @@ saves and logs into `qa-reports/` (gitignored) through a dev-server endpoint.
 - Player view / ASCII map: `src/testing/playerView.ts` — pure, Jest-tested.
 - Test sessions save to separate localStorage keys, so real save slots are
   never touched.
+- Long sessions: `summary()`, standing group orders (`orderWave()`,
+  `orderGroup()`), a standing production plan (`setProduction()`), and
+  resuming from a saved file with `?test=1&load=<path>` or `loadSave()`.
 
 The `/playtest` Claude Code skill (`.claude/skills/playtest/`) uses this seam:
 an agent plays a game in Chrome at 1280×720 as a persona (newcomer,

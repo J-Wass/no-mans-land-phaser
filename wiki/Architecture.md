@@ -241,10 +241,10 @@ Only `LocalServerAdapter` exists. Player identity is a `Player` record (`isLocal
 ### Automated playtest harness (`src/testing/`)
 Opening the **dev server** with `?test=1` installs `window.__TEST__`, a seam an automated (LLM) player drives the real game through. Production builds never include it: `main.ts` imports `testing/TestHarness` dynamically behind `import.meta.env.DEV`, and scenes only touch the dependency-free `testing/testHooks.ts`.
 
-- **URL params:** `autostart=1` (skip the menu), `seed`, `difficulty`, `opponents`, `mode`, `scenario`, `session` (evidence folder name), `realtime=1`, `sound=1`.
+- **URL params:** `autostart=1` (skip the menu), `load=<path>` (resume from a saved file served by the dev server), `seed`, `difficulty`, `opponents`, `mode`, `scenario`, `session` (evidence folder name), `realtime=1`, `sound=1`.
 - **Time is held** (`testHooks.holdTime`): the game renders but only advances through `advance(n, {stopOn})`, which runs `GameScene.stepSimulation()` per tick and stops early on notable events, new invariant violations, runtime errors or game over.
 - **Observation:** `state()` and `map()` give a fog-respecting JSON snapshot and ASCII map (`playerView.ts`); `ui()` lists open DOM modals and canvas HUD text with click coordinates; `eventLog()`, `notifications()`.
-- **Acting:** `moveTo()` (uses the game's Pathfinder), `issue(command)`, `focus()` / `tileToScreen()` for real clicks.
+- **Acting:** `moveTo()` (uses the game's Pathfinder), `issue(command)`, `focus()` / `tileToScreen()` for real clicks. Standing orders for long sessions: `orderWave()` / `orderGroup()` (one tile per unit, re-issued after every advance, redirected when the tile is taken) and `setProduction()` (per-city unit rotation); `summary()` gives a compact status; `loadSave()` resumes from a save file.
 - **Instruments:** `invariants()` (`invariants.ts`, ~30 rules checked every 10 ticks), `saveAndReload()` (real save/load path, full state diff), `metrics()` (command failures, clicks, dead time, task timings), error capture.
 - **Evidence:** `screenshot()`, `dumpSave()`, `writeFile()`, `flush()` write into `qa-reports/<session>/` (gitignored) through a dev-server-only endpoint (`/__qa/write` in `vite.config.ts`, confined to that folder).
 - Test sessions use separate save-slot keys (`testHooks.storageNamespace = 'qa-'`), so a player's real saves are never touched.

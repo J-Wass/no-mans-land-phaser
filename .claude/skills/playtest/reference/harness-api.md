@@ -19,6 +19,7 @@ Call everything through `javascript_tool`; wrap in `JSON.stringify(...)`; `await
 | `session=<name>` | Evidence folder name under `qa-reports/`. |
 | `realtime=1` | Don't hold time — the game runs at the HUD's speed like normal play. |
 | `sound=1` | Don't mute audio. |
+| `load=<path>` | Resume from a save file served by the dev server, e.g. `load=qa-reports/<session>/saves/<name>.json` (any `dumpSave()` output). Replaces `autostart`; the game's own setup comes from the save. |
 
 Saves made during a test session use separate localStorage keys (`phaser-rts-save-slot-qa-N`), so the
 player's real save slots are never touched.
@@ -29,7 +30,8 @@ player's real save slots are never touched.
 |---|---|
 | `__TEST__.ready` | `true` once a GameScene is running. |
 | `__TEST__.info()` | `{ ready, sessionDir, scenes, setup, tick, myNationId, timeHeld, viewport, fogDisabled }` |
-| `__TEST__.state()` | Player's-eye snapshot (fog applied) — see below. |
+| `__TEST__.summary()` | **Use this every turn.** Compact status: `{tick, resources, research, tiles, cities: ["city-1-1 Grimholt @8,5 200/200 Infantry (12/240t left) +1"], army: {TYPE: {count, avgHpPct}}, units: ["unit-city-1040 INFANTRY @18,11 87% >19,12 C"], enemies, contacts, foreignCities, wars, groupOrders, productionPlan}`. (`>` = moving to, `C` = in combat.) |
+| `__TEST__.state()` | Full player's-eye snapshot (fog applied) — see below. Use when `summary()` isn't enough. |
 | `__TEST__.map({row, col, radius})` | ASCII map around a tile (default radius 12). `map()` = whole map (up to ~60×60; use sparingly). |
 | `__TEST__.mapLegend()` | Legend for `map()`. Cities (`C`/`K`) stay drawn on every discovered tile, as in the game; owner digits only show on tiles currently in sight. |
 | `__TEST__.tile(row, col)` | `{row, col, visible, terrain, deposit}` for any discovered tile, plus `city`/`cityName` if a city stands there (shown even out of sight, like the game's city sprite). Only for tiles in sight: `owner`, `hp`, `buildings`, `construction` (`"Farm (12t left)"`), `units`. Undiscovered: `{row, col, discovered: false}`. |
@@ -70,17 +72,20 @@ Coordinates are always `[row, col]`, row 0 at the top. `TICK_RATE` is 10 ticks p
 | `await __TEST__.advance(n, opts)` | Run up to `n` ticks, then wait for the screen to settle. |
 | `__TEST__.holdTime(bool)` | `false` lets the game run in real time at HUD speed (use briefly to judge feel); `true` holds again. |
 
-`advance` options: `stopOn` (`'notable'` default, `'none'`, or an array of event names), `mineOnly`
+`advance` options: `stopOn` (`'notable'` default; `'major'` = only losses, sieges, captures, war/peace and
+defeat — use this for long fights; `'none'`; or an array of event names), `mineOnly`
 (default `true` — only stop on events involving you), `stopOnBug` (default `true` — stop on a new
 error-level invariant violation or runtime error), `settleMs` (default 300).
 
 Returns `{ from, to, advanced, stoppedBy, ticksSinceAnythingHappenedToMe, myEvents, otherEventCount,
-newViolations, newErrors, gameOver, lastEventSeq }`. `stoppedBy` is `completed`, `event <type>`,
+newViolations, newErrors, gameOver, lastEventSeq, auto?, groupOrdersPending? }` — `auto` lists what the
+standing group orders and production plan did at the end of the advance (see Acting). `stoppedBy` is `completed`, `event <type>`,
 `invariant violation`, `runtime <kind>: ...`, `game over`, or `unknown` (suspicious — investigate).
 
 Notable events: battle started/ended, siege started, city conquered, unit destroyed, war/peace, nation
 defeated, spy detected, research complete, unit spawned, production complete, building built, territory
-conquest started, unit withdrew, morale band changed.
+conquest started, unit withdrew, move blocked. (Morale band changes are logged but don't stop an advance —
+they fire every few ticks in any fight.)
 
 ## Acting
 
@@ -93,6 +98,19 @@ conquest started, unit withdrew, morale band changed.
 
 Real input (clicks, keys) goes through the Claude-in-Chrome `computer` tool. Every command the player
 issues — through the UI or `issue()` — is logged with its result.
+
+### Standing orders (use these to run an army or an economy without per-unit bookkeeping)
+
+| Call | Effect |
+|---|---|
+| `await __TEST__.orderWave(targets, {type?, minHpFrac?, focus?, includeGarrisons?})` | Coordinated move: picks your units of `type` (≥ `minHpFrac` health, default 0.8; not already ordered; not garrisoning a city) and pairs the unit **nearest `focus`** (default: first target) with the target nearest `focus`, and so on — the front of a column takes the deepest tile, so nobody walks backwards through it. Returns `{assigned: ["id>r,c"], issued, pending}`. |
+| `await __TEST__.orderGroup({unitId: [r, c]} \| [[unitId, r, c], ...], {replace?})` | Explicit standing orders, one tile per unit. |
+| `__TEST__.groupStatus()` / `cancelGroupOrders(ids?)` | Inspect / drop standing orders. |
+| `__TEST__.setProduction({cityId: ['CATAPULT', 'LONGBOWMAN'], ...} \| null)` | Standing production: after every advance, each listed city with an empty queue that isn't building trains the next type in its rotation (keeps one unit queued). Types it can't train yet are skipped; on "Insufficient resources" it waits rather than switching type. |
+
+Standing group orders are re-issued after **every** `advance()` for units that are idle, alive and not
+there yet. A unit whose target is held by another of your units is redirected to the nearest free tile
+(within 3); a unit with no path is dropped. Arrived and dead units drop out automatically.
 
 ### Command shapes (`src/commands/GameCommand.ts`)
 
@@ -135,6 +153,7 @@ Costs, prerequisites and timings live in the wiki (`wiki/Units.md`, `wiki/Produc
 | `__TEST__.metrics()` | `{ tick, ticksAdvanced, commands: {total, failed, byType, failures}, clicks, deadTime, firsts, eventCounts, violations, errors, warnings, tasks }` |
 | `__TEST__.startTask(name)` / `endTask('done'\|'gave-up')` | Measure one player task: clicks, commands, failed commands, ticks. |
 | `await __TEST__.saveAndReload()` | Saves via the real save path, reloads via the real load path, diffs full state before/after. `{ ok, differences: [path: before → after] }`. |
+| `await __TEST__.loadSave(pathOrData)` | Load a save file (dev-server path like `qa-reports/<session>/saves/<name>.json`, or save data) from the menu or mid-game; resolves once the game runs. Standing orders/production plans survive (unit ids are kept). |
 
 Invariant rules (see `src/testing/invariants.ts`): `non-finite-number`, `orphan-unit`,
 `unit-out-of-bounds`, `unit-hp-range`, `unit-on-impassable` (warn), `engaged-without-battle`,

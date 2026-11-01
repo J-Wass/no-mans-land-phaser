@@ -27,7 +27,9 @@ Reference files (read when needed, not all up front):
 `chaos-monkey`, `annoyance-hunter`, `scenario-runner`; default `strategist`), a difficulty
 (`easy|medium|hard`; default `medium`), a bare number = seed (default: pick one at random and record it),
 and `key=value` pairs: `opponents` (1–4, default 1), `mode`, `scenario`, `turns` (decision budget,
-default 120). Tell the user the resolved settings in one line, then proceed without asking.
+default 120 — **use 250 for missions that involve capturing cities**, which past runs needed), and
+`resume=<path>` to continue from a save written by `dumpSave()` (see "Resuming" below). Tell the user the
+resolved settings in one line, then proceed without asking.
 
 ## 1. Set up the browser session
 
@@ -41,9 +43,13 @@ default 120). Tell the user the resolved settings in one line, then proceed with
 3. **Resolution: the viewport must be at least 1280×720** (our lowest supported size). Call
    `resize_window` with 1280×860, navigate (step 4), then read `[innerWidth, innerHeight]` via
    `javascript_tool`. If either is below 1280×720, resize again adding the shortfall. Don't go much
-   larger — 720p is the target, so layout problems at this size are real findings.
+   larger — 720p is the target, so layout problems at this size are real findings. Some Chrome windows
+   won't shrink the viewport to exactly 720 high (1280×776 happened); anything ≥ 1280×720 is fine — note the
+   actual size in the report and move on.
 4. **Open the game:**
    `http://localhost:3000/?test=1&autostart=1&seed=<seed>&difficulty=<d>&opponents=<n>&mode=<m>[&scenario=<id>]&session=<YYYY-MM-DD>-<persona>-seed<seed>`
+   - **Resuming:** with `resume=<path>`, open `http://localhost:3000/?test=1&load=<path>&session=<new session name>`
+     instead (no `autostart`). Evidence from the earlier session stays in its own folder; cite both in the report.
    - Personas that test the **menu** (`newcomer`, `annoyance-hunter`) omit `autostart=1` and start the game
      through the menu by clicking, then confirm the setup with `__TEST__.info()`.
    - Time is **held** by default: the game renders but doesn't tick until you call `advance()`.
@@ -73,11 +79,34 @@ Calling the harness: always via `javascript_tool`, wrapping results in `JSON.str
 - Get oriented: `__TEST__.state()`, `__TEST__.mapLegend()`, `__TEST__.map({row, col, radius: 10})`
   around your city, one screenshot, and `__TEST__.ui()`.
 
+## 2b. Lessons from past runs (read before playing)
+
+These cost earlier sessions dozens of decisions; don't relearn them.
+
+- **Use the helpers, don't hand-roll bookkeeping.** `summary()` every turn; `setProduction()` for a
+  standing build rotation; `orderWave()` / `orderGroup()` for moving several units (they re-issue dropped
+  orders and redirect units whose tile is taken); `advance(n, {stopOn: 'major'})` during long fights.
+- **Range is Manhattan distance** (`|dr| + |dc|`). A Longbowman (range 3) at (18,13) does *not* reach a
+  city at (19,16) — that's 4. Compute it before placing ranged units.
+- **Ranged units can't fire while conquering a tile.** Moving one onto enemy territory starts a territory
+  battle instead. Take firing positions with Infantry first, then move the archers in.
+- **Most units see 1 tile; Longbowmen shoot from 3.** Being shot reveals the shooter for 3 s, but build a
+  **Watchtower** (territory, 60 Raw Material, radius-3 vision) on your front tiles before an assault.
+- **Stage, then strike.** Gather the army on tiles ≥ 4 (Manhattan) from enemy ranged units, then send
+  everything at once with `orderWave`. Units arriving one at a time die one at a time.
+- **Cities:** ranged fire can bring a city to 1 HP but never take it; a besieged/bombarded city doesn't heal
+  (and can't finish Walls) until 120 ticks after the last hit. Combine: keep archers/catapults firing, then
+  walk one Infantry in.
+- **Economy:** Raw Material is the early bottleneck (territory Workshops: 70 RM for +1/s); later the cap is
+  production slots — 3 cities ≈ one unit per ~80 ticks. Gold and Research pile up unused.
+- **Corridors:** your units now swap places with idle friendlies, but a unit parked on another's *final*
+  tile still blocks it, and idle units can be nudged back by traffic (Known Quirk 7c).
+
 ## 3. The play loop
 
 Repeat until the turn budget is spent, the game ends, or the mission is done:
 
-1. **Observe (cheap).** `state()` every turn. Add `eventLog({since: lastSeq, mineOnly: true})`,
+1. **Observe (cheap).** `summary()` every turn (`state()` when you need detail). Add `eventLog({since: lastSeq, mineOnly: true})`,
    `notifications(sinceTick)` or `ui()` when something happened or a modal is open.
 2. **Look (expensive — be deliberate).** Take a screenshot when: it's the first turn; a modal opened;
    `advance()` stopped on an event; something contradicts what you expected; you're about to click the

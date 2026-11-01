@@ -32,7 +32,13 @@ no feedback (did my unit die? why?), text that contradicts behaviour, controls y
 **Who:** Knows the rules (has read `wiki/Overview.md`, `Units.md`, `Combat.md`, `Economy-and-Resources.md`).
 Plays to win efficiently.
 
-**How:** Mostly `moveTo`/`issue`; ~1 in 5 actions through the real UI.
+**How:** Mostly `moveTo`/`issue`; ~1 in 5 actions through the real UI. Set a `setProduction()` rotation
+early and move armies with `orderWave()`. Budget `turns=250` for city-capture missions.
+
+**What worked before (seed 3, medium):** territory Workshops first (RM is the early cap; ~8 by tick 1500),
+Barracks in both cities, Hunting → The Wheel → Physics, Farms on every Outpost once RM is in surplus, a
+Copper Mine for Catapults (Barracks 3). Stoneholt fell at tick ~8000 to Longbow chip damage + queued
+Infantry. The capital held because the attack arrived piecemeal through a one-tile corridor — stage first.
 
 **Missions:**
 - Win 1v1 on Medium. Log the time to first contact, first war and first city capture, and where the game
