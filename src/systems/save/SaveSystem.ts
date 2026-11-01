@@ -1,4 +1,5 @@
 import type { GameSaveData } from '@/types/gameSetup';
+import { testHooks } from '@/testing/testHooks';
 
 export interface SaveSlotSummary {
   slot: number;
@@ -12,7 +13,7 @@ const SAVE_KEY_PREFIX = 'phaser-rts-save-slot-';
 const MAX_SAVE_JSON_LENGTH = 20 * 1024 * 1024;
 
 function slotKey(slot: number): string {
-  return `${SAVE_KEY_PREFIX}${slot}`;
+  return `${SAVE_KEY_PREFIX}${testHooks.storageNamespace}${slot}`;
 }
 
 /** Structural check — enough to catch a truncated/malformed save (e.g. `{"version":1}`)

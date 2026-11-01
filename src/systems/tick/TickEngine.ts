@@ -133,6 +133,7 @@ export class TickEngine {
           ownerNationId: owner,
           position: pos,
           tick: this.currentTick,
+          unitName: unit.getFullName(),
         });
       }
     }

@@ -24,6 +24,15 @@ export interface ResourceCost {
 
 export type ResourceStorageData = Record<ResourceType, number>;
 
+/** Sum of two costs, per resource (e.g. a building's cost plus a reserve to keep in hand). */
+export function addCosts(a: ResourceCost, b: ResourceCost): ResourceCost {
+  const total: ResourceCost = { ...a };
+  for (const [type, amount] of Object.entries(b) as [ResourceType, number | undefined][]) {
+    if (amount) total[type] = (total[type] ?? 0) + amount;
+  }
+  return total;
+}
+
 export class ResourceStorage {
   private resources: Map<ResourceType, number>;
 

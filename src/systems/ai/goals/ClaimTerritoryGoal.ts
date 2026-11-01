@@ -9,22 +9,36 @@
 
 import type { AIContext, AIGoal, GoalStatus } from '../AITypes';
 import type { GridCoordinates } from '@/types/common';
+import type { Unit } from '@/entities/units/Unit';
 import { TerrainType } from '@/systems/grid/Territory';
-import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
+import { TerritoryBuildingType, TERRITORY_BUILDING_MAP } from '@/systems/territory/TerritoryBuilding';
+import { addCosts } from '@/systems/resources/ResourceType';
+import type { ResourceCost } from '@/systems/resources/ResourceType';
 import { REGION_CONTROL_THRESHOLD } from '@/systems/regions/RegionSystem';
 
 export class ClaimTerritoryGoal implements AIGoal {
   readonly id = 'claim-territory';
 
+  /**
+   * @param unitFilter Which idle units may be sent out to claim tiles (phase 2).
+   *   Defaults to any unit; a profile can keep its army at home by passing e.g. Scouts only.
+   * @param reserve Resources to keep in hand on top of an Outpost's cost (phase 1),
+   *   so cheap Outposts don't starve buildings or units the profile is saving for.
+   */
+  constructor(
+    private readonly unitFilter: (unit: Unit) => boolean = () => true,
+    private readonly reserve: ResourceCost = {},
+  ) {}
+
   priority(_ctx: AIContext): number { return 50; }
 
   isFeasible(ctx: AIContext): boolean {
-    return this.hasPendingOutpost(ctx) || this.findExpansionMove(ctx) !== null;
+    return (this.hasPendingOutpost(ctx) && this.canAffordOutpost(ctx)) || this.findExpansionMove(ctx) !== null;
   }
 
   execute(ctx: AIContext): GoalStatus {
     // Phase 1 — claim any tile a unit is already standing on
-    if (this.hasPendingOutpost(ctx)) {
+    if (this.hasPendingOutpost(ctx) && this.canAffordOutpost(ctx)) {
       for (const unit of ctx.gameState.getUnitsByNation(ctx.nationId)) {
         if (!unit.isAlive()) continue;
         const t = ctx.gameState.getGrid().getTerritory(unit.position);
@@ -58,6 +72,11 @@ export class ClaimTerritoryGoal implements AIGoal {
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  private canAffordOutpost(ctx: AIContext): boolean {
+    const cost = TERRITORY_BUILDING_MAP.get(TerritoryBuildingType.OUTPOST)?.cost ?? {};
+    return ctx.gameState.getNation(ctx.nationId)?.getTreasury().hasResources(addCosts(cost, this.reserve)) ?? false;
+  }
 
   private hasPendingOutpost(ctx: AIContext): boolean {
     const grid = ctx.gameState.getGrid();
@@ -106,7 +125,7 @@ export class ClaimTerritoryGoal implements AIGoal {
 
     // Find an idle unit that can reach it
     const units = ctx.gameState.getUnitsByNation(ctx.nationId).filter(
-      u => u.isAlive() && !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id),
+      u => u.isAlive() && !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id) && this.unitFilter(u),
     );
 
     for (const unit of units) {

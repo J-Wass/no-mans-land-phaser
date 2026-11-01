@@ -65,6 +65,18 @@ export function veteranDamageMultiplier(veteranLevel: number): number {
 
 export const CITY_REGEN_INTERVAL = 50; // ticks between HP regen pulses
 export const CITY_REGEN_AMOUNT = 5;
+/**
+ * A city doesn't regen while besieged (or bombarded by ranged fire), nor for
+ * this many ticks afterwards (12 s at TICK_RATE=10), so consecutive besiegers
+ * aren't undone by healing in between.
+ */
+export const CITY_SIEGE_HEAL_COOLDOWN_TICKS = 120;
+/**
+ * A city's counterfire on a ranged unit bombarding it is its melee damage times
+ * this, so archers and siege engines can stay in range a little longer than a
+ * besieger standing on the walls.
+ */
+export const CITY_RANGED_COUNTERFIRE_FACTOR = 0.7;
 export const WALL_MITIGATION_PER_LEVEL = 0.06;
 export const ADVANCE_MITIGATION_FACTOR = 0.45; // pressing the assault cuts wall mitigation
 /** City HP fraction retained by the conqueror immediately after capture. */

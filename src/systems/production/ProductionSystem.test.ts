@@ -11,6 +11,7 @@ import { TerrainType } from '@/systems/grid/Territory';
 import { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { UnitType } from '@/entities/units/Unit';
 import { Infantry } from '@/entities/units/Infantry';
+import { CITY_SIEGE_HEAL_COOLDOWN_TICKS } from '@/config/combatBalance';
 
 function createNation(id: string): Nation {
   return new Nation(id, id.toUpperCase(), `#${id}`);
@@ -234,5 +235,50 @@ describe('ProductionSystem', () => {
     sandbox.tick(state, eventBus, 1);
     expect(nation.getCurrentResearch()?.techId).toBe('writing');
     expect(nation.getCurrentResearch()!.ticksTotal).toBe(10); // clamped from 1200
+  });
+  describe('Walls under siege', () => {
+    function walledCity(): City {
+      const city = new City('city-w', 'Bastion', nation.getId(), { row: 2, col: 2 });
+      city.addBuilding(CityBuildingType.WALLS);
+      city.setHealth(100);
+      city.startOrder({
+        kind: 'building', buildingType: CityBuildingType.WALLS, label: 'Walls Lvl 2', ticksTotal: 2, ticksRemaining: 2,
+      });
+      state.addCity(city);
+      return city;
+    }
+
+    it('pauses a Walls order while the city is besieged or bombarded, so it cannot refill mid-assault', () => {
+      const city = walledCity();
+      city.markBesieged(10);
+      for (let t = 11; t <= 60; t++) system.tick(state, eventBus, t);
+
+      expect(city.getBuildingLevel(CityBuildingType.WALLS)).toBe(1);
+      expect(city.getCurrentOrder()?.ticksRemaining).toBe(2);
+      expect(city.getHealth()).toBe(100);
+      expect(city.isProductionPaused(60)).toBe(true);
+    });
+
+    it('resumes once the siege cooldown has passed', () => {
+      const city = walledCity();
+      city.markBesieged(10);
+      const resume = 10 + CITY_SIEGE_HEAL_COOLDOWN_TICKS;
+      for (let t = 11; t <= resume + 2; t++) system.tick(state, eventBus, t);
+
+      expect(city.getBuildingLevel(CityBuildingType.WALLS)).toBe(2);
+      expect(city.getHealth()).toBe(city.getMaxHealth());
+    });
+
+    it('keeps other orders running during a siege', () => {
+      const city = new City('city-f', 'Farmstead', nation.getId(), { row: 1, col: 1 });
+      city.startOrder({
+        kind: 'building', buildingType: CityBuildingType.FARMS, label: 'Farms', ticksTotal: 1, ticksRemaining: 1,
+      });
+      state.addCity(city);
+      city.markBesieged(10);
+      system.tick(state, eventBus, 11);
+
+      expect(city.hasBuilding(CityBuildingType.FARMS)).toBe(true);
+    });
   });
 });

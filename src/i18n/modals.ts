@@ -33,6 +33,7 @@ export const MODAL_STRINGS = {
     levelSuffix: (current: number, max: number) => ` ${current}/${max}`,
     unitCostLine: (cost: string, secs: string) => `${cost}  ${secs}s`,
     orderProgress: (label: string, secs: string) => `${label}  |  ${secs}s remaining`,
+    orderPausedUnderSiege: (label: string, secs: string) => `${label}  |  paused while under siege (${secs}s left)`,
     queueItem: (n: number, label: string, secs: string) => `${n}. ${label}  (${secs}s)`,
     queueFull: (max: number) => `Queue full (max ${max} items).`,
     requiresResearch: (techs: string) => `Requires research: ${techs}.`,

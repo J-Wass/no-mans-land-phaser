@@ -30,6 +30,8 @@ export interface SavedMovementState {
   unitId: string;
   path: Array<{ row: number; col: number }>;
   ticksRemainingOnStep: number;
+  /** Ticks spent waiting behind a friendly unit. Optional: absent in older saves (= 0). */
+  blockedTicks?: number;
 }
 
 export interface SavedBattleState {

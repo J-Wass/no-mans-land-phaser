@@ -40,6 +40,7 @@ import {
 } from './gameSceneHelpers';
 import { effectiveBattleOrder, getMoraleBand } from '@/systems/morale/moraleRules';
 import { MENU_STRINGS } from '@/i18n/menu';
+import { testHooks } from '@/testing/testHooks';
 
 interface GameSceneData {
   gameState?: GameState;
@@ -175,7 +176,8 @@ export class GameScene extends Phaser.Scene {
     this.stanceBadges.clear();
 
     this.movementSystem = new MovementSystem();
-    this.pathfinder     = new Pathfinder(this.gameState.getGrid());
+    // Paths route around this nation's parked units but straight through moving ones.
+    this.pathfinder     = new Pathfinder(this.gameState.getGrid(), this.movementSystem);
     this.eventBus = new GameEventBus();
     this.subs = new EventSubscriptions(this.eventBus);
     const isSandbox = this.setup.gameMode === 'sandbox';
@@ -289,8 +291,10 @@ export class GameScene extends Phaser.Scene {
     this.subs.on('unit:battle-order-changed', () => { /* UIScene handles this */ });
 
     // Flash the firing unit briefly white on each ranged shot
-    this.subs.on('ranged:fired', ({ unitId }) => {
-      const sprite = this.unitSprites.get(unitId);
+    this.subs.on('ranged:fired', (shot) => {
+      // Reveal the shooter to whoever it hit (synchronously: a killed target is still in the state).
+      this.visionSystem.noteRangedFire(this.gameState, shot);
+      const sprite = this.unitSprites.get(shot.unitId);
       if (!sprite) return;
       sprite.setTintFill(0xffffff);
       this.time.delayedCall(130, () => {
@@ -486,13 +490,36 @@ export class GameScene extends Phaser.Scene {
       tickEngine:      this.tickEngine,
       bridge:          this.bridge,
     });
+
+    testHooks.onGameSceneReady?.({
+      scene:           this,
+      gameState:       this.gameState,
+      setup:           this.setup,
+      tickEngine:      this.tickEngine,
+      eventBus:        this.eventBus,
+      networkAdapter:  this.networkAdapter,
+      movementSystem:  this.movementSystem,
+      diplomacySystem: this.diplomacySystem,
+      visionSystem:    this.visionSystem,
+      pathfinder:      this.pathfinder,
+      bridge:          this.bridge,
+      fogDisabled:     this.setup.gameMode === 'sandbox' || this.isTutorialMode,
+      step:            () => this.stepSimulation(),
+    });
+  }
+
+  /** Advance the simulation one tick: world systems first, then AI decisions. */
+  private stepSimulation(): void {
+    this.tickEngine.advance();
+    this.aiSystem.tick(this.tickEngine.getCurrentTick());
   }
 
   override update(_time: number, delta: number): void {
     // gameSpeed is 0 while paused. Skip accumulation entirely while paused so
     // elapsed real time never turns into a backlog of ticks to drain on resume
     // — otherwise a long pause fast-forwards the simulation on the next frame.
-    if (this.gameSpeed > 0) {
+    // The test harness can hold time so an automated player advances it explicitly.
+    if (this.gameSpeed > 0 && !testHooks.holdTime) {
       const effectiveInterval = TICK_INTERVAL_MS / this.gameSpeed;
       // Cap the backlog so a long stall (tab backgrounded, breakpoint, etc.)
       // can't dump a large burst of ticks into a single frame either.
@@ -500,8 +527,7 @@ export class GameScene extends Phaser.Scene {
       this.tickAccumulator = Math.min(this.tickAccumulator + delta, maxBacklogMs);
       while (this.tickAccumulator >= effectiveInterval) {
         this.tickAccumulator -= effectiveInterval;
-        this.tickEngine.advance();
-        this.aiSystem.tick(this.tickEngine.getCurrentTick());
+        this.stepSimulation();
       }
     }
     this.updateFog();
@@ -954,7 +980,9 @@ export class GameScene extends Phaser.Scene {
     const localNationId = this.gameState.getLocalPlayer()?.getControlledNationId();
     if (!localNationId) { this.updateFogDisabled(); return; }
 
-    const { visible, nearVisible, discovered } = this.visionSystem.compute(this.gameState, localNationId);
+    const { visible, nearVisible, discovered } = this.visionSystem.compute(
+      this.gameState, localNationId, this.tickEngine.getCurrentTick(),
+    );
     this.currentVisible = visible;
     this.currentDiscovered = discovered;
     this.drawTerritoryBorders();

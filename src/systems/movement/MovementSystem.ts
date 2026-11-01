@@ -15,10 +15,13 @@ import type { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSyst
 import type { SavedMovementState } from '@/types/gameSetup';
 import { stepCost, WHEEL_SPEED_MULTIPLIER } from './MovementCosts';
 import type { UnitMovementState } from './MovementState';
+import { Pathfinder } from '@/systems/pathfinding/Pathfinder';
+import type { MovementLookup } from '@/systems/pathfinding/Pathfinder';
+import { FRIENDLY_BLOCK_GRACE_TICKS } from '@/config/constants';
 import { defaultEngagementPolicy } from '@/systems/combat/EngagementPolicy';
 import type { EngagementPolicy } from '@/systems/combat/EngagementPolicy';
 
-export class MovementSystem {
+export class MovementSystem implements MovementLookup {
   private states: Map<EntityId, UnitMovementState> = new Map();
 
   /**
@@ -56,6 +59,7 @@ export class MovementSystem {
     const state = this.states.get(unitId);
     if (!state) return null;
 
+    // blockedTicks is dropped on purpose: whatever blocked the unit is stale by the time it resumes.
     const snapshot: UnitMovementState = {
       unitId: state.unitId,
       path: state.path.map(step => ({ ...step })),
@@ -79,6 +83,12 @@ export class MovementSystem {
     return this.states.has(unitId);
   }
 
+  /** True while the unit has an order and isn't stuck waiting behind a friendly unit. */
+  public isAdvancing(unitId: EntityId): boolean {
+    const state = this.states.get(unitId);
+    return state !== undefined && !((state.blockedTicks ?? 0) > 0);
+  }
+
   public getState(unitId: EntityId): Readonly<UnitMovementState> | undefined {
     return this.states.get(unitId);
   }
@@ -96,6 +106,7 @@ export class MovementSystem {
           unitId: s.unitId,
           path: s.path.map(c => ({ row: c.row, col: c.col })),
           ticksRemainingOnStep: s.ticksRemainingOnStep,
+          ...(s.blockedTicks ? { blockedTicks: s.blockedTicks } : {}),
         });
       }
     }
@@ -154,19 +165,8 @@ export class MovementSystem {
           continue;
         }
 
-        // Block friendly stacking: wait until the tile is clear
-        const friendlyOccupant = gameState.getAllUnits().find(other =>
-          other.id !== unit.id &&
-          other.isAlive() &&
-          other.getOwnerId() === unit.getOwnerId() &&
-          other.position.row === nextCoords.row &&
-          other.position.col === nextCoords.col,
-        );
-        if (friendlyOccupant) {
-          state.path.unshift(nextCoords);
-          state.ticksRemainingOnStep = 1;
-          continue;
-        }
+        // Block friendly stacking: wait for the tile to clear, re-path or give up
+        if (this.waitForFriendly(unit, state, nextCoords, gameState, eventBus, currentTick)) continue;
 
         const from = unit.position;
         unit.moveTo(nextCoords);
@@ -255,19 +255,8 @@ export class MovementSystem {
           continue;
         }
 
-        // Block friendly stacking: wait until the tile is clear
-        const friendlyOccupant = gameState.getAllUnits().find(other =>
-          other.id !== unit.id &&
-          other.isAlive() &&
-          other.getOwnerId() === unit.getOwnerId() &&
-          other.position.row === nextCoords.row &&
-          other.position.col === nextCoords.col,
-        );
-        if (friendlyOccupant) {
-          state.path.unshift(nextCoords);
-          state.ticksRemainingOnStep = 1;
-          continue;
-        }
+        // Block friendly stacking: wait for the tile to clear, re-path or give up
+        if (this.waitForFriendly(unit, state, nextCoords, gameState, eventBus, currentTick)) continue;
 
         const from = unit.position;
         unit.moveTo(nextCoords);
@@ -344,5 +333,107 @@ export class MovementSystem {
         }
       }
     }
+  }
+
+  /**
+   * Friendly units can't share a tile. If one of `unit`'s own units holds
+   * `nextCoords`, keep the unit waiting and return true (the caller skips the
+   * step). An idle friendly that isn't on the order's final tile steps aside
+   * by swapping tiles with the mover (return false: the step goes ahead).
+   * A blocker that is about to clear — on the move, or fighting (a
+   * besieger that may fall, see Known Quirks) — is waited for indefinitely.
+   * One that won't clear (parked, or itself stuck) is waited for
+   * FRIENDLY_BLOCK_GRACE_TICKS; then the unit re-paths around every parked
+   * friendly, or, when the destination is held by one or there's no detour,
+   * the order ends on the current tile with a 'unit:move-blocked' event.
+   */
+  private waitForFriendly(
+    unit: Unit,
+    state: UnitMovementState,
+    nextCoords: GridCoordinates,
+    gameState: GameState,
+    eventBus: GameEventBus,
+    currentTick: number,
+  ): boolean {
+    const blocker = gameState.getUnitsByNation(unit.getOwnerId()).find(other =>
+      other.id !== unit.id &&
+      other.isAlive() &&
+      other.position.row === nextCoords.row &&
+      other.position.col === nextCoords.col,
+    );
+    if (!blocker) {
+      delete state.blockedTicks;
+      return false;
+    }
+
+    // `state.path` no longer includes nextCoords, so a non-empty path means the
+    // blocker is only in the way, not parked on the destination.
+    if (state.path.length > 0 && this.canSwapWith(blocker, unit.position, gameState)) {
+      const from = blocker.position;
+      blocker.moveTo(unit.position);
+      eventBus.emit('unit:step-complete', { unitId: blocker.id, from, to: blocker.position, tick: currentTick });
+      delete state.blockedTicks;
+      return false;
+    }
+
+    state.path.unshift(nextCoords);
+    state.ticksRemainingOnStep = 1;
+    state.blockedTicks = (state.blockedTicks ?? 0) + 1;
+
+    if (this.willClear(blocker) || state.blockedTicks < FRIENDLY_BLOCK_GRACE_TICKS) return true;
+
+    // The order can't finish if its destination is held by a unit that won't move.
+    const destination = state.path[state.path.length - 1] ?? nextCoords;
+    const destBlocker = state.path.length > 1
+      ? gameState.getUnitsByNation(unit.getOwnerId()).find(other =>
+          other.id !== unit.id &&
+          other.isAlive() &&
+          other.position.row === destination.row &&
+          other.position.col === destination.col &&
+          !this.willClear(other),
+        )
+      : blocker;
+
+    if (!destBlocker) {
+      const detour = new Pathfinder(gameState.getGrid(), this).findPath(
+        unit.position, destination, unit.getUnitType(), unit.getStats(),
+        unit.getOwnerId(), gameState, { avoidParkedFriendlies: true },
+      );
+      if (detour && detour.length > 0) {
+        state.path = detour;
+        state.ticksRemainingOnStep = 0; // first step's cost resolves next tick
+        delete state.blockedTicks;
+        return true;
+      }
+    }
+
+    this.states.delete(unit.id);
+    eventBus.emit('unit:move-blocked', {
+      unitId:        unit.id,
+      position:      { ...unit.position },
+      blockedAt:     destBlocker ? { ...destination } : { ...nextCoords },
+      blockerUnitId: (destBlocker ?? blocker).id,
+      reason:        destBlocker ? 'destination-occupied' : 'no-detour',
+      tick:          currentTick,
+    });
+    return true;
+  }
+
+  /** An idle friendly (no order, not fighting) that can stand on the mover's tile trades places with it. */
+  private canSwapWith(blocker: Unit, moverTile: GridCoordinates, gameState: GameState): boolean {
+    if (this.states.has(blocker.id) || blocker.isEngagedInBattle()) return false;
+    const territory = gameState.getGrid().getTerritory(moverTile);
+    if (!territory) return false;
+    const owner = blocker.getOwnerId();
+    const cost = stepCost(
+      territory.getTerrainType(), blocker.getUnitType(), blocker.getStats(),
+      gameState.getNationActiveDeposits(owner), gameState.getNationActiveDepositCounts(owner),
+    );
+    return isFinite(cost);
+  }
+
+  /** A friendly blocker that will free its tile by itself: on the move, or fighting. */
+  private willClear(blocker: Unit): boolean {
+    return blocker.isEngagedInBattle() || this.isAdvancing(blocker.id);
   }
 }

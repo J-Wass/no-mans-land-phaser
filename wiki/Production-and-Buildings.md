@@ -32,7 +32,7 @@ Built and upgraded from the City Menu's **BUILDINGS** tab via the city queue. Ev
 |---|---|---|---|---|---|---|---|---|
 | **City Hall** | `CITY_HALL` | 🏛 | — | built-in | — | 1 | — | Permanent; can't be removed or downgraded. |
 | **Barracks** | `BARRACKS` | ⚔ | 40 G, 90 M, 40 F | 400 | `masonry` | 5 | 40 G, 90 M, 40 F | Required to train units; level gates advanced units; −5% unit build time per level above 1. |
-| **Walls** | `WALLS` | 🧱 | 30 G, 90 M | 450 | `masonry` | 5 | 35 G, 90 M | +60 max HP and +3 garrison melee per level; up to −0.30 siege damage (0.06/level). Building or upgrading refills the city to full HP. |
+| **Walls** | `WALLS` | 🧱 | 30 G, 90 M | 450 | `masonry` | 5 | 35 G, 90 M | +60 max HP and +3 garrison melee per level; up to −0.30 siege damage (0.06/level). Building or upgrading refills the city to full HP; the order pauses while the city is under siege or bombardment (and 120 ticks after). |
 | **Farms** | `FARMS` | 🌾 | 25 G, 80 M | 300 | `masonry` | 5 | 25 G, 70 M | +L Food every 5 ticks (+2L/s). |
 | **Workshop** | `WORKSHOP` | ⚒ | 25 G, 80 M | 300 | `masonry` | 5 | 25 G, 70 M | +L Raw Material every 10 ticks (+L/s). |
 | **Watchtower** | `WATCHTOWER` | 🗼 | 20 G, 70 M | 300 | `masonry` | 1 | — | Vision circle of radius 3 around the city. |

@@ -4,6 +4,8 @@
 
 import type { AIContext, AIGoal, GoalStatus } from '../AITypes';
 import { CITY_BUILDING_CATALOG, CityBuildingType } from '@/systems/territory/CityBuilding';
+import { addCosts } from '@/systems/resources/ResourceType';
+import type { ResourceCost } from '@/systems/resources/ResourceType';
 
 /** Preferred construction order. */
 const PREFERRED: CityBuildingType[] = [
@@ -18,8 +20,12 @@ const PREFERRED: CityBuildingType[] = [
 export class BuildBuildingGoal implements AIGoal {
   readonly id = 'build-building';
 
-  /** Restrict which buildings this goal will pursue (defaults to the full PREFERRED order). */
-  constructor(private readonly allowedTypes: readonly CityBuildingType[] = PREFERRED) {}
+  constructor(
+    /** Restrict which buildings this goal will pursue (defaults to the full PREFERRED order). */
+    private readonly allowedTypes: readonly CityBuildingType[] = PREFERRED,
+    /** Resources to keep in hand on top of the building's cost (e.g. a unit fund). */
+    private readonly reserve: ResourceCost = {},
+  ) {}
 
   priority(_ctx: AIContext): number { return 35; }
 
@@ -57,7 +63,7 @@ export class BuildBuildingGoal implements AIGoal {
         const def = CITY_BUILDING_CATALOG.find(d => d.type === buildingType);
         if (!def || def.ticks === 0) continue; // ticks=0 means built-in only
         if (def.requiresTech && !nation.hasResearched(def.requiresTech)) continue;
-        if (!nation.getTreasury().hasResources(def.cost)) continue;
+        if (!nation.getTreasury().hasResources(addCosts(def.cost, this.reserve))) continue;
 
         return { cityId: city.id, building: buildingType };
       }
@@ -73,7 +79,7 @@ export class BuildBuildingGoal implements AIGoal {
         const def = CITY_BUILDING_CATALOG.find(d => d.type === buildingType);
         if (!def) continue;
         if (city.getBuildingLevel(buildingType) >= def.maxLevel) continue;
-        if (!nation.getTreasury().hasResources(def.upgradeCost)) continue;
+        if (!nation.getTreasury().hasResources(addCosts(def.upgradeCost, this.reserve))) continue;
 
         return { cityId: city.id, building: buildingType };
       }

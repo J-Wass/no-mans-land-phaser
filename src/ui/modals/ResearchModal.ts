@@ -519,7 +519,7 @@ export class ResearchModal {
       return;
     }
     const pct = (current.ticksTotal - current.ticksRemaining) / current.ticksTotal;
-    this.currentLabel.textContent = STR.currentResearch(current.techId.replace(/_/g, ' '), (current.ticksRemaining / TICK_RATE).toFixed(1));
+    this.currentLabel.textContent = STR.currentResearch(TECH_MAP.get(current.techId)?.name ?? current.techId, (current.ticksRemaining / TICK_RATE).toFixed(1));
     this.currentLabel.style.color = 'var(--color-gold)';
     this.currentBarFill.style.width = `${(pct * 100).toFixed(1)}%`;
     this.cancelBtn.disabled = false;

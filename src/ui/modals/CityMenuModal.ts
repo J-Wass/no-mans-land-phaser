@@ -390,8 +390,10 @@ export class CityMenuModal {
       this.orderLabel.style.color = 'var(--color-dim)';
       this.progressFill.style.width = '0%';
     } else {
-      this.orderLabel.textContent = STR.orderProgress(order.label, (order.ticksRemaining / TICK_RATE).toFixed(1));
-      this.orderLabel.style.color = 'var(--color-gold)';
+      const secs = (order.ticksRemaining / TICK_RATE).toFixed(1);
+      const paused = this.city.isProductionPaused(this.bridge.tickEngine.getCurrentTick());
+      this.orderLabel.textContent = paused ? STR.orderPausedUnderSiege(order.label, secs) : STR.orderProgress(order.label, secs);
+      this.orderLabel.style.color = paused ? 'var(--color-dim)' : 'var(--color-gold)';
       this.progressFill.style.width = `${(this.city.getProgressFraction() * 100).toFixed(1)}%`;
     }
 

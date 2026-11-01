@@ -5,6 +5,9 @@
  * Near-visible:    2 tiles beyond each unit's vision radius (unidentified contacts)
  * Discovered:      union of all previously visible tiles (stored in GameState)
  *
+ * Revealed:    a unit that fires on a nation's unit or city is revealed to
+ *              that nation for SHOOTER_REVEAL_TICKS (its tile counts as visible)
+ *
  * Air mana:    +1 vision radius to all of the nation's units
  * Shadow mana: the first active mine hides enemy units by 1 tile
  *              when determining direct or near visibility
@@ -18,6 +21,12 @@ import { TerritoryBuildingType } from '@/systems/territory/TerritoryBuilding';
 import type { GridCoordinates } from '@/types/common';
 
 const WATCHTOWER_VISION_RADIUS = 3;
+/**
+ * How long a shooter stays visible to the nation it fired on (3 s at
+ * TICK_RATE=10). Longer than the ranged fire interval, so a unit that keeps
+ * firing stays revealed.
+ */
+export const SHOOTER_REVEAL_TICKS = 30;
 
 export interface VisionResult {
   /** Tiles where everything is visible. */
@@ -31,11 +40,37 @@ export interface VisionResult {
 const FOG_EDGE_DISTANCE = 2;
 
 export class VisionSystem {
+  /** Tiles revealed by ranged fire: viewer nationId → (tile key → tick the reveal expires). */
+  private revealed = new Map<string, Map<string, number>>();
+
+  /**
+   * Reveal a shooter's tile to the owner of the unit or city it hit. Call from
+   * a 'ranged:fired' listener: the target is still in the game state then,
+   * even when the shot kills it.
+   */
+  public noteRangedFire(
+    gameState: GameState,
+    shot: { targetId: string; targetType: 'unit' | 'city'; from: GridCoordinates; tick: number },
+  ): void {
+    const targetOwner = shot.targetType === 'unit'
+      ? gameState.getUnit(shot.targetId)?.getOwnerId()
+      : gameState.getCity(shot.targetId)?.getOwnerId();
+    if (!targetOwner) return;
+    let tiles = this.revealed.get(targetOwner);
+    if (!tiles) {
+      tiles = new Map();
+      this.revealed.set(targetOwner, tiles);
+    }
+    tiles.set(`${shot.from.row},${shot.from.col}`, shot.tick + SHOOTER_REVEAL_TICKS);
+  }
+
   /**
    * Compute current visibility for `nationId`.
    * Updates `gameState.getDiscoveredTiles(nationId)` as a side-effect.
+   * With `currentTick`, tiles revealed by recent ranged fire are included
+   * (and expired reveals are dropped).
    */
-  public compute(gameState: GameState, nationId: string): VisionResult {
+  public compute(gameState: GameState, nationId: string, currentTick?: number): VisionResult {
     const deposits = gameState.getNationActiveDeposits(nationId);
     const counts   = gameState.getNationActiveDepositCounts(nationId);
     const airBonus = airManaVisionBonus(deposits, counts);
@@ -76,6 +111,15 @@ export class VisionSystem {
     for (const territory of grid.getTerritoriesByNation(nationId)) {
       if (territory.hasBuilding(TerritoryBuildingType.WATCHTOWER)) {
         this.addVisionCircle(territory.getCoordinates(), WATCHTOWER_VISION_RADIUS, grid, visible, nearVisible);
+      }
+    }
+
+    // ── Shooters revealed by recent ranged fire ───────────────────────────
+    const revealed = this.revealed.get(nationId);
+    if (revealed && currentTick !== undefined) {
+      for (const [key, until] of revealed) {
+        if (until <= currentTick) revealed.delete(key);
+        else visible.add(key);
       }
     }
 
@@ -128,6 +172,9 @@ export class VisionSystem {
     const shadowReduction = shadowManaVisionReduction(enemyDeposits, enemyCounts);
 
     const key = `${unit.position.row},${unit.position.col}`;
+
+    // A shooter that just fired on the viewer is revealed even through shadow mana.
+    if (this.revealed.get(viewerNationId)?.has(key)) return 'visible';
 
     if (shadowReduction === 0) {
       // Fast path: no shadow mana, use precomputed sets

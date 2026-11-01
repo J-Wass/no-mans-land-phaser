@@ -30,7 +30,7 @@ interface GameSaveData {
   setup: GameSetup;                // {opponentCount, difficulty, gameMode, scenarioId, seed?}
   currentTick: number;
   state: GameStateJSON;            // below
-  movementStates: { unitId; path: {row,col}[]; ticksRemainingOnStep: number }[];
+  movementStates: { unitId; path: {row,col}[]; ticksRemainingOnStep: number; blockedTicks?: number }[];  // blockedTicks: ticks spent waiting behind a friendly (absent = 0)
   battleStates: {
     id; unitAId; unitBId; position; attackerId; attackerOrigin; defenderOrigin;
     ticksUntilRound; roundsElapsed; startedAtTick;
@@ -72,9 +72,9 @@ type ProductionOrder =
 1. New `GameState({rows, cols})` (all plains), then `rng.setState(rngState)` if present.
 2. Territories: terrain, owner, city id, deposit, buildings (default `[]`), levels, HP, construction.
 3. Nations: treasury (added onto zeros), relations, researched techs, current research, queue (filtered: known, unique, not researched, not active).
-4. Players; units via `createUnitFromData` (subclass by type; saved stats override defaults; legacy `FALL_BACK` → `WITHDRAW`); cities (current order, buildings, levels, HP, raze state, queue).
+4. Players; units via `createUnitFromData` (subclass by type; saved stats override defaults; legacy `FALL_BACK` → `WITHDRAW`); cities (current order, buildings, levels, HP, raze state, queue, `lastBesiegedTick` — absent in older saves → `null`, i.e. no regen cooldown).
 5. Turn fields, serial counters (if missing: derived from the highest serial per nation+type), `productionUnitSerial` (if missing: highest `unit-city-N` id), discovered tiles, defeated nations.
-6. In GameScene: `tickEngine.setTick`, `movementSystem.restoreStates` (orders with empty paths dropped), battles/sieges/territory battles restored (entries whose units no longer exist are skipped; surviving units re-marked engaged; id counters advanced past the highest restored id), peace cooldowns.
+6. In GameScene: `tickEngine.setTick`, `movementSystem.restoreStates` (orders with empty paths dropped; `blockedTicks` restored when present), battles/sieges/territory battles restored (entries whose units no longer exist are skipped; surviving units re-marked engaged; id counters advanced past the highest restored id), peace cooldowns.
 
 ### Not saved (reset on load)
 Regions (recomputed from terrain — deterministic), ranged-fire cooldowns, trade rejection backoff, MoraleSystem band memory, AI timers and Advanced strategy, music state, camera, the tutorial overlay. Game speed (back to 1×), HUD notifications/alert history and open HUD panels are not saved either; GameScene and UIScene reset them in `create()` for every game.

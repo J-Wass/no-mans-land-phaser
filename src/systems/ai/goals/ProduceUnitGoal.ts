@@ -10,12 +10,16 @@ import { PRODUCTION_CATALOG } from '@/systems/production/ProductionCatalog';
 export class ProduceUnitGoal implements AIGoal {
   readonly id = 'produce-unit';
 
-  constructor(private readonly preferredTypes: UnitType[]) {}
+  constructor(
+    private readonly preferredTypes: UnitType[],
+    /** Minimum priority, e.g. so a profile can put mustering an army ahead of city buildings. */
+    private readonly priorityFloor: number = 0,
+  ) {}
 
   priority(ctx: AIContext): number {
     const unitCount = ctx.gameState.getUnitsByNation(ctx.nationId).length;
     // Urgency grows as we have fewer units (max 75, floor 20)
-    return Math.max(20, 75 - unitCount * 8);
+    return Math.max(this.priorityFloor, 20, 75 - unitCount * 8);
   }
 
   isFeasible(ctx: AIContext): boolean {

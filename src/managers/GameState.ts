@@ -443,6 +443,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
         razing?: boolean;
         razeCountdown?: number;
         pendingRemoval?: { building: CityBuildingType; ticksRemaining: number } | null;
+        lastBesiegedTick?: number | null;
       };
       if (cdAny.buildings) city.setBuildings(cdAny.buildings);
       if (cdAny.buildingLevels) {
@@ -451,6 +452,7 @@ export class GameState implements Serializable<ReturnType<GameState['toJSON']>> 
         }
       }
       if (typeof cdAny.currentHealth === 'number') city.setHealth(cdAny.currentHealth);
+      if (typeof cdAny.lastBesiegedTick === 'number') city.markBesieged(cdAny.lastBesiegedTick);
       if (cdAny.razing !== undefined || cdAny.pendingRemoval !== undefined) {
         city.restoreDecayState(cdAny.razing ?? false, cdAny.razeCountdown ?? 0, cdAny.pendingRemoval ?? null);
       }

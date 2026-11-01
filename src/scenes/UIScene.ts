@@ -7,7 +7,7 @@ import type { City } from '@/entities/cities/City';
 import type { GameState } from '@/managers/GameState';
 import type { GameSetup } from '@/types/gameSetup';
 import type { NetworkAdapter } from '@/network/NetworkAdapter';
-import type { GameEventBus } from '@/systems/events/GameEventBus';
+import type { GameEventBus, GameEventMap } from '@/systems/events/GameEventBus';
 import { EventSubscriptions } from '@/systems/events/EventSubscriptions';
 import { Minimap } from '@/scenes/Minimap';
 import type { DiplomacySystem } from '@/systems/diplomacy/DiplomacySystem';
@@ -24,6 +24,7 @@ import { REGION_BONUS_INTERVAL, regionBonusResource, regionBonusAmount } from '@
 import { DiplomaticStatus } from '@/types/diplomacy';
 import { TICK_RATE } from '@/config/constants';
 import type { TechId } from '@/systems/research/TechTree';
+import { TECH_MAP } from '@/systems/research/TechTree';
 import { getFont, getFontSizeScale } from '@/config/accessibility';
 import { moraleBandFill } from './gameSceneHelpers';
 import { HUD_STRINGS } from '@/i18n/hud';
@@ -107,6 +108,11 @@ function formatRate(amount: number): string {
 
 function unitDisplayName(unit: Unit): string {
   return unit.getFullName();
+}
+
+/** A tech's display name ("The Wheel"), not its id. */
+function techDisplayName(techId: TechId): string {
+  return TECH_MAP.get(techId)?.name ?? techId.replace(/_/g, ' ');
 }
 
 /** Display name of the nation's weapon tier (best active metal mine; flavor only beyond the +2/+4/+6 bonus). */
@@ -333,11 +339,62 @@ export class UIScene extends Phaser.Scene {
       }
     });
 
-    this.subs.on('unit:destroyed', ({ unitId }) => {
-      if (this.selectedUnit?.id === unitId) {
+    this.subs.on('unit:destroyed', (e) => {
+      if (this.selectedUnit?.id === e.unitId) {
         this.selectedUnit = null;
       }
-      this.rebuildHUD();
+      const alert = this.unitDestroyedAlert(e);
+      if (alert) this.pushNotification(alert);
+      else this.rebuildHUD();
+    });
+
+    // One alert per battle (not per round) when one of our units is in it.
+    // The enemy is on or next to our unit's tile, so naming it reveals nothing hidden.
+    this.subs.on('battle:started', ({ unitAId, unitBId, position }) => {
+      const a = this.gameState.getUnit(unitAId);
+      const b = this.gameState.getUnit(unitBId);
+      if (!a || !b) return;
+      const [yours, enemy] = this.isLocalNation(a.getOwnerId()) ? [a, b]
+        : this.isLocalNation(b.getOwnerId()) ? [b, a] : [null, null];
+      if (!yours || !enemy) return;
+      this.pushNotification(HUD_STRINGS.notifications.battleStarted(
+        unitDisplayName(yours), unitDisplayName(enemy), this.nationName(enemy.getOwnerId()),
+        position.row, position.col,
+      ));
+    });
+
+    this.subs.on('city:siege-started', ({ unitId, cityId }) => {
+      const unit = this.gameState.getUnit(unitId);
+      const city = this.gameState.getCity(cityId);
+      if (!unit || !city) return;
+      if (this.isLocalNation(unit.getOwnerId())) {
+        this.pushNotification(HUD_STRINGS.notifications.besieging(unitDisplayName(unit), city.getName()));
+      } else if (this.isLocalNation(city.getOwnerId())) {
+        this.pushNotification(HUD_STRINGS.notifications.cityBesieged(city.getName(), this.nationName(unit.getOwnerId())));
+        this.flashWarAlert();
+      }
+    });
+
+    this.subs.on('city:conquered', ({ cityId, byNationId, fromNationId }) => {
+      const cityName = this.gameState.getCity(cityId)?.getName() ?? HUD_STRINGS.notifications.cityFallback;
+      if (this.isLocalNation(byNationId)) {
+        this.pushNotification(HUD_STRINGS.notifications.cityCaptured(cityName, this.nationName(fromNationId)));
+      } else if (this.isLocalNation(fromNationId)) {
+        this.pushNotification(HUD_STRINGS.notifications.cityLost(cityName, this.nationName(byNationId)));
+        this.flashWarAlert();
+      }
+    });
+
+    // A move order ended early because another of our units holds the way.
+    this.subs.on('unit:move-blocked', ({ unitId, blockedAt, blockerUnitId, reason }) => {
+      const unit = this.gameState.getUnit(unitId);
+      if (!unit || !this.isLocalNation(unit.getOwnerId())) return;
+      const blocker = this.gameState.getUnit(blockerUnitId);
+      const blockerName = blocker ? unitDisplayName(blocker) : HUD_STRINGS.notifications.unitFallback;
+      const text = reason === 'destination-occupied'
+        ? HUD_STRINGS.notifications.moveBlockedDestination(unitDisplayName(unit), blockedAt.row, blockedAt.col, blockerName)
+        : HUD_STRINGS.notifications.moveBlockedNoDetour(unitDisplayName(unit), blockedAt.row, blockedAt.col, blockerName);
+      this.pushNotification(text);
     });
 
     this.subs.on('territory:claimed', ({ position, nationId, fromNationId }) => {
@@ -403,7 +460,7 @@ export class UIScene extends Phaser.Scene {
     this.subs.on('nation:research-complete', ({ nationId, techId }) => {
       if (!this.isLocalNation(nationId)) return;
       const nationName = this.gameState.getNation(nationId)?.getName() ?? HUD_STRINGS.notifications.nationFallback;
-      this.pushNotification(HUD_STRINGS.notifications.researchComplete(nationName, techId.replace(/_/g, ' ')));
+      this.pushNotification(HUD_STRINGS.notifications.researchComplete(nationName, techDisplayName(techId)));
     });
 
     this.subs.on('diplomacy:war-declared', ({ nationId1, nationId2 }) => {
@@ -577,7 +634,7 @@ export class UIScene extends Phaser.Scene {
     const nation = this.getLocalNation();
     const currentResearch = nation?.getCurrentResearch();
     const researchBtnLabel = currentResearch
-      ? currentResearch.techId.replace(/_/g, ' ').toUpperCase().slice(0, skinny ? 6 : 10)
+      ? techDisplayName(currentResearch.techId).toUpperCase().slice(0, skinny ? 6 : 10)
       : (skinny ? HUD_STRINGS.topBar.techSkinny : HUD_STRINGS.topBar.research);
     const researchBtnFill = currentResearch ? 0x1e2810 : 0x1a1e3c;
     this.makeButton(researchX, midY, rightBtnW, btnH, researchBtnLabel, scale, () => {
@@ -1083,7 +1140,11 @@ export class UIScene extends Phaser.Scene {
       const barH = Math.max(6, Math.round(7 * scale));
       const barY = y + Math.round(86 * scale);
 
-      this.track(this.add.text(x + pad, barY - Math.round(14 * scale), HUD_STRINGS.cityPanel.production(currentOrder.label, secsLeft), {
+      const paused = city.isProductionPaused(this.tickEngine.getCurrentTick());
+      const label = paused
+        ? HUD_STRINGS.cityPanel.productionPaused(currentOrder.label, secsLeft)
+        : HUD_STRINGS.cityPanel.production(currentOrder.label, secsLeft);
+      this.track(this.add.text(x + pad, barY - Math.round(14 * scale), label, {
         ...MONO, fontSize: fs(11, scale), color: '#a8d4a8',
       }).setOrigin(0, 0));
       this.track(this.add.rectangle(x + pad, barY, barW, barH, 0x0d1e14).setOrigin(0, 0));
@@ -1211,7 +1272,7 @@ export class UIScene extends Phaser.Scene {
       const skinny = this.scale.width < 820;
       const cr = nation?.getCurrentResearch();
       this.researchBtnText.setText(
-        cr ? cr.techId.replace(/_/g, ' ').toUpperCase().slice(0, skinny ? 6 : 10) : (skinny ? HUD_STRINGS.topBar.techSkinny : HUD_STRINGS.topBar.research),
+        cr ? techDisplayName(cr.techId).toUpperCase().slice(0, skinny ? 6 : 10) : (skinny ? HUD_STRINGS.topBar.techSkinny : HUD_STRINGS.topBar.research),
       );
       this.researchBtnText.setColor(cr ? '#b8e89a' : '#d8e4ff');
       if (this.researchProgressRect) {
@@ -1365,6 +1426,11 @@ export class UIScene extends Phaser.Scene {
     });
   }
 
+  /** Every alert raised this game (newest last), including toasts that have already faded. */
+  public getNotifications(): ReadonlyArray<{ text: string; createdTick: number }> {
+    return this.notifications;
+  }
+
   private pushNotification(text: string): void {
     const entry: AlertEntry = {
       id: this.nextAlertId++,
@@ -1386,6 +1452,46 @@ export class UIScene extends Phaser.Scene {
 
   private openDiplomacy(targetNationId?: string): void {
     this.bridge.openDiplomacy(targetNationId);
+  }
+
+  private nationName(nationId: string): string {
+    return this.gameState.getNation(nationId)?.getName() ?? HUD_STRINGS.notifications.anotherNation;
+  }
+
+  /**
+   * Alert text for a destroyed unit: ours lost (with what killed it, when known),
+   * or an enemy killed by one of ours. Null when it doesn't concern us. A spy
+   * caught by the enemy already has its own 'spy:detected' alert. A ranged
+   * killer isn't named (it may be out of sight), but its tile is: shooters are
+   * revealed to the nation they fire on.
+   */
+  private unitDestroyedAlert(e: GameEventMap['unit:destroyed']): string | null {
+    const N = HUD_STRINGS.notifications;
+    const name = e.unitName ?? N.unitFallback;
+    const { row, col } = e.position;
+
+    if (this.isLocalNation(e.ownerNationId)) {
+      if (e.cause === 'spy-detected') return null;
+      const killer = e.byUnitId ? this.gameState.getUnit(e.byUnitId) : undefined;
+      let by: string | null = null;
+      if (e.cause === 'battle' && killer) {
+        by = N.killedByUnit(unitDisplayName(killer), this.nationName(killer.getOwnerId()));
+      } else if (e.cause === 'ranged') {
+        by = killer ? N.killedByRangedFrom(killer.position.row, killer.position.col) : N.killedByRanged;
+      } else if (e.cause === 'city') {
+        by = N.killedByCity(this.gameState.getCity(e.byCityId ?? '')?.getName() ?? N.cityFallback);
+      } else if (e.cause === 'territory') {
+        by = N.killedByTerritory;
+      }
+      return by ? N.unitLostBy(name, row, col, by) : N.unitLost(name, row, col);
+    }
+
+    const killer = e.byUnitId ? this.gameState.getUnit(e.byUnitId) : undefined;
+    if (!killer || !this.isLocalNation(killer.getOwnerId())) return null;
+    const enemyNation = this.nationName(e.ownerNationId);
+    return e.cause === 'spy-detected'
+      ? N.enemySpyCaught(unitDisplayName(killer), enemyNation, row, col)
+      : N.enemyUnitDestroyed(unitDisplayName(killer), name, enemyNation, row, col);
   }
 
   private getLocalNation() {

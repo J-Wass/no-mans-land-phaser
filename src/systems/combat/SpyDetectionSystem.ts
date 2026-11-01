@@ -93,6 +93,8 @@ export class SpyDetectionSystem {
           ownerNationId,
           position,
           tick: currentTick,
+          unitName: spy.getFullName(),
+          cause: 'spy-detected',
         });
         break; // this spy is gone; move on to the next one
       }

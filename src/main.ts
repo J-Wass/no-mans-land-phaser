@@ -16,6 +16,10 @@ class Game {
     this.game = new Phaser.Game(gameConfig);
   }
 
+  public getPhaserGame(): Phaser.Game | null {
+    return this.game;
+  }
+
   public destroy(): void {
     if (this.game) {
       this.game.destroy(true);
@@ -24,12 +28,21 @@ class Game {
   }
 }
 
-// Initialize the game
-const game = new Game();
-
-// Expose game instance for debugging
-if (import.meta.env.DEV) {
-  (window as any).game = game;
+function startGame(): Game {
+  const game = new Game();
+  // Expose game instance for debugging
+  if (import.meta.env.DEV) {
+    (window as any).game = game;
+  }
+  return game;
 }
 
-export default game;
+// `?test=1` (dev server only) installs window.__TEST__ for automated playtesting.
+// See .claude/skills/playtest/SKILL.md.
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('test') === '1') {
+  void import('./testing/TestHarness').then(({ beginTestSession }) => {
+    beginTestSession(() => startGame().getPhaserGame()!);
+  });
+} else {
+  startGame();
+}

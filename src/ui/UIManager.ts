@@ -57,6 +57,8 @@ class UIManagerClass {
 
   open(id: string, element: HTMLElement): void {
     this.close(id);
+    // Lets automated testers identify which modal a DOM subtree belongs to.
+    element.dataset['modalId'] = id;
     this.modals.set(id, element);
     this.overlay.appendChild(element);
     this.overlay.style.pointerEvents = 'auto';
@@ -83,9 +85,20 @@ class UIManagerClass {
       const page = new MenuPage(opts => this.startGameCb?.(opts));
       if (this.menuEl) this.menuEl.remove();
       this.menuEl = page.render();
+      this.menuEl.dataset['modalId'] = 'menu';
       this.overlay.appendChild(this.menuEl);
       this.overlay.style.pointerEvents = 'auto';
     });
+  }
+
+  /**
+   * Start a game exactly as the menu's Start button would. Used by the dev
+   * test harness's autostart; returns false until the menu has rendered.
+   */
+  startGameFromMenu(opts: Parameters<StartGameCallback>[0]): boolean {
+    if (!this.startGameCb || !this.menuEl) return false;
+    this.startGameCb(opts);
+    return true;
   }
 
   hideMenu(): void {

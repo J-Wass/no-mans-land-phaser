@@ -93,6 +93,7 @@ export const HUD_STRINGS = {
     buildings: (list: string) => `Buildings: ${list}`,
     buildingsNone: 'None',
     production: (label: string, secsLeft: string) => `Production: ${label}  (${secsLeft}s left)`,
+    productionPaused: (label: string, secsLeft: string) => `Production: ${label}  (paused: under siege, ${secsLeft}s left)`,
     productionIdle: 'Production: Idle',
   },
 
@@ -217,6 +218,30 @@ export const HUD_STRINGS = {
     nationUnknown: 'Unknown',
     regionDominated: (region: string) => `You now dominate the ${region}! Bonus resources granted.`,
     moraleBand: (unit: string, band: string) => `${unit}: ${band}.`,
+    // Unit losses and kills. `by` is a short clause naming what killed the unit.
+    unitLost: (unit: string, r: number, c: number) => `${unit} was destroyed at (${r}, ${c}).`,
+    unitLostBy: (unit: string, r: number, c: number, by: string) => `${unit} was destroyed at (${r}, ${c}) by ${by}.`,
+    killedByUnit: (unit: string, nation: string) => `${nation}'s ${unit}`,
+    killedByRanged: 'ranged fire',
+    killedByRangedFrom: (r: number, c: number) => `ranged fire from (${r}, ${c})`,
+    killedByCity: (city: string) => `the defenders of ${city}`,
+    killedByTerritory: 'territory defences',
+    enemyUnitDestroyed: (yours: string, enemy: string, nation: string, r: number, c: number) =>
+      `${yours} destroyed ${nation}'s ${enemy} at (${r}, ${c}).`,
+    enemySpyCaught: (yours: string, nation: string, r: number, c: number) =>
+      `${yours} caught and killed a ${nation} spy at (${r}, ${c}).`,
+    // Battles and sieges (one alert when each starts).
+    battleStarted: (yours: string, enemy: string, nation: string, r: number, c: number) =>
+      `${yours} is fighting ${nation}'s ${enemy} at (${r}, ${c}).`,
+    besieging: (yours: string, city: string) => `${yours} is besieging ${city}.`,
+    cityBesieged: (city: string, nation: string) => `${city} is under siege by ${nation}!`,
+    cityCaptured: (city: string, from: string) => `You captured ${city} from ${from}!`,
+    cityLost: (city: string, by: string) => `${city} was captured by ${by}!`,
+    // A move order that ended early because one of your own units holds the way.
+    moveBlockedDestination: (unit: string, r: number, c: number, blocker: string) =>
+      `${unit} stopped short: (${r}, ${c}) is occupied by ${blocker}.`,
+    moveBlockedNoDetour: (unit: string, r: number, c: number, blocker: string) =>
+      `${unit} stopped: ${blocker} at (${r}, ${c}) blocks the only way through.`,
     gameSaved: 'Game saved to Slot 1',
     gameSaveFailed: 'Failed to save game — your browser storage may be full or blocked.',
   },

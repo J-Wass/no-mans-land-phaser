@@ -189,7 +189,12 @@ export class PhaserUIBridge {
   /** Build a full save snapshot of the current game. Shared by the HUD and pause menu. */
   buildSaveData(): GameSaveData {
     const movementStates = Array.from(this.movementSystem.getAllStates()).map(
-      ([unitId, state]) => ({ unitId, path: [...state.path], ticksRemainingOnStep: state.ticksRemainingOnStep }),
+      ([unitId, state]) => ({
+        unitId,
+        path: [...state.path],
+        ticksRemainingOnStep: state.ticksRemainingOnStep,
+        ...(state.blockedTicks ? { blockedTicks: state.blockedTicks } : {}),
+      }),
     );
     return {
       version: 1,

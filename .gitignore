@@ -47,3 +47,5 @@ Thumbs.db
 
 # Vite
 vite.config.ts.timestamp-*
+# Playtest reports (screenshots, saves, logs written by the dev test harness)
+qa-reports/

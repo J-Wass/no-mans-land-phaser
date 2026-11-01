@@ -4,6 +4,9 @@ import { Grid } from '@/systems/grid/Grid';
 import { TerrainType } from '@/systems/grid/Territory';
 import { UnitType } from '@/entities/units/Unit';
 import type { UnitStats } from '@/entities/units/Unit';
+import { GameState } from '@/managers/GameState';
+import { Infantry } from '@/entities/units/Infantry';
+import type { GridCoordinates } from '@/types/common';
 
 const infantryStats: UnitStats = {
   maxHealth: 100, meleeDamage: 10, rangedDamage: 0,
@@ -119,5 +122,73 @@ describe('Pathfinder', () => {
     // Path should go through row 1 (plains) rather than staying on row 0 (forest)
     const usesRow1 = path?.some(c => c.row === 1);
     expect(usesRow1).toBe(true);
+  });
+
+  describe('friendly units', () => {
+    let gameState: GameState;
+
+    beforeEach(() => {
+      gameState = new GameState({ rows: 5, cols: 5 });
+      gameState.addUnit(new Infantry('parked', 'na', { row: 0, col: 2 }));
+    });
+
+    const visits = (path: GridCoordinates[] | null, row: number, col: number): boolean =>
+      !!path?.some(c => c.row === row && c.col === col);
+
+    it('detours round a parked friendly unit', () => {
+      const path = new Pathfinder(gameState.getGrid()).findPath(
+        { row: 0, col: 0 }, { row: 0, col: 4 }, UnitType.INFANTRY, infantryStats, 'na', gameState,
+      );
+      expect(path?.[path.length - 1]).toEqual({ row: 0, col: 4 });
+      expect(visits(path, 0, 2)).toBe(false);
+    });
+
+    it('paths straight through a friendly that is on the move', () => {
+      const movement = { isAdvancing: (id: string) => id === 'parked', isMoving: (id: string) => id === 'parked' };
+      const path = new Pathfinder(gameState.getGrid(), movement).findPath(
+        { row: 0, col: 0 }, { row: 0, col: 4 }, UnitType.INFANTRY, infantryStats, 'na', gameState,
+      );
+      expect(path).toEqual([{ row: 0, col: 1 }, { row: 0, col: 2 }, { row: 0, col: 3 }, { row: 0, col: 4 }]);
+    });
+
+    it('paths straight through an idle friendly (it swaps places with the mover)', () => {
+      const movement = { isAdvancing: () => false, isMoving: () => false };
+      const path = new Pathfinder(gameState.getGrid(), movement).findPath(
+        { row: 0, col: 0 }, { row: 0, col: 4 }, UnitType.INFANTRY, infantryStats, 'na', gameState,
+      );
+      expect(path).toEqual([{ row: 0, col: 1 }, { row: 0, col: 2 }, { row: 0, col: 3 }, { row: 0, col: 4 }]);
+    });
+
+    it('ignores other nations\' units (enemy contact is handled by combat)', () => {
+      const path = new Pathfinder(gameState.getGrid()).findPath(
+        { row: 0, col: 0 }, { row: 0, col: 4 }, UnitType.INFANTRY, infantryStats, 'nb', gameState,
+      );
+      expect(visits(path, 0, 2)).toBe(true);
+    });
+
+    it('goes through a parked friendly when there is no way round', () => {
+      // A one-tile-wide corridor along row 0: there is no way round.
+      const corridor = new GameState({ rows: 5, cols: 5 });
+      for (let r = 1; r < 5; r++) {
+        for (let c = 0; c < 5; c++) corridor.getGrid().getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
+      }
+      corridor.addUnit(new Infantry('parked', 'na', { row: 0, col: 2 }));
+      const pf = new Pathfinder(corridor.getGrid());
+      const from = { row: 0, col: 0 };
+      const to = { row: 0, col: 4 };
+
+      expect(visits(pf.findPath(from, to, UnitType.INFANTRY, infantryStats, 'na', corridor), 0, 2)).toBe(true);
+      // ...unless the caller asks for parked friendlies to be treated as impassable.
+      expect(pf.findPath(from, to, UnitType.INFANTRY, infantryStats, 'na', corridor, { avoidParkedFriendlies: true }))
+        .toBeNull();
+    });
+
+    it('can still target a tile held by a parked friendly', () => {
+      const path = new Pathfinder(gameState.getGrid()).findPath(
+        { row: 0, col: 0 }, { row: 0, col: 2 }, UnitType.INFANTRY, infantryStats, 'na', gameState,
+        { avoidParkedFriendlies: true },
+      );
+      expect(path).toEqual([{ row: 0, col: 1 }, { row: 0, col: 2 }]);
+    });
   });
 });

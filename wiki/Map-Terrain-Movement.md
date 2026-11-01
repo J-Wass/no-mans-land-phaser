@@ -77,7 +77,16 @@ Ticks per tile (no mana):
 3. If `ticksRemainingOnStep ≤ 0` (a freshly issued or resumed order): set it to `stepCost` of `path[0]`; if that tile is now impassable, drop the order.
 4. `ticksRemainingOnStep--`. When it reaches 0:
    1. Shift `next = path[0]`.
-   2. **Friendly stacking is blocked:** if another living unit of the **same owner** stands on `next`, put it back and retry next tick (`ticksRemainingOnStep = 1`).
+   2. **Friendly stacking is blocked:** if another living unit of the **same owner** (the *blocker*) stands on `next`:
+      - **Swap:** if the blocker is **idle** (no order, not engaged in combat), `next` is **not** the order's final tile, and the blocker can stand on the mover's tile (finite step cost for its type), the two trade places — the blocker moves onto the mover's tile (emits `unit:step-complete` for it) and the mover's step goes ahead normally. This is how a column gets through a one-tile pass held by a parked unit.
+      - Otherwise put it back, retry next tick (`ticksRemainingOnStep = 1`) and count `blockedTicks += 1` (reset to 0 by any successful step). Then:
+      - A blocker that **will clear by itself** — it has an order and isn't itself waiting (`blockedTicks = 0`), or it is **engaged in combat** (a besieger may fall, see [Known Quirks #3](Known-Quirks.md)) — is waited for indefinitely.
+      - Otherwise (the blocker is parked on the destination, or stuck itself) the unit waits `FRIENDLY_BLOCK_GRACE_TICKS` = **5** ticks, then:
+        - if `next` is the destination, or the destination is also held by a friendly that won't clear → **end the order** on the current tile and emit `unit:move-blocked {reason: 'destination-occupied'}` (blockedAt = the destination);
+        - else **re-path** to the destination with every friendly that won't make way (fighting, or stuck mid-order) treated as impassable (`avoidParkedFriendlies`); idle ones stay passable since the mover swaps with them; the new path replaces the old one (step cost resolves next tick);
+        - if there is no such path → end the order, emit `unit:move-blocked {reason: 'no-detour'}` (blockedAt = `next`).
+      
+      The HUD turns `unit:move-blocked` into an alert for the player's own units. So two units ordered onto each other's tiles, or a damaged unit ordered into its city after a fresh unit spawned there, stop next to the tile and say so instead of freezing.
    3. Move the unit (`unit.moveTo(next)`), emit `unit:step-complete`.
    4. Unless the mover is an undercover **spy**:
       - Another nation's living, non-spy unit that is **not already in a battle** on `next` **and that the [engagement policy](Diplomacy.md#2-going-to-war) lets the mover attack** → `BattleSystem.startBattle(mover, occupant)` (both now share the tile); stop processing this unit.
@@ -90,6 +99,8 @@ Consequences worth knowing:
 - Moving onto a **neutral** nation's land never starts a fight; moving onto a neutral nation's **unit** or **city** does (and auto-declares war — see [Diplomacy](Diplomacy.md)) unless a peace cooldown is running. Allied units and cities are never attacked.
 - Walking onto an enemy unit that is already fighting someone else just shares its tile; the mover then gets the city/territory checks.
 - Units of different nations can share a tile; same-nation units cannot.
+- A unit never silently freezes behind a friendly: idle friendlies in the way swap places with it; behind a stuck one it re-paths or stops with an alert within 5 ticks. A re-path routes to the original destination, so a drag-painted route's intermediate waypoints are dropped.
+- An idle unit parked on the mover's **final** tile is never displaced: the mover stops next to it (`destination-occupied`).
 - Stance never changes movement speed.
 
 ### Command validation
@@ -99,10 +110,11 @@ Consequences worth knowing:
 
 ## 4. Pathfinding
 
-`Pathfinder.findPath(from, to, unitType, stats, ownerNationId?, gameState?)`:
+`new Pathfinder(grid, movement?)`, `findPath(from, to, unitType, stats, ownerNationId?, gameState?, { avoidParkedFriendlies? })`:
 - **A\*** over the 4-connected grid with a linear-scan open list (lowest `f`, first found wins ties) and a closed set.
 - Destination check first: if `to` is impassable for this unit → `null`.
 - **Edge cost** = `stepCost` for the neighbour's terrain (with the owner's mana and The Wheel), **+12** if the neighbour is owned by a nation other than the mover's that isn't its ally (`ENEMY_TERRITORY_PENALTY`; neutral and enemy tiles both count).
+- **Parked friendlies:** a neighbour (other than `to`) held by a living unit of `ownerNationId` that **won't make way** — engaged in combat, or holding an order it's stuck on (per the `movement` lookup; GameScene passes the MovementSystem). Idle friendlies don't count (the mover swaps with them) and neither do advancing ones; without a lookup every friendly counts. Such a tile costs **+3 × its step cost** (`STATIONARY_FRIENDLY_STEP_PENALTY`), so detours of up to ~3 extra steps are preferred and a path only goes through a parked unit when there's no reasonable way round. With `avoidParkedFriendlies` such tiles are impassable instead (used by movement re-paths). Moving friendlies are pathed through freely (they'll clear). Other nations' units never affect paths.
 - **Heuristic** = Manhattan distance (in tiles, not ticks — so it is very weak relative to edge costs of 14–100).
 - Neighbours are expanded in N, S, W, E order; a node is re-pushed when a strictly better `g` is found.
 - Returns the path **excluding `from`, including `to`**, or `null`. `from == to` returns `[]`.
@@ -113,12 +125,13 @@ The player's click-move, the drag-painted path (pathfinding between consecutive 
 
 ## 5. Vision & fog of war
 
-`VisionSystem.compute(gameState, nationId)` runs **every frame** for the local nation (and only for it) and returns three sets of tile keys:
+`VisionSystem.compute(gameState, nationId, currentTick)` runs **every frame** for the local nation (and only for it) and returns three sets of tile keys:
 
 - **Visible:**
   1. Every tile within Manhattan distance 2 of any tile the nation owns.
   2. For each living unit: tiles within Manhattan distance `vision + airBonus`.
   3. For each owned city with a **Watchtower** and each owned territory with a **Watchtower**: tiles within Manhattan distance **3**.
+  4. **Revealed shooters:** whenever a unit's ranged fire hits one of the nation's units or cities (`ranged:fired`, recorded by `VisionSystem.noteRangedFire`), the shooter's tile is visible to that nation for `SHOOTER_REVEAL_TICKS` = **30** ticks (3 s). The ranged fire interval is 20 ticks, so a unit that keeps firing stays revealed. Reveals aren't saved.
 - **Near-visible:** tiles within `radius + 2` of each unit / watchtower circle that are not visible ("unidentified contacts").
 - **Discovered:** visible ∪ near-visible tiles are added to the nation's persistent discovered set (saved with the game).
 
@@ -126,6 +139,7 @@ The player's click-move, the drag-painted path (pathfinding between consecutive 
 
 ### Seeing enemy units (`unitVisibility`)
 1. An undercover **spy** is `hidden` from every nation except its owner and that owner's allies.
+1b. A unit standing on a tile revealed to the viewer by its own ranged fire is `visible` (this beats Shadow Mana).
 2. If the unit's nation has **no** active Shadow-Mana mine: `visible` if its tile is visible, `near` if near-visible, else `hidden`.
 3. If it **has** Shadow Mana: only the observer's **units** count (territory borders and watchtowers no longer reveal it). For each living observer unit: `effectiveVision = max(0, vision + airBonus − 1)`; `visible` if Manhattan distance ≤ effectiveVision, else `near` if ≤ effectiveVision + 2.
 

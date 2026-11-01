@@ -20,6 +20,9 @@ import type { MoraleBand } from '@/config/moraleBalance';
 export type MoraleGainSource =
   | 'win' | 'kill' | 'witness' | 'conquest' | 'rally' | 'territory' | 'siege';
 
+/** What killed a unit: a unit-vs-unit battle, ranged fire, a city's garrison/counterfire, territory defences, or spy detection. */
+export type UnitDeathCause = 'battle' | 'ranged' | 'city' | 'territory' | 'spy-detected';
+
 export type MoraleLossSource =
   | 'damage' | 'advance' | 'allied-death' | 'city-lost' | 'battle-lost';
 
@@ -28,7 +31,35 @@ export type GameEventMap = {
   'unit:move-complete':        { unitId: EntityId; destination: GridCoordinates; tick: number };
   'unit:move-ordered':         { unitId: EntityId; path: GridCoordinates[]; playerId: PlayerId };
   'unit:move-cancelled':       { unitId: EntityId };
-  'unit:destroyed':            { unitId: EntityId; byUnitId: EntityId | null; ownerNationId: EntityId; position: GridCoordinates; tick: number };
+  /**
+   * A move order ended early because one of the mover's own units holds the way:
+   * the destination is occupied, or there's no detour round a unit that won't move.
+   * The mover stays on `position`; `blockedAt` is the tile it couldn't enter.
+   */
+  'unit:move-blocked':         {
+    unitId: EntityId;
+    position: GridCoordinates;
+    blockedAt: GridCoordinates;
+    blockerUnitId: EntityId;
+    reason: 'destination-occupied' | 'no-detour';
+    tick: number;
+  };
+  /**
+   * A unit died and has already been removed from GameState. `unitName` is its
+   * full name (it can no longer be looked up); `cause`/`byCityId` say what
+   * killed it when known (absent = unknown, e.g. the dead-unit sweep).
+   */
+  'unit:destroyed':            {
+    unitId: EntityId;
+    byUnitId: EntityId | null;
+    ownerNationId: EntityId;
+    position: GridCoordinates;
+    tick: number;
+    unitName?: string;
+    cause?: UnitDeathCause;
+    /** The city whose garrison or counterfire landed the killing blow. */
+    byCityId?: EntityId;
+  };
   'unit:battle-order-changed': { unitId: EntityId; battleOrder: BattleOrder; tick: number };
   /** A Scout toggled undercover (spy) mode on or off. */
   'unit:spy-changed':          { unitId: EntityId; isSpy: boolean; tick: number };

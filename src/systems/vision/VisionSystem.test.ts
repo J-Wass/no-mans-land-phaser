@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { VisionSystem } from './VisionSystem';
+import { VisionSystem, SHOOTER_REVEAL_TICKS } from './VisionSystem';
 import { GameState } from '@/managers/GameState';
 import { Nation } from '@/entities/nations';
 import { Infantry } from '@/entities/units/Infantry';
@@ -119,5 +119,37 @@ describe('VisionSystem', () => {
 
     expect(system.unitVisibility(nearEnemy, vision.visible, vision.nearVisible, state, viewerNation.getId())).toBe('near');
     expect(system.unitVisibility(hiddenEnemy, vision.visible, vision.nearVisible, state, viewerNation.getId())).toBe('hidden');
+  });
+  describe('shooters revealed by ranged fire', () => {
+    function setup() {
+      const state = new GameState({ rows: 12, cols: 12 });
+      state.addNation(createNation('nation-a'));
+      state.addNation(createNation('nation-b'));
+      state.addNation(createNation('nation-c'));
+      state.addUnit(new Infantry('target', 'nation-a', { row: 1, col: 1 }));
+      state.addUnit(new Infantry('archer', 'nation-b', { row: 1, col: 4 }));
+      return state;
+    }
+
+    it('reveals the shooter tile to the nation it hit, for SHOOTER_REVEAL_TICKS', () => {
+      const state = setup();
+      const vision = new VisionSystem();
+      expect(vision.compute(state, 'nation-a', 100).visible.has('1,4')).toBe(false);
+
+      vision.noteRangedFire(state, { targetId: 'target', targetType: 'unit', from: { row: 1, col: 4 }, tick: 100 });
+
+      const seen = vision.compute(state, 'nation-a', 100);
+      expect(seen.visible.has('1,4')).toBe(true);
+      expect(vision.unitVisibility(state.getUnit('archer')!, seen.visible, seen.nearVisible, state, 'nation-a')).toBe('visible');
+      expect(vision.compute(state, 'nation-a', 100 + SHOOTER_REVEAL_TICKS - 1).visible.has('1,4')).toBe(true);
+      expect(vision.compute(state, 'nation-a', 100 + SHOOTER_REVEAL_TICKS).visible.has('1,4')).toBe(false);
+    });
+
+    it('reveals nothing to bystanders', () => {
+      const state = setup();
+      const vision = new VisionSystem();
+      vision.noteRangedFire(state, { targetId: 'target', targetType: 'unit', from: { row: 1, col: 4 }, tick: 100 });
+      expect(vision.compute(state, 'nation-c', 100).visible.has('1,4')).toBe(false);
+    });
   });
 });

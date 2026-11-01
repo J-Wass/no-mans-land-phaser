@@ -181,6 +181,7 @@ export class TerritoryBattleSystem {
         gameState.removeUnit(unit.id);
         eventBus.emit('unit:destroyed', {
           unitId: unit.id, byUnitId: null, ownerNationId: owner, position: pos, tick: currentTick,
+          unitName: unit.getFullName(), cause: 'territory',
         });
         this.finishBattle(battle, posKey, gameState, movementSystem, eventBus, currentTick, null);
         continue;

@@ -24,7 +24,9 @@ import type { EntityId } from '@/types/common';
 import type { TerritoryResourceType } from '@/systems/resources/TerritoryResourceType';
 import { weaponTierDamageBonus, fireManaDamageFactor } from '@/systems/resources/ResourceBonuses';
 import { manhattan } from '@/systems/grid/geometry';
-import { healthFactor, damageVariance, CAVALRY_RANGED_RESIST } from '@/config/combatBalance';
+import {
+  healthFactor, damageVariance, CAVALRY_RANGED_RESIST, CITY_RANGED_COUNTERFIRE_FACTOR,
+} from '@/config/combatBalance';
 import { applyCombatMoraleHit } from '@/systems/morale/moraleRules';
 import { defaultEngagementPolicy } from '@/systems/combat/EngagementPolicy';
 import type { EngagementPolicy } from '@/systems/combat/EngagementPolicy';
@@ -85,16 +87,20 @@ export class RangedFireSystem {
           eventBus.emit('unit:destroyed', {
             unitId: target.unit.id, byUnitId: unit.id,
             ownerNationId: owner, position: pos, tick: currentTick,
+            unitName: target.unit.getFullName(), cause: 'ranged',
           });
         }
       } else {
         // Ranged fire chips HP but cannot conquer; minimum 1 HP remains
         const newHp = Math.max(1, target.city.getHealth() - rawDamage);
         target.city.setHealth(newHp);
+        target.city.markBesieged(currentTick); // bombardment pauses city regen like a siege
         const cityDist = manhattan(unit.position, target.city.position);
         if (cityDist <= 3) {
           const cityHealthFactor = healthFactor(target.city.getHealth(), target.city.getMaxHealth());
-          const counterDamage = Math.max(1, Math.round(target.city.getMeleeDamage() * cityHealthFactor));
+          const counterDamage = Math.max(1, Math.round(
+            target.city.getMeleeDamage() * cityHealthFactor * CITY_RANGED_COUNTERFIRE_FACTOR,
+          ));
           unit.takeDamage(counterDamage);
           applyCombatMoraleHit(unit, counterDamage);
         }
@@ -114,6 +120,7 @@ export class RangedFireSystem {
           eventBus.emit('unit:destroyed', {
             unitId: unit.id, byUnitId: null,
             ownerNationId: owner, position: pos, tick: currentTick,
+            unitName: unit.getFullName(), cause: 'city', byCityId: target.city.id,
           });
         }
       }

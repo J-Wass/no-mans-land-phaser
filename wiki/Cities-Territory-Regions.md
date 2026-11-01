@@ -12,7 +12,7 @@ Cities produce units and buildings, generate income, heal resting units, and are
 | Base garrison melee | 12 (+3 per Walls level) |
 | Starting buildings | City Hall (level 1) only (scenarios can pre-build more at level 1) |
 | Queue | 1 active order + up to 5 queued |
-| HP regen | +5 every 50 ticks while not besieged |
+| HP regen | +5 every 50 ticks; none while besieged or bombarded, nor for 120 ticks after (`lastBesiegedTick`) |
 | Unit healing | own units on the city tile, not in combat: +`ceil(5% maxHP)` every 10 ticks |
 | Morale recovery | +4 per 10 ticks (cap 80) for own units on the tile |
 | Capture | HP → 0 in a siege; the conqueror keeps `ceil(35% maxHP)`; every non-City-Hall building drops a level; queue wiped |
@@ -30,6 +30,7 @@ interface CityData {
   currentHealth; maxHealth /* base 200 */; meleeDamage /* base 12 */;
   razing: boolean; razeCountdown: number;
   pendingRemoval: { building; ticksRemaining } | null;
+  lastBesiegedTick: number | null;   // last tick under siege / ranged fire; null = never (absent in old saves)
 }
 ```
 

@@ -6,7 +6,8 @@
  *   - Unit deals melee or ranged damage to the city (city walls reduce damage)
  *   - City counterattacks with garrison fire (reduced vs ranged attackers)
  * When city HP → 0 the city is conquered and ownership transfers.
- * Cities regen HP over time when not under siege.
+ * Cities regen HP over time, but not while under siege (or ranged bombardment)
+ * nor for CITY_SIEGE_HEAL_COOLDOWN_TICKS after it ends.
  * A unit on WITHDRAW order always disengages successfully.
  */
 
@@ -75,6 +76,7 @@ export class CitySiegeSystem {
 
     unit.setEngagedInBattle(true);
     this.sieges.set(siegeId, siege);
+    city.markBesieged(currentTick);
 
     eventBus.emit('city:siege-started', {
       siegeId,
@@ -93,13 +95,18 @@ export class CitySiegeSystem {
     eventBus: GameEventBus,
     currentTick: number,
   ): void {
-    // City HP regen for all cities not currently under siege
+    // Every besieged city (by any nation) is stamped each tick; regen waits
+    // out the cooldown from the last stamp.
+    for (const siege of this.sieges.values()) {
+      gameState.getCity(siege.cityId)?.markBesieged(currentTick);
+    }
+
+    // City HP regen for all cities not under siege or recently besieged
     if (currentTick % CITY_REGEN_INTERVAL === 0) {
-      const besiegedCityIds = new Set(Array.from(this.sieges.values()).map(s => s.cityId));
       for (const city of gameState.getAllCities()) {
-        if (!besiegedCityIds.has(city.id) && city.getHealth() < city.getMaxHealth()) {
-          city.heal(CITY_REGEN_AMOUNT);
-        }
+        if (city.getHealth() >= city.getMaxHealth()) continue;
+        if (city.isUnderAttack(currentTick)) continue;
+        city.heal(CITY_REGEN_AMOUNT);
       }
     }
 
@@ -183,6 +190,7 @@ export class CitySiegeSystem {
         gameState.removeUnit(unit.id);
         eventBus.emit('unit:destroyed', {
           unitId: unit.id, byUnitId: null, ownerNationId: owner, position: pos, tick: currentTick,
+          unitName: unit.getFullName(), cause: 'city', byCityId: city.id,
         });
         this.finishSiege(siege, gameState, movementSystem, eventBus, currentTick, null);
         continue;

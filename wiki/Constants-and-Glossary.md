@@ -12,6 +12,7 @@ Every tunable number in one place, with its source file.
 | `TICK_RATE` | 10 ticks/s | `config/constants.ts` |
 | `TICK_INTERVAL_MS` | 100 | 〃 |
 | `MAX_TICK_CATCHUP` | 5 ticks per frame | 〃 |
+| `FRIENDLY_BLOCK_GRACE_TICKS` | 5 ticks — wait behind a stuck friendly before re-pathing / stopping (idle friendlies swap instead) | 〃 |
 | `TILE_SIZE` | 40 px | 〃 |
 | Ticks per day (clock) | 100 | `UIScene` |
 | Game speeds | 0 (pause), 0.5, 1, 2, 4 | `UIScene` |
@@ -60,6 +61,7 @@ Every tunable number in one place, with its source file.
 | `ADVANCE_MITIGATION_FACTOR` | 0.45 | 〃 |
 | Siege-weapon city bonus | ×1.30 | `CitySiegeSystem.ts` |
 | `CITY_REGEN_INTERVAL` / `AMOUNT` | 50 ticks / +5 | `combatBalance.ts` |
+| `CITY_SIEGE_HEAL_COOLDOWN_TICKS` | 120 ticks (no regen this long after the last siege tick / ranged hit) | 〃 |
 | `CITY_POST_CONQUEST_HP` | 0.35 (ceil) | 〃 |
 | Siege retreat search | origin, then Chebyshev rings 1–5 | `CitySiegeSystem.ts` |
 
@@ -82,6 +84,8 @@ Every tunable number in one place, with its source file.
 |---|---|---|
 | `RANGED_FIRE_INTERVAL_TICKS` | 20 | `RangedFireSystem.ts` |
 | City counterfire range | ≤ 3 (Manhattan), no variance | 〃 |
+| `CITY_RANGED_COUNTERFIRE_FACTOR` | 0.7 — city counterfire on ranged shooters = melee × health factor × 0.7 | combatBalance |
+| `SHOOTER_REVEAL_TICKS` | 30 ticks — a shooter's tile stays visible to the nation it hit | VisionSystem |
 | Ranged vs city floor | city HP ≥ 1 | 〃 |
 | `SPY_DETECTION_INTERVAL_TICKS` | 10 | `SpyDetectionSystem.ts` |
 | `SPY_DETECTION_BASE` | on tile 0.50, adjacent 0.25, distance 2 0.10 | 〃 |
@@ -197,7 +201,7 @@ Every tunable number in one place, with its source file.
 |---|---|
 | Think interval | 80 / 30 / 20 ticks |
 | Goals per evaluation | 1 / 3 / 4 |
-| Earliest attack | never / 1800 / 500 (Expansion), 250 (Military) |
+| Earliest attack | never / 1800 (needs a 4-unit strike force) / 500 (Expansion), 250 (Military) |
 | Noob unit cap | 4 |
 | Outmatch threshold | own HP < 55% of at-war enemies' HP |
 | `MAX_DISPATCH` per attack | 6 |

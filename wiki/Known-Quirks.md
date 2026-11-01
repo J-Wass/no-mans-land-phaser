@@ -12,11 +12,14 @@ The rest of the wiki describes what the code **does**. This page collects behavi
 |---|---|---|
 | 1 | **Upkeep is only charged when affordable.** A nation that can't pay a unit's whole upkeep simply doesn't pay it; there is no starvation, desertion or debt. | ProductionSystem |
 | 2 | **Territory walls never fire at range.** `Territory.getWallsRange()` (2 tiles at level ≥ 2, 3 at ≥ 4) is unused; walls only counter-attack the unit standing on the tile. | Territory |
-| 3 | **Only one besieger per nation per city**, because a nation's units can't share a tile. Extra units wait on the path and step in if the besieger falls (the tutorial text explains this). | MovementSystem |
+| 3 | **Only one besieger per nation per city**, because a nation's units can't share a tile. Extra units wait next to it (a fighting friendly counts as about to clear, so they never give up) and step in if the besieger falls (the tutorial text explains this). Units queued behind *those* waiting units re-path round them toward the city, or stop with a "move blocked" alert. | MovementSystem |
 | 4 | A unit that steps onto an enemy **already fighting someone else** shares the tile without fighting and carries on along its path. | MovementSystem |
 | 5 | The **research queue never skips a blocked first entry**: if the first queued tech can't start (prerequisite or RP missing), later entries wait too. | ProductionSystem |
 | 6 | The Easy AI's 4-unit cap counts every unit, including its starting Scout. | NoobProfile |
 | 7 | In sandbox, **units still require a Barracks** of the right level even though tech, deposit and cost checks are skipped (the UI mirrors this). | CommandProcessor |
+| 7a | **Walls orders pause while a city is under attack.** A Walls build/upgrade makes no progress while the city is besieged or bombarded (and for 120 ticks after), so it can't refill the city mid-siege; the paid cost isn't refunded and the order resumes afterwards. A Walls order that *starts* during the cooldown also waits. | City / ProductionSystem |
+| 7b | A move order that hits a stuck friendly and **re-paths** goes straight to the final destination; any intermediate waypoints of a drag-painted path are dropped. | MovementSystem |
+| 7c | **Idle units get nudged by traffic.** A moving unit swaps places with an idle friendly in its way, so a unit you parked on a tile can be pushed one tile back each time your other units pass through it (several passers can push it several tiles). Units parked on a mover's *final* tile are never displaced. | MovementSystem |
 
 ## 2. Presentation
 

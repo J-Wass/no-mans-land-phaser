@@ -11,23 +11,40 @@ import type { GridCoordinates } from '@/types/common';
 import type { Unit } from '@/entities/units/Unit';
 import { manhattan } from '../strategies/AIStrategy';
 
+export interface AttackTargetOptions {
+  /** Which units take part in attacks (default: every unit). */
+  unitFilter?: (unit: Unit) => boolean;
+  /**
+   * Idle attackers needed before a wave launches (default 1). Above 1, the AI
+   * musters a strike force and sends it together instead of trickling single
+   * units into the enemy one at a time.
+   */
+  minStrikeForce?: number;
+}
+
 export class AttackTargetGoal implements AIGoal {
   readonly id = 'attack-target';
+
+  private readonly unitFilter: (unit: Unit) => boolean;
+  private readonly minStrikeForce: number;
 
   constructor(
     /** 0–100. Caller adjusts to reflect strategic posture. */
     private readonly basePriority: number = 60,
     /** Don't attack before this tick (prevents immediate aggression at game start). */
     private readonly minTickToAttack: number = 0,
-  ) {}
+    options: AttackTargetOptions = {},
+  ) {
+    this.unitFilter     = options.unitFilter ?? (() => true);
+    this.minStrikeForce = Math.max(1, options.minStrikeForce ?? 1);
+  }
 
   priority(_ctx: AIContext): number { return this.basePriority; }
 
   isFeasible(ctx: AIContext): boolean {
     if (ctx.currentTick < this.minTickToAttack) return false;
     const myUnits = ctx.gameState.getUnitsByNation(ctx.nationId).filter(u => u.isAlive());
-    const hasIdle = myUnits.some(u => !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id));
-    if (!hasIdle) return false;
+    if (this.idleAttackers(ctx).length < this.minStrikeForce) return false;
 
     const target = this.findTarget(ctx);
     if (!target) return false;
@@ -62,8 +79,7 @@ export class AttackTargetGoal implements AIGoal {
 
     // Dispatch all idle units toward the target (cap avoids total commitment in one cycle)
     const MAX_DISPATCH = 6;
-    const units = ctx.gameState.getUnitsByNation(ctx.nationId)
-      .filter(u => u.isAlive() && !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id))
+    const units = this.idleAttackers(ctx)
       .sort((a, b) => manhattan(a.position, target) - manhattan(b.position, target));
 
     let dispatched = 0;
@@ -94,6 +110,12 @@ export class AttackTargetGoal implements AIGoal {
       }
     }
     return dispatched > 0 ? 'ongoing' : 'failed';
+  }
+
+  private idleAttackers(ctx: AIContext): Unit[] {
+    return ctx.gameState.getUnitsByNation(ctx.nationId).filter(u =>
+      u.isAlive() && !u.isEngagedInBattle() && !ctx.movementSystem.isMoving(u.id) && this.unitFilter(u),
+    );
   }
 
   private findTarget(ctx: AIContext): GridCoordinates | null {

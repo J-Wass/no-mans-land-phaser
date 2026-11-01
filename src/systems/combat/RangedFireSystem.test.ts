@@ -8,6 +8,10 @@ import { Cavalry } from '@/entities/units/Cavalry';
 import { Infantry } from '@/entities/units/Infantry';
 import { HeavyInfantry } from '@/entities/units/HeavyInfantry';
 import { Scout } from '@/entities/units/Scout';
+import { Longbowman } from '@/entities/units/Longbowman';
+import { City } from '@/entities/cities/City';
+import { CityBuildingType } from '@/systems/territory/CityBuilding';
+import { healthFactor, CITY_RANGED_COUNTERFIRE_FACTOR } from '@/config/combatBalance';
 
 /**
  * Cavalry's anti-ranged identity: it shrugs off standalone ranged fire while it
@@ -129,5 +133,28 @@ describe('RangedFireSystem — diplomacy', () => {
     treb.setPreferredTargetId('tgt');
     rf.tick(gs, eb, 0);
     expect(target.getHealth()).toBe(target.getStats().maxHealth);
+  });
+});
+
+describe('RangedFireSystem — city counterfire', () => {
+  it('a city fires back at a ranged attacker at CITY_RANGED_COUNTERFIRE_FACTOR of its melee damage', () => {
+    const gs = new GameState({ rows: 8, cols: 8 });
+    gs.addNation(new Nation('na', 'A', '#f00'));
+    gs.addNation(new Nation('nb', 'B', '#00f'));
+    gs.getNation('na')!.declareWar('nb');
+    gs.getNation('nb')!.declareWar('na');
+    const city = new City('c', 'Walled', 'nb', { row: 1, col: 4 });
+    for (let i = 0; i < 5; i++) city.addBuilding(CityBuildingType.WALLS);
+    gs.addCity(city);
+    const archer = new Longbowman('lb', 'na', { row: 1, col: 1 });
+    gs.addUnit(archer);
+
+    new RangedFireSystem(() => 0.5).tick(gs, new GameEventBus(), 0);
+
+    const full = city.getMeleeDamage() * healthFactor(city.getHealth(), city.getMaxHealth());
+    const taken = archer.getMaxHealth() - archer.getHealth();
+    expect(taken).toBe(Math.max(1, Math.round(full * CITY_RANGED_COUNTERFIRE_FACTOR)));
+    expect(taken).toBeLessThan(Math.round(full));
+    expect(city.isUnderAttack(0)).toBe(true);
   });
 });

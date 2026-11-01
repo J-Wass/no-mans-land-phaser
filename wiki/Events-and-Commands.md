@@ -48,7 +48,8 @@ A typed wrapper over `eventemitter3` with `emit`, `on`, `off`. `EventSubscriptio
 | `unit:move-ordered` | `{unitId, path, playerId}` | CommandProcessor |
 | `unit:step-complete` | `{unitId, from, to, tick}` | MovementSystem; also retreats, peace teleports |
 | `unit:move-complete` | `{unitId, destination, tick}` | MovementSystem; siege/territory conquest with no pending path |
-| `unit:destroyed` | `{unitId, byUnitId \| null, ownerNationId, position, tick}` | battles, sieges, territory battles, ranged fire, spy detection, dead sweep |
+| `unit:move-blocked` | `{unitId, position, blockedAt, blockerUnitId, reason: 'destination-occupied'\|'no-detour', tick}` — a move order ended early because one of the mover's own units holds the way | MovementSystem |
+| `unit:destroyed` | `{unitId, byUnitId \| null, ownerNationId, position, tick, unitName?, cause?: 'battle'\|'ranged'\|'city'\|'territory'\|'spy-detected', byCityId?}` — the unit is already removed from GameState, so `unitName` carries its full name; `cause`/`byCityId` say what killed it (absent from the dead-unit sweep) | battles, sieges, territory battles, ranged fire, spy detection, dead sweep |
 | `unit:battle-order-changed` | `{unitId, battleOrder, tick}` | CommandProcessor |
 | `unit:spy-changed` | `{unitId, isSpy, tick}` | CommandProcessor |
 | `unit:withdrew` | `{unitId, from, to, tick}` | BattleSystem (loser retreat) |
@@ -96,6 +97,7 @@ A typed wrapper over `eventemitter3` with `emit`, `on`, `off`. `EventSubscriptio
 ### Subscribers inside the simulation
 - **MoraleSystem:** `battle:ended`, `unit:destroyed`, `city:conquered`, `territory:claimed`, `city:siege-round`.
 - **DiplomacySystem:** `battle:started`, `city:siege-started`, `ranged:fired` (auto-war).
+- **GameScene → VisionSystem:** `ranged:fired` (`noteRangedFire`: reveals the shooter's tile to the target's owner for `SHOOTER_REVEAL_TICKS`).
 - **TickEngine:** `diplomacy:peace-signed` (force-end combat).
 - **MusicManager:** `diplomacy:war-declared`, `diplomacy:peace-signed`, `game:tick`.
 

@@ -38,7 +38,7 @@ What happens each tick, in order: movement (and combat starts) → spy detection
 | Difficulty | AI profile | Behaviour |
 |---|---|---|
 | **Easy** | Noob | Researches Masonry, builds/upgrades a Barracks, keeps up to 4 units. Never attacks or expands. |
-| **Medium** | Basic | Produces Infantry/Scouts, expands, researches (economy-first), builds, attacks from tick 1800 (3 min). |
+| **Medium** | Basic | Builds an Infantry/Longbowman army (at most 2 Scouts), expands, researches (economy-first), builds, and from tick 1800 (3 min) swarms the nearest enemy once it has 4 combat units. |
 | **Hard** | Advanced | Expansion → Military ↔ Defense strategy machine; mines deposits; can attack from tick 500 (250 once in Military). |
 | **Sandbox** | — | No AI at all. |
 

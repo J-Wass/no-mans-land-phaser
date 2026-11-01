@@ -18,6 +18,7 @@ import {
   CITY_BUILDING_MAP,
   CityBuildingType,
 } from '@/systems/territory/CityBuilding';
+import { CITY_SIEGE_HEAL_COOLDOWN_TICKS } from '@/config/combatBalance';
 
 export interface CityData {
   id:              EntityId;
@@ -37,6 +38,11 @@ export interface CityData {
   razeCountdown:   number;
   /** A single targeted level removal in progress (takes CITY_RAZE_INTERVAL_TICKS to resolve). */
   pendingRemoval:  { building: CityBuildingType; ticksRemaining: number } | null;
+  /**
+   * Last tick the city was under siege or ranged bombardment (null = never).
+   * Regen waits CITY_SIEGE_HEAL_COOLDOWN_TICKS after it. Absent in older saves.
+   */
+  lastBesiegedTick: number | null;
 }
 
 export class City implements GameEntity, Serializable<CityData> {
@@ -59,6 +65,7 @@ export class City implements GameEntity, Serializable<CityData> {
       razing:        false,
       razeCountdown: 0,
       pendingRemoval: null,
+      lastBesiegedTick: null,
     };
   }
 
@@ -88,6 +95,27 @@ export class City implements GameEntity, Serializable<CityData> {
 
   public setHealth(amount: number): void {
     this.data.currentHealth = Math.max(0, Math.min(this.getMaxHealth(), amount));
+  }
+
+  /** Record that the city is under siege or ranged attack this tick (pauses regen). */
+  public markBesieged(tick: number): void {
+    this.data.lastBesiegedTick = tick;
+  }
+  public getLastBesiegedTick(): number | null { return this.data.lastBesiegedTick; }
+  /**
+   * True while the city is besieged or bombarded, and for
+   * CITY_SIEGE_HEAL_COOLDOWN_TICKS afterwards. Regen and Walls construction
+   * both wait this out.
+   */
+  public isUnderAttack(currentTick: number): boolean {
+    const last = this.data.lastBesiegedTick;
+    return last !== null && currentTick - last < CITY_SIEGE_HEAL_COOLDOWN_TICKS;
+  }
+  /** A Walls order makes no progress while the city is under attack (it would refill the city's HP). */
+  public isProductionPaused(currentTick: number): boolean {
+    const order = this.data.currentOrder;
+    return order?.kind === 'building' && order.buildingType === CityBuildingType.WALLS
+      && this.isUnderAttack(currentTick);
   }
 
   public getCurrentOrder(): ProductionOrder | null { return this.data.currentOrder; }

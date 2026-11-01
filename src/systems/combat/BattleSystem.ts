@@ -516,6 +516,7 @@ export class BattleSystem {
         eventBus.emit('unit:destroyed', {
           unitId: loser.id, byUnitId: winner?.id ?? null,
           ownerNationId: loserOwner, position: loserPosition, tick: currentTick,
+          unitName: loser.getFullName(), cause: 'battle',
         });
       } else {
         const retreatTarget = this.findRetreatTarget(gameState, loser, winner, battle);
@@ -541,6 +542,7 @@ export class BattleSystem {
           eventBus.emit('unit:destroyed', {
             unitId: loser.id, byUnitId: winner?.id ?? null,
             ownerNationId: loserOwner, position: loserPosition, tick: currentTick,
+            unitName: loser.getFullName(), cause: 'battle',
           });
         }
       }
@@ -553,6 +555,7 @@ export class BattleSystem {
       eventBus.emit('unit:destroyed', {
         unitId: winner.id, byUnitId: loser?.id ?? null,
         ownerNationId: winnerOwner, position: winnerPosition, tick: currentTick,
+        unitName: winner.getFullName(), cause: 'battle',
       });
       winner = null;
     }

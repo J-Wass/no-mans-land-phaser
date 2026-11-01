@@ -33,7 +33,8 @@ Path alias: `@/` → `src/` (in `vite.config.ts`, `tsconfig.json`, and Jest's `m
 
 ```
 src/
-├── main.ts                    entry: UIManager.init(); new Phaser.Game(gameConfig); exposes window.game in DEV
+├── main.ts                    entry: UIManager.init(); new Phaser.Game(gameConfig); exposes window.game in DEV;
+│                               with ?test=1 on the dev server, loads testing/TestHarness first (window.__TEST__)
 ├── config/
 │   ├── gameConfig.ts           Phaser config: scenes [MenuScene, BootScene, GameScene, UIScene], bg #08090f
 │   ├── constants.ts            TILE_SIZE=40, TICK_RATE=10, TICK_INTERVAL_MS=100, MAX_TICK_CATCHUP=5
@@ -77,7 +78,9 @@ src/
 ├── scenes/                     MenuScene, BootScene, GameScene, UIScene, Minimap, gameSceneHelpers
 ├── ui/                         UIManager (DOM overlay), PhaserUIBridge, TutorialOverlay, modals/*, pages/MenuPage, styles/*.css
 ├── i18n/                       all user-facing strings (content, hud, modals, menu) + strings.ts barrel
-└── utils/                      resourceIcons (emoji), uiHelpers (formatCost), rexUiHelpers (unused)
+├── utils/                      resourceIcons (emoji), uiHelpers (formatCost), rexUiHelpers (unused)
+└── testing/                    automated-playtest seam (see §10): testHooks (ships in every build, dependency-free),
+                                TestHarness (dev only), invariants, playerView, eventInvolvement
 public/                         served as-is: terrain_squares/*.png, sprites/infantry_neutral_4x.png, audio/music/*.mp3, favicon.svg
 ```
 
@@ -136,7 +139,7 @@ DOM modals (city menu, territory menu, research, diplomacy, pause, game over, wa
 3. `TickEngine(gameState, movement, bus, isSandbox)` (constructs Production/Battle/Siege/RangedFire/SpyDetection/TerritoryBattle/Morale systems).
 4. `DiplomacySystem`, `VisionSystem`; detect tutorial mode (`gameMode === 'scenario'` and the scenario has `isTutorial`).
 5. `CommandProcessor(gameState, movement, bus, diplomacy, isSandbox)` wrapped in `LocalServerAdapter`.
-6. `AISystem(gameState, commandProcessor, movement, pathfinder, difficulty)`.
+6. `AISystem(gameState, commandProcessor, movement, pathfinder, difficulty)`. (`Pathfinder` gets the `MovementSystem` as its movement lookup, so paths treat advancing and idle friendlies as passable.)
 7. `PhaserUIBridge`, `MusicManager`; register SHUTDOWN cleanup (music, subscriptions, tutorial, resize listener).
 8. If loading a save: restore tick, movement states, battles, sieges, territory battles, peace cooldowns.
 9. Draw terrain, deposits, territory-building icons; build `RegionSystem` from the grid and attach to `GameState`.
@@ -144,6 +147,7 @@ DOM modals (city menu, territory menu, research, diplomacy, pause, game over, wa
 11. Camera bounds/zoom/centre, resize handler, mouse controls, ESC → pause.
 12. Victory/defeat listeners (skipped in sandbox and tutorial).
 13. `scene.launch('UIScene', {...})`.
+14. `testHooks.onGameSceneReady?.(handles)` — a no-op unless the dev test harness is installed.
 
 ---
 
@@ -152,13 +156,12 @@ DOM modals (city menu, territory menu, research, diplomacy, pause, game over, wa
 `GameScene.update(time, delta)` runs every animation frame:
 
 ```ts
-if (gameSpeed > 0) {
+if (gameSpeed > 0 && !testHooks.holdTime) {         // holdTime: only ever set by the dev test harness
   interval = TICK_INTERVAL_MS / gameSpeed            // 100ms at 1×, 50ms at 2×, 25ms at 4×, 200ms at 0.5×
   accumulator = min(accumulator + delta, interval * MAX_TICK_CATCHUP)   // backlog capped at 5 ticks
   while (accumulator >= interval) {
     accumulator -= interval
-    tickEngine.advance()                             // one simulation tick
-    aiSystem.tick(tickEngine.getCurrentTick())       // AI thinks after every tick
+    stepSimulation()                                 // tickEngine.advance(), then aiSystem.tick(currentTick)
   }
 }
 // then presentation, every frame regardless of pause:
@@ -232,7 +235,19 @@ Only `LocalServerAdapter` exists. Player identity is a `Player` record (`isLocal
 
 ## 10. Testing
 
-- 285 tests in ~30 `*.test.ts` files next to the code they cover (combat, morale, movement costs, pathfinding, production, diplomacy, save round-trips, spawn, spy detection, tutorial manager, scenario loading, RNG and combat determinism, i18n content wiring).
-- Anything needing a live Phaser `Game` or DOM (scenes, HUD, modals) has no automated tests — importing `phaser` under Node throws.
+- ~370 tests in 36 `*.test.ts` files next to the code they cover (combat, sieges, morale, movement and friendly blocking/swapping, pathfinding, production, the Medium AI profile, diplomacy, vision, save round-trips, spawn, spy detection, tutorial manager, scenario loading, RNG and combat determinism, i18n content wiring, and the playtest harness's pure modules).
+- Anything needing a live Phaser `Game` or DOM (scenes, HUD, modals) has no Jest tests — importing `phaser` under Node throws. That ground is covered by the automated playtest harness instead.
+
+### Automated playtest harness (`src/testing/`)
+Opening the **dev server** with `?test=1` installs `window.__TEST__`, a seam an automated (LLM) player drives the real game through. Production builds never include it: `main.ts` imports `testing/TestHarness` dynamically behind `import.meta.env.DEV`, and scenes only touch the dependency-free `testing/testHooks.ts`.
+
+- **URL params:** `autostart=1` (skip the menu), `seed`, `difficulty`, `opponents`, `mode`, `scenario`, `session` (evidence folder name), `realtime=1`, `sound=1`.
+- **Time is held** (`testHooks.holdTime`): the game renders but only advances through `advance(n, {stopOn})`, which runs `GameScene.stepSimulation()` per tick and stops early on notable events, new invariant violations, runtime errors or game over.
+- **Observation:** `state()` and `map()` give a fog-respecting JSON snapshot and ASCII map (`playerView.ts`); `ui()` lists open DOM modals and canvas HUD text with click coordinates; `eventLog()`, `notifications()`.
+- **Acting:** `moveTo()` (uses the game's Pathfinder), `issue(command)`, `focus()` / `tileToScreen()` for real clicks.
+- **Instruments:** `invariants()` (`invariants.ts`, ~30 rules checked every 10 ticks), `saveAndReload()` (real save/load path, full state diff), `metrics()` (command failures, clicks, dead time, task timings), error capture.
+- **Evidence:** `screenshot()`, `dumpSave()`, `writeFile()`, `flush()` write into `qa-reports/<session>/` (gitignored) through a dev-server-only endpoint (`/__qa/write` in `vite.config.ts`, confined to that folder).
+- Test sessions use separate save-slot keys (`testHooks.storageNamespace = 'qa-'`), so a player's real saves are never touched.
+- The Claude Code skill `/playtest` (`.claude/skills/playtest/`) plays a game through this seam as a persona and writes a report; see `TESTING.md`.
 
 → Continue to **[World Generation](World-Generation.md)**

@@ -74,7 +74,7 @@ Left to right:
 3. **SPEED** — cycles `PAUSE → 0.5x → 1x → 2x → 4x → PAUSE…`; starts at 1x. Emits `game:speed-change`.
 4. **ALERTS N** ("A N" skinny) — toggles the Alert History panel.
 5. **Resources** — 🍎 Food, 🧱 Raw Material, 🪙 Gold, 🔬 Research: "`{emoji} {amount}`". Clicking one toggles its Resource Breakdown panel.
-6. **RESEARCH** ("TECH" skinny) — shows the active tech id (underscores → spaces, uppercased, first 10 chars; 6 when the window < 820 px) with a thin green (`#44cc22`) progress bar along its bottom; toggles the Research modal.
+6. **RESEARCH** ("TECH" skinny) — shows the active tech's display name (uppercased, first 10 chars; 6 when the window < 820 px) with a thin green (`#44cc22`) progress bar along its bottom; toggles the Research modal.
 7. **SAVE** — quick-saves to **slot 1**; toast "Game saved to Slot 1" or "Failed to save game — your browser storage may be full or blocked."
 8. **MENU [ESC]** ("MENU" skinny) — opens Pause.
 
@@ -91,10 +91,18 @@ Up to **4** most recent toasts, newest at the top, each "`Day N HH:00  {text}`",
 | your city building finished | "{city} built {building}." |
 | your resource project finished | "{city} completed {label}." |
 | your unit withdrew | "{unit full name} withdrew to (r, c)." |
-| your research finished | "{nation} completed {tech id with spaces}." |
+| your research finished | "{nation} completed {tech name}." (display name, e.g. "The Wheel") |
 | war involving you | "{A} and {B} are now at war." + **red edge flash** (4 bars, 7% of the short side, `#cc1111`, alpha 0→0.55, 3 pulses ≈ 2.4 s) |
 | peace involving you | "{A} and {B} signed peace." |
 | your spy caught | "Your spy was discovered and killed at (r, c)." |
+| your unit destroyed (not a caught spy — that has its own alert) | "{unit} was destroyed at (r, c) by {cause}." — cause: "{nation}'s {unit}" (melee battle), "ranged fire from (r, c)" (the shooter isn't named, but its tile is — shooters are revealed to their targets; plain "ranged fire" if the shooter is gone), "the defenders of {city}" (siege/counterfire), "territory defences"; or "…destroyed at (r, c)." when unknown |
+| an enemy unit destroyed by your unit | "{your unit} destroyed {nation}'s {unit} at (r, c)." / spy detection: "{your unit} caught and killed a {nation} spy at (r, c)." |
+| your unit enters a unit-vs-unit battle (once per battle) | "{your unit} is fighting {nation}'s {unit} at (r, c)." |
+| your unit starts besieging a city | "{your unit} is besieging {city}." |
+| your city comes under siege | "{city} is under siege by {nation}!" + red edge flash |
+| you capture a city | "You captured {city} from {nation}!" |
+| your city is captured | "{city} was captured by {nation}!" + red edge flash |
+| your unit's move order stops at a friendly unit (`unit:move-blocked`) | destination occupied: "{unit} stopped short: (r, c) is occupied by {blocker}." / no way round: "{unit} stopped: {blocker} at (r, c) blocks the only way through." |
 | region dominated (first time per region) | "You now dominate the {region}! Bonus resources granted." |
 | your unit's morale band worsens, or recovers to STEADY/INSPIRED | "{unit full name}: {BAND}." |
 | peace refused (widget) | the refusal reason |
@@ -125,7 +133,7 @@ Rates: `count × 10 / interval` (city buildings are counted per city, not per le
 - For Scouts once Ancient Rituals is researched: a 4th button **SPY** / **DROP** (disabled in battle or on foreign territory).
 - Only your own units can be selected, so the unit panel only ever shows your units. Clicking a tile with an enemy unit (and nothing selected) shows the territory panel.
 
-**City panel** (340·s wide, redrawn every 10 ticks while shown): name (`#ffd9a8`), owner, "Health: cur/max", "Buildings: City Hall, Barracks, …", and either "Production: {label}  ({s}s left)" with a green progress bar or "Production: Idle".
+**City panel** (340·s wide, redrawn every 10 ticks while shown): name (`#ffd9a8`), owner, "Health: cur/max", "Buildings: City Hall, Barracks, …", and either "Production: {label}  ({s}s left)" (or "Production: {label}  (paused: under siege, {s}s left)" for a paused Walls order) with a green progress bar or "Production: Idle".
 
 **Territory panel** (380·s wide, redrawn every 10 ticks while shown): "`(r,c) {Terrain} in|near {Region}`", owner (or "Unclaimed"), "Deposit: {TYPE}" (gold) or "None", building list "`{icon} {NAME}`", construction "Building: {label} {pct}%", or the region control line.
 
@@ -138,7 +146,7 @@ Fixed top-right below the bar: width `clamp(viewWidth × 0.2, 120, 190)` px, hei
 
 A wide modal (`min(900px, 92vw)` × 90vh):
 - **Header:** city name, owner nation, CLOSE.
-- **Status panel:** current order "`{label}  |  {s}s remaining`" (gold) with progress bar and **CANCEL**; queue rows "`n. {label}  ({s}s)`" each with **✕**; the four treasury amounts.
+- **Status panel:** current order "`{label}  |  {s}s remaining`" (gold) — or, for a Walls order while the city is under attack, "`{label}  |  paused while under siege ({s}s left)`" (dim) — with progress bar and **CANCEL**; queue rows "`n. {label}  ({s}s)`" each with **✕**; the four treasury amounts.
 - **Tabs: UNITS | BUILDINGS.**
 - **UNITS:** one row per catalog unit — name, cost "`🍎400  🧱300  🪙30  24.0s`" (training time after this city's Barracks speed-up; ≤ 1 s in sandbox), the stat detail line, a status line, and a button: **LOCKED** (tech/barracks/deposit missing), **FULL** (queue full), **QUEUE** (city busy), **BUILD**. Disabled if unaffordable. Status line reasons: "Queue full (max 5 items).", "Requires research: {techs}.", "Requires barracks in this city.", "Requires barracks level N.", "Requires an active copper / iron / fire glass deposit.", "Insufficient resources.", "Ready to queue.". Hovering a row shows the unit's flavor quote.
 - **BUILDINGS:** first a **Raze City** row ("Destroys a random building level every 5s until none remain." — RAZE / STOP), then each constructible building: name, perks, cost (switches to upgrade cost once the building exists **or is already queued**), status, a main button (**BUILD / QUEUE / FULL / UPGRADE / BUILT n/max / LOCKED**) and a **−1 LVL** button (only when built; shows "−1 LVL Ns" while pending).

@@ -131,7 +131,7 @@ Each siege is one unit vs one city. Because a nation's units can't share a tile,
 
 ### City stats
 - `maxHP = 200 + 60 × wallLevel`, `melee = 12 + 3 × wallLevel` (walls max level 5 → 500 HP, 27 melee).
-- **Regen:** on ticks divisible by 50, every city that is not under any siege and is below max heals **+5 HP**.
+- **Regen:** on ticks divisible by 50, every city below max heals **+5 HP** — unless it is **under siege** (by any nation) or was within the last **120 ticks** (`CITY_SIEGE_HEAL_COOLDOWN_TICKS`, 12 s). Each city stores `lastBesiegedTick` (saved): it is stamped when a siege starts, on every tick a siege on it is active, and on every ranged hit on it (bombardment counts as besieging). So consecutive besiegers (one per nation at a time) aren't undone by healing in between. **Walls under attack:** while `City.isUnderAttack(tick)` (same window: besieged, bombarded, or within 120 ticks of either) a **Walls** build/upgrade order makes no progress (`City.isProductionPaused`), so completing a level — which refills the city to full — can't undo a siege. Other city orders keep running. The City Menu and city panel show the order as paused.
 
 ### Each round (every 10 ticks)
 1. Effective order **WITHDRAW** → the siege ends and the unit always retreats (below).
@@ -214,7 +214,7 @@ Every tick, for every unit (in insertion order) that is ranged, alive, **not eng
    - Automatic fire therefore never starts a war. A preferred target may belong to a neutral nation if the engagement policy allows it (no peace cooldown); firing on it then auto-declares war.
 2. **Damage:** `raw = max(1, round((rangedDamage + weaponTierBonus) × healthFactor(shooter) × fireManaFactor × variance))` — no veterancy, morale, matchup or terrain.
 3. **vs unit:** Cavalry takes `max(1, round(raw × 0.5))`; others take `raw`. Apply the morale hit. If it dies → removed, `unit:destroyed` with the shooter as killer.
-4. **vs city:** `city HP = max(1, HP − raw)` — ranged fire can never reduce a city below 1 HP. If the shooter is within Manhattan 3 (always true for ranged units) it takes counterfire `max(1, round(cityMelee × healthFactor(city)))` (no variance) plus the morale hit, and may die.
+4. **vs city:** `city HP = max(1, HP − raw)` — ranged fire can never reduce a city below 1 HP. If the shooter is within Manhattan 3 (always true for ranged units) it takes counterfire `max(1, round(cityMelee × healthFactor(city) × CITY_RANGED_COUNTERFIRE_FACTOR))` with `CITY_RANGED_COUNTERFIRE_FACTOR` = **0.7** (no variance) plus the morale hit, and may die. A besieger standing on the city tile still takes the full siege counter-attack.
 5. Emit `ranged:fired` (→ [DiplomacySystem](Diplomacy.md) auto-declares war if the target's nation was neutral — only possible for a preferred target). Set `nextFireTick = currentTick + 20`.
 
 No XP is granted by standalone fire. Cooldowns aren't saved.

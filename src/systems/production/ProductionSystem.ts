@@ -126,6 +126,8 @@ export class ProductionSystem {
     for (const city of gameState.getAllCities()) {
       const orderSnapshot = city.getCurrentOrder();
       if (!orderSnapshot) continue;
+      // Walls can't be raised mid-assault: finishing a level refills the city's HP.
+      if (city.isProductionPaused(currentTick)) continue;
 
       const ready = city.tickProduction();
       if (!ready) continue;

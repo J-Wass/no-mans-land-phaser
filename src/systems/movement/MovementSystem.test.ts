@@ -11,6 +11,8 @@ import { TerritoryBattleSystem } from '@/systems/combat/TerritoryBattleSystem';
 import { GameEventBus } from '@/systems/events/GameEventBus';
 import { TerrainType } from '@/systems/grid/Territory';
 import { City } from '@/entities/cities/City';
+import { FRIENDLY_BLOCK_GRACE_TICKS } from '@/config/constants';
+import type { GameEventMap } from '@/systems/events/GameEventBus';
 
 describe('MovementSystem', () => {
   let gameState: GameState;
@@ -260,6 +262,221 @@ describe('MovementSystem', () => {
       for (let t = 1; t <= 25; t++) movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr);
 
       expect(battle.getBattleForUnit('mover')).not.toBeNull();
+    });
+  });
+
+  describe('friendly units in the way', () => {
+    function collectBlocked(): GameEventMap['unit:move-blocked'][] {
+      const events: GameEventMap['unit:move-blocked'][] = [];
+      eventBus.on('unit:move-blocked', e => events.push(e));
+      return events;
+    }
+
+    it('swaps places with an idle friendly on its path and still arrives', () => {
+      const blocked = collectBlocked();
+      const mover = new Infantry('mover', 'nation-1', { row: 0, col: 0 });
+      const parked = new Infantry('parked', 'nation-1', { row: 0, col: 1 });
+      gameState.addUnit(mover);
+      gameState.addUnit(parked);
+
+      const steps: string[] = [];
+      eventBus.on('unit:step-complete', ({ unitId, to }) => steps.push(`${unitId}>${to.row},${to.col}`));
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }, { row: 0, col: 2 }]);
+      tickN(200);
+
+      expect(mover.position).toEqual({ row: 0, col: 2 });
+      expect(parked.position).toEqual({ row: 0, col: 0 });
+      expect(steps.slice(0, 2)).toEqual(['parked>0,0', 'mover>0,1']);
+      expect(movementSystem.isMoving('mover')).toBe(false);
+      expect(blocked).toHaveLength(0);
+    });
+
+    it('never swaps with a friendly that is fighting', () => {
+      const mover = new Infantry('mover', 'nation-1', { row: 0, col: 0 });
+      const fighter = new Infantry('fighter', 'nation-1', { row: 0, col: 1 });
+      fighter.setEngagedInBattle(true);
+      gameState.addUnit(mover);
+      gameState.addUnit(fighter);
+
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }, { row: 0, col: 2 }]);
+      tickN(200);
+
+      expect(fighter.position).toEqual({ row: 0, col: 1 });
+      expect(mover.position).not.toEqual({ row: 0, col: 1 });
+    });
+
+    it('re-paths in the battle-aware tick too', () => {
+      gameState.addNation(new Nation('na', 'A', '#f00'));
+      const mover = new Infantry('mover', 'na', { row: 0, col: 0 });
+      gameState.addUnit(mover);
+      gameState.addUnit(new Infantry('parked', 'na', { row: 0, col: 1 }));
+      const battle = new BattleSystem(() => 0.5);
+      const siege = new CitySiegeSystem(() => 0.5);
+      const terr = new TerritoryBattleSystem(() => 0.5);
+
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }, { row: 0, col: 2 }]);
+      for (let t = 1; t <= 200; t++) movementSystem.tickWithBattles(gameState, eventBus, t, battle, siege, terr);
+
+      expect(mover.position).toEqual({ row: 0, col: 2 });
+    });
+
+    it('stops next to a destination held by a parked friendly and reports it', () => {
+      const blocked = collectBlocked();
+      const mover = new Infantry('mover', 'nation-1', { row: 0, col: 0 });
+      gameState.addUnit(mover);
+      gameState.addUnit(new Infantry('parked', 'nation-1', { row: 0, col: 1 }));
+
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }]);
+      tickN(25 + FRIENDLY_BLOCK_GRACE_TICKS);
+
+      expect(mover.position).toEqual({ row: 0, col: 0 });
+      expect(movementSystem.isMoving('mover')).toBe(false);
+      expect(blocked).toEqual([expect.objectContaining({
+        unitId:        'mover',
+        position:      { row: 0, col: 0 },
+        blockedAt:     { row: 0, col: 1 },
+        blockerUnitId: 'parked',
+        reason:        'destination-occupied',
+      })]);
+    });
+
+    it('swaps past an idle friendly but stops short of one parked on the destination', () => {
+      const blocked = collectBlocked();
+      const mover = new Infantry('mover', 'nation-1', { row: 0, col: 0 });
+      const inWay = new Infantry('in-way', 'nation-1', { row: 0, col: 1 });
+      gameState.addUnit(mover);
+      gameState.addUnit(inWay);
+      gameState.addUnit(new Infantry('at-dest', 'nation-1', { row: 0, col: 3 }));
+
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }, { row: 0, col: 2 }, { row: 0, col: 3 }]);
+      tickN(200);
+
+      expect(inWay.position).toEqual({ row: 0, col: 0 });
+      expect(mover.position).toEqual({ row: 0, col: 2 });
+      expect(movementSystem.isMoving('mover')).toBe(false);
+      expect(blocked[0]).toMatchObject({
+        blockedAt: { row: 0, col: 3 }, blockerUnitId: 'at-dest', reason: 'destination-occupied',
+      });
+    });
+
+    it('gets a whole column through a one-tile corridor past an idle friendly', () => {
+      const blocked = collectBlocked();
+      // A one-tile-wide corridor along row 0.
+      for (let r = 1; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+          gameState.getGrid().getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
+        }
+      }
+      const lead = new Infantry('lead', 'nation-1', { row: 0, col: 1 });
+      const tail = new Infantry('tail', 'nation-1', { row: 0, col: 0 });
+      const parked = new Infantry('parked', 'nation-1', { row: 0, col: 2 });
+      gameState.addUnit(lead);
+      gameState.addUnit(tail);
+      gameState.addUnit(parked);
+
+      movementSystem.issueOrder(lead, [{ row: 0, col: 2 }, { row: 0, col: 3 }, { row: 0, col: 4 }]);
+      movementSystem.issueOrder(tail, [{ row: 0, col: 1 }, { row: 0, col: 2 }, { row: 0, col: 3 }]);
+      tickN(400);
+
+      expect(lead.position).toEqual({ row: 0, col: 4 });
+      expect(tail.position).toEqual({ row: 0, col: 3 });
+      expect(blocked).toHaveLength(0);
+    });
+
+    it('waits behind a fighting friendly in a corridor instead of swapping or giving up', () => {
+      const blocked = collectBlocked();
+      for (let r = 1; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+          gameState.getGrid().getTerritory({ row: r, col: c })?.setTerrainType(TerrainType.WATER);
+        }
+      }
+      const mover = new Infantry('mover', 'nation-1', { row: 0, col: 0 });
+      const fighter = new Infantry('fighter', 'nation-1', { row: 0, col: 1 });
+      fighter.setEngagedInBattle(true);
+      gameState.addUnit(mover);
+      gameState.addUnit(fighter);
+
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }, { row: 0, col: 2 }]);
+      tickN(200);
+
+      // A fighting friendly is waited for (it may fall or win and move on), never swapped.
+      expect(fighter.position).toEqual({ row: 0, col: 1 });
+      expect(mover.position).toEqual({ row: 0, col: 0 });
+      expect(blocked).toHaveLength(0);
+    });
+
+    it('waits (without giving up) for a friendly that is moving off the tile', () => {
+      const blocked = collectBlocked();
+      // The blocker's own step is slow (forest: 50 ticks), well past the grace period.
+      gameState.getGrid().getTerritory({ row: 1, col: 1 })?.setTerrainType(TerrainType.FOREST);
+      const mover = new Infantry('mover', 'nation-1', { row: 0, col: 0 });
+      const leaving = new Infantry('leaving', 'nation-1', { row: 0, col: 1 });
+      gameState.addUnit(mover);
+      gameState.addUnit(leaving);
+
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }]);
+      movementSystem.issueOrder(leaving, [{ row: 1, col: 1 }]);
+      tickN(60);
+
+      expect(leaving.position).toEqual({ row: 1, col: 1 });
+      expect(mover.position).toEqual({ row: 0, col: 1 });
+      expect(blocked).toHaveLength(0);
+    });
+
+    it('keeps waiting behind a friendly that is fighting (it may fall and free the tile)', () => {
+      const blocked = collectBlocked();
+      const mover = new Infantry('mover', 'nation-1', { row: 0, col: 0 });
+      const fighter = new Infantry('fighter', 'nation-1', { row: 0, col: 1 });
+      fighter.setEngagedInBattle(true);
+      gameState.addUnit(mover);
+      gameState.addUnit(fighter);
+
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }]);
+      const t = tickN(200);
+
+      expect(movementSystem.isMoving('mover')).toBe(true);
+      expect(blocked).toHaveLength(0);
+
+      gameState.removeUnit('fighter'); // the besieger fell
+      tickN(2, t);
+      expect(mover.position).toEqual({ row: 0, col: 1 });
+    });
+
+    it('two friendlies ordered onto each other’s tiles do not freeze forever', () => {
+      const blocked = collectBlocked();
+      gameState.addUnit(new Infantry('a', 'nation-1', { row: 0, col: 0 }));
+      gameState.addUnit(new Infantry('b', 'nation-1', { row: 0, col: 1 }));
+
+      movementSystem.issueOrder(gameState.getUnit('a')!, [{ row: 0, col: 1 }]);
+      movementSystem.issueOrder(gameState.getUnit('b')!, [{ row: 0, col: 0 }]);
+      tickN(25 + FRIENDLY_BLOCK_GRACE_TICKS + 1);
+
+      expect(movementSystem.isMoving('a')).toBe(false);
+      expect(movementSystem.isMoving('b')).toBe(false);
+      expect(blocked.map(e => e.unitId).sort()).toEqual(['a', 'b']);
+    });
+
+    it('isAdvancing is false while a unit waits behind a friendly', () => {
+      const mover = new Infantry('mover', 'nation-1', { row: 0, col: 0 });
+      gameState.addUnit(mover);
+      gameState.addUnit(new Infantry('parked', 'nation-1', { row: 0, col: 1 }));
+
+      movementSystem.issueOrder(mover, [{ row: 0, col: 1 }]);
+      const t = tickN(24);
+      expect(movementSystem.isAdvancing('mover')).toBe(true);
+      tickN(1, t);
+      expect(movementSystem.isMoving('mover')).toBe(true);
+      expect(movementSystem.isAdvancing('mover')).toBe(false);
+    });
+
+    it('restores the blocked-tick counter from a save, and loads older saves without it', () => {
+      movementSystem.restoreStates([
+        { unitId: 'u1', path: [{ row: 0, col: 1 }], ticksRemainingOnStep: 1, blockedTicks: 3 },
+        { unitId: 'u2', path: [{ row: 1, col: 1 }], ticksRemainingOnStep: 4 },
+      ]);
+      expect(movementSystem.getState('u1')?.blockedTicks).toBe(3);
+      expect(movementSystem.getState('u2')?.blockedTicks).toBeUndefined();
+      expect(movementSystem.isAdvancing('u2')).toBe(true);
     });
   });
 });
