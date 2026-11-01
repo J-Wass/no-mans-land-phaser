@@ -1,38 +1,48 @@
 # No Man's Land — Game Wiki
 
-A grid-based, **real-time** (tick-driven) strategy game built in TypeScript + Phaser 3. You command a nation: grow an economy, research technology, raise an army, and conquer rival cities. Combat is resolved automatically over time using a deep stat model where **HP, morale, stance, terrain, unit matchups, veterancy, and magical deposits** all feed the same damage math.
+A grid-based, **real-time** (tick-driven) strategy game built in TypeScript + Phaser 3. You command a nation: claim land, grow an economy, research technology, raise an army, and conquer rival cities. Combat resolves automatically using a stat model where **HP, morale, stance, terrain, unit matchups, veterancy and mined deposits** all feed the same damage math.
 
-This wiki documents every mechanic in the game, with the exact numbers pulled from the source.
+This wiki is a complete specification: every rule, number, algorithm, screen, string, asset and data file needed to rebuild the game, taken from the source. Where the code behaves differently from its own in-game text, the wiki documents the code and lists the mismatch in [Known Quirks](Known-Quirks.md).
 
-> **Note on "ticks":** The simulation runs at `TICK_RATE = 10` ticks per second (`TICK_INTERVAL_MS = 100 ms`). Throughout this wiki, durations are given in ticks; divide by 10 for seconds. The in-game clock reads "Day N HH:00" where **100 ticks = 1 in-game day**.
+> **Ticks:** the simulation runs at `TICK_RATE = 10` ticks per second (100 ms per tick). Durations are given in ticks; divide by 10 for seconds at 1× speed. The clock reads "Day N HH:00", where **100 ticks = 1 day**.
 
 ---
 
 ## Contents
 
 ### Getting started
-- **[Overview & Core Loop](Overview.md)** — what the game is, the turn/tick model, win conditions, game modes.
-- **[Controls & UI](Controls-and-UI.md)** — mouse, camera, the HUD, panels, and how to do everything.
-- **[Scenarios & Tutorial](Scenarios-and-Tutorial.md)** — the included scenarios and the step-by-step tutorial.
+- **[Overview & Core Loop](Overview.md)** — game modes, difficulties, starting position, win/lose rules.
+- **[Controls & UI](Controls-and-UI.md)** — mouse, camera, HUD, every modal, the main menu.
+- **[Scenarios & Tutorial](Scenarios-and-Tutorial.md)** — the three scenarios and the tutorial step chain.
+
+### How it's built
+- **[Architecture](Architecture.md)** — tech stack, folder layout, scenes, frame/tick loop, determinism, RNG, build/test/deploy.
+- **[World Generation](World-Generation.md)** — grid sizing, procedural terrain, deposits, spawn and city placement, starting territory.
+- **[Events & Commands](Events-and-Commands.md)** — every `GameCommand` with its validation, every `GameEventBus` event.
+- **[Save Format](Save-Format.md)** — localStorage slots, the full save schema, restore order, id conventions.
+- **[Presentation](Presentation.md)** — rendering layers, sprites and animation, overlays, fog drawing, minimap, CSS theme, audio.
 
 ### The army
-- **[Units](Units.md)** — full stat tables, costs, requirements, and unit roles.
-- **[Combat](Combat.md)** — the complete damage formula, unit battles, sieges, territory battles, ranged fire, XP & veterancy.
-- **[Stances](Stances.md)** — HOLD / ADVANCE / WITHDRAW explained, including the WITHDRAW roll and retreat.
-- **[Morale](Morale.md)** — bands, combat effects, every gain/loss, recovery, and how morale gates stances.
+- **[Units](Units.md)** — stats, matchups, spies, costs, veterancy, names.
+- **[Combat](Combat.md)** — battles, sieges, territory battles, ranged fire, retreats, RNG order.
+- **[Stances](Stances.md)** — HOLD / ADVANCE / WITHDRAW, the withdraw roll, morale gating.
+- **[Morale](Morale.md)** — bands, every gain and loss, recovery.
 
 ### The empire
-- **[Map, Terrain & Movement](Map-Terrain-Movement.md)** — the grid, terrain types, movement cost, pathfinding, and fog of war.
-- **[Economy & Resources](Economy-and-Resources.md)** — the four treasury resources, deposits, and mana bonuses.
-- **[Production & Buildings](Production-and-Buildings.md)** — city/territory build queues, every building, and resource yields.
-- **[Research / Tech Tree](Research.md)** — every technology, cost, prerequisite, and unlock.
-- **[Cities, Territory & Regions](Cities-Territory-Regions.md)** — city HP/walls, claiming land, mines, and region domination.
+- **[Map, Terrain & Movement](Map-Terrain-Movement.md)** — grid, terrain, step costs, pathfinding, vision, the tick order.
+- **[Economy & Resources](Economy-and-Resources.md)** — treasury, income, upkeep, deposits and mine bonuses.
+- **[Production & Buildings](Production-and-Buildings.md)** — city queue, city buildings, territory buildings.
+- **[Research / Tech Tree](Research.md)** — all 17 techs, queueing, the research screen.
+- **[Cities, Territory & Regions](Cities-Territory-Regions.md)** — city/territory stats, claiming land, regions and their names.
 
 ### The other players
-- **[Diplomacy](Diplomacy.md)** — war, peace, alliances, and trading.
-- **[Artificial Intelligence](AI.md)** — difficulty profiles, goals, and the strategy state machine.
+- **[Diplomacy](Diplomacy.md)** — war, peace, alliances, trade, defeat.
+- **[Artificial Intelligence](AI.md)** — profiles, goals, the Advanced strategy machine.
 
 ### Reference
+- **[Text & Content](Text-and-Content.md)** — catalog text, flavor quotes, tooltips, menu text.
+- **[Scenario Data](Scenario-Data.md)** — `scenarios.json`, all three `.terrain` maps and `names.json`, verbatim.
+- **[Known Quirks](Known-Quirks.md)** — surprising behaviour, text/rule mismatches, dead code.
 - **[Constants & Glossary](Constants-and-Glossary.md)** — every tunable number in one place.
 
 ---
@@ -41,10 +51,16 @@ This wiki documents every mechanic in the game, with the exact numbers pulled fr
 
 | | |
 |---|---|
-| **Engine** | Phaser 3 + TypeScript, deterministic seeded RNG (lockstep-ready) |
-| **Tick rate** | 10 ticks/sec (100 ms/tick) |
-| **Players** | 1 human vs 1–4 AI nations |
-| **Difficulties** | Easy (Noob AI), Medium (Basic AI), Hard (Advanced AI), Sandbox (passive) |
-| **Win condition** | Usually eliminate all enemies (scenario-defined); some scenarios are "survive N ticks" |
-| **Resources** | Gold, Food, Raw Material, Research — plus tile **deposits** (metals & mana) |
-| **Unit types** | Infantry, Scout, Heavy Infantry, Cavalry, Longbowman, Crossbowman, Catapult, Trebuchet |
+| **Engine** | Phaser 3 (^3.80.1) + TypeScript (strict), Vite, Jest; DOM overlay for menus and modals |
+| **Tick rate** | 10 ticks/s; speeds Pause / 0.5× / 1× / 2× / 4× |
+| **Players** | 1 human vs 1–4 AI nations (skirmish) or scenario-defined |
+| **Modes** | Scenario, Standard Match (skirmish), Sandbox, Tutorial |
+| **Difficulties** | Easy (Noob AI), Medium (Basic AI), Hard (Advanced AI), Sandbox (no AI) |
+| **Map** | Square tile grid (40 px tiles): 23–26 per side procedural, 60×60 scenarios; 6 terrains |
+| **Resources** | Food, Raw Material, Gold, Research + 11 deposit types (5 metals, 6 mana) |
+| **Units** | Infantry, Scout, Heavy Infantry, Cavalry, Longbowman, Crossbowman, Catapult, Trebuchet |
+| **Buildings** | 8 city buildings (levels up to 5), 11 territory buildings |
+| **Tech tree** | 17 techs in Society / Science / Arcane |
+| **Win condition** | Eliminate every non-allied nation (scenario-defined; `survive_ticks` supported) |
+| **Saves** | 10 localStorage slots, JSON export/import |
+| **Determinism** | One seeded mulberry32 RNG drives map generation and all simulation randomness |

@@ -2,96 +2,146 @@
 
 [← Back to Home](README.md)
 
-The AI opponents are built from a three-layer hierarchy: **Profile → (Strategy) → Goals**. Difficulty picks the profile; the profile produces a list of goals each cycle; the controller filters, sorts by priority, and executes the top few. The Advanced profile adds a **strategy state machine** that swaps its goal list as the situation changes.
-
-> All numbers below are from the source. "Tick" = 1/10 second.
+AI nations use a three-layer hierarchy: **Profile → (Strategy) → Goals**. Difficulty picks the profile; the profile (or its current strategy) produces candidate goals each evaluation; the controller keeps the feasible ones, sorts them by priority and executes the top few. The AI uses exactly the same `GameCommand`s and validation as the player.
 
 ---
 
 ## 1. Architecture
 
-- **AISystem** — coordinator. Maps difficulty → profile, staggers each AI nation's evaluation by `aiIndex × 7` ticks so they don't all think on the same tick, and ticks every controller (a thrown goal is caught and logged, never crashing other nations). **Sandbox creates no controllers — AI is fully passive.**
-- **AIController** (one per AI nation) — every `profile.tickInterval` ticks it runs:
+- **AISystem** (created by GameScene, ticked after every simulation tick):
+  - Difficulty → profile: `easy` → Noob, `medium` → Basic, `hard` → Advanced; any other value → Basic. **`sandbox` creates no controllers** (AI fully passive — also used by the Tutorial).
+  - One controller per AI nation existing at game start, with `phaseOffset = aiIndex × 7` (aiIndex = 0, 1, … in nation order).
+  - Each tick, for each controller whose nation still exists, is AI-controlled and has a player id, builds an `AIContext {nationId, playerId, gameState, commandProcessor, movementSystem, pathfinder, currentTick}` and calls `controller.tick(ctx)` inside try/catch (errors are logged, not fatal).
+- **AIController:**
+  ```ts
+  lastEvalTick = -(phaseOffset % max(1, interval))
+  tick(ctx):
+    if ctx.currentTick - lastEvalTick < interval: return
+    lastEvalTick = ctx.currentTick
+    goals = profile.generateGoals(ctx).filter(g => g.isFeasible(ctx))
+                                      .sort((a, b) => b.priority(ctx) - a.priority(ctx))   // stable sort
+    execute the first min(goals.length, maxGoalsPerCycle)
   ```
-  candidates = profile.generateGoals(ctx)
-      .filter(isFeasible)
-      .sort(by priority, highest first)
-  execute the top `profile.maxGoalsPerCycle` of them
-  ```
-- **AIGoal** — a stateless objective with `priority` (0–100), `isFeasible`, and `execute`. Regenerated fresh each cycle.
-- **AIStrategy** — a swappable goal generator used **only by the Advanced profile**; it can decide to switch itself out.
+- **AIGoal** — stateless object with `id`, `priority(ctx)` (0–100), `isFeasible(ctx)`, `execute(ctx)`; regenerated every evaluation.
+- **AIStrategy** — swappable goal generator (Advanced only) with `shouldSwitch` / `nextStrategy`.
+
+AI controllers and strategies are not saved; a loaded game restarts them (Advanced starts again in Expansion).
 
 ---
 
-## 2. Difficulty profiles
+## 2. Profiles
 
 | | **Noob** (Easy) | **Basic** (Medium) | **Advanced** (Hard) |
 |---|---|---|---|
-| Re-evaluates every | 80 ticks | 30 ticks | 20 ticks |
-| Goals per cycle | 1 | 3 | 4 |
-| Strategy layer | none | none | yes |
-| Attacks? | **never** | yes, after tick **1800** | yes, as early as tick **250** |
-| Expands territory? | never | yes | yes |
-| Builds mines? | no | no | yes |
-| Researches? | no | yes (economy-first) | yes (default order) |
+| Evaluates every | 80 ticks | 30 ticks | 20 ticks |
+| Goals executed per evaluation | 1 | 3 | 4 |
+| Strategy layer | — | — | Expansion / Military / Defense |
+| Attacks | never | from tick 1800 | from tick 500 (Expansion) / 250 (Military) |
+| Claims territory | never | yes | yes |
+| Builds mines | never | never | yes |
+| Researches | Masonry only | economy-first list | default list |
 
 ### Noob (Easy)
-Builds up to **4 Infantry** and then does nothing else — never attacks, expands, or researches. A passive training-wheels opponent.
+Goals each evaluation:
+1. `BuildBuildingGoal([BARRACKS])` — only ever builds/upgrades the Barracks.
+2. `ResearchTechGoal(['masonry'])` — only while Masonry isn't researched. (Its fallback can pick any researchable tech, but the goal disappears once Masonry is done.)
+3. `ProduceUnitGoal([INFANTRY])` — only while it has fewer than **4 units** (all units, including the starting Scout).
+
+With 1 goal per evaluation, it executes whichever is highest priority (production 20–75, research 40, building 35).
 
 ### Basic (Medium)
-Runs five goals every cycle: produce Infantry/Scouts, claim territory, attack (priority 40, **not before tick 1800**), research, and build buildings. Its research order is economy-first: `masonry, hunting, writing, trade, education, animal_domestication, iron_working, scientific_method, mathematics`.
+Fixed list: `ProduceUnitGoal([INFANTRY, SCOUT])`, `ClaimTerritoryGoal`, `AttackTargetGoal(40, 1800)`, `ResearchTechGoal(BASIC_ORDER)`, `BuildBuildingGoal()`.
+
+`BASIC_ORDER = masonry, hunting, writing, trade, education, animal_domestication, iron_working, scientific_method, mathematics` (the goal falls back to any researchable tech when none of these is available).
 
 ### Advanced (Hard)
-Starts in the **Expansion** strategy and switches between strategies as the game develops (see below). Uses the full default research order and diversified unit production.
+Before generating goals, asks the current strategy `shouldSwitch(ctx)`; if true, replaces it with `nextStrategy(ctx)`. Starts in **Expansion**.
 
 ---
 
-## 3. The goals
+## 3. Goals
 
-| Goal | Priority | What it does |
-|---|---|---|
-| **AttackTargetGoal** | base (30–70) | Sends up to **6** idle units toward the nearest enemy city/unit on **ADVANCE**. Skips if outmatched (own HP < 55% of enemy HP) or before its `minTickToAttack`. |
-| **DefendPositionGoal** | 80 | (Defense strategy) Sends idle units to a threatened city on **HOLD**. |
-| **ClaimTerritoryGoal** | 50 | Builds an Outpost on an unclaimed tile a unit is standing on, or routes a unit toward the best expansion tile. Scores tiles: deposit +30, good terrain +3–5, partial-region-completion bonus. |
-| **BuildTerritoryGoal** | 45 | Builds mines on controlled deposit tiles. Priority among mines: Mana 40 > Fire Glass 35 > Iron 30 > Copper 20. (Skips Silver/Gold — no mine type.) |
-| **ResearchTechGoal** | 40 | Starts the next researchable tech from its priority list (fallback: any researchable tech). |
-| **BuildBuildingGoal** | 35 | Builds the first missing preferred city building (Barracks → Farms → Workshop → Walls → Market → School), else upgrades existing ones (Barracks first). |
-| **ProduceUnitGoal** | dynamic `max(20, 75 − units×8)` | Queues the first affordable/unlocked unit from its preferred list at an idle city. More urgent when the AI has fewer units. |
+### ProduceUnitGoal(preferredTypes)
+- **Priority:** `max(20, 75 − unitCount × 8)` (unitCount = all the nation's units).
+- **Feasible / execute:** for each city of the nation (in order) that has **no current order**, for each preferred type in order: tech researched, required building level met, deposit requirements met, affordable → `START_CITY_PRODUCTION` there. One unit per execution.
 
-The **AttackTargetGoal** is the key difficulty lever: its base priority and earliest-attack tick vary by profile/strategy (Basic 40/1800, Expansion 30/500, Military 70/250, Defense 50/0).
+### ClaimTerritoryGoal — priority 50
+- **Phase 1:** if any of its units stands on an **unclaimed** non-water/non-mountain tile, try `BUILD_TERRITORY OUTPOST` on each such tile (stops at the first success; the command requires adjacency to its land).
+- **Phase 2:** otherwise collect unclaimed non-water/non-mountain tiles orthogonally adjacent to its land, score each:
+  - +30 if it has a deposit,
+  - terrain: Plains +5, Forest +4, Snow-Forest +4, Desert +3,
+  - region bonus: if the tile is in a region the AI controls a fraction `0 < f < 0.66` of → `+round(f × 20)`,
+  
+  pick the best (first wins ties), and send the **first idle unit** (alive, not engaged, not moving — in unit order) that has a path to it there.
+- Feasible if phase 1 applies or phase 2 finds a move.
+
+### AttackTargetGoal(basePriority = 60, minTickToAttack = 0)
+- **Priority:** `basePriority`.
+- **Feasible:** `currentTick ≥ minTickToAttack`; at least one idle unit; a target exists; **not outmatched**: with `my` = total HP of its living units and `enemy` = total HP of all living units of nations it is **at war with**, it is outmatched when `enemy > 0 && my < enemy × 0.55`.
+- **Target:** every non-allied city and unit (including neutral nations'), sorted by Manhattan distance from the AI's **first city** (or first unit if it has no city); take the closest.
+- **Execute:** idle units sorted by distance to the target; for up to **6** of them, pathfind to the target tile, `MOVE_UNIT`, then `SET_UNIT_BATTLE_ORDER ADVANCE`.
+  Because the target can belong to a neutral nation, attacking also starts wars via auto-war.
+
+### ResearchTechGoal(priorityList = DEFAULT_ORDER) — priority 40
+- Feasible when nothing is being researched and some tech can be picked.
+- Pick the first tech in the list whose prerequisites are met (`canResearch`); fallback: the first researchable tech in catalog order. Execute `START_RESEARCH` (fails silently if RP is short; tried again next evaluation).
+- `DEFAULT_ORDER = masonry, hunting, writing, scientific_method, mathematics, chemistry, biology, physics, animal_domestication, iron_working, mechanization, trade, education, steel_working, ancient_rituals, mana_studies` (The Wheel is reached only via fallback).
+
+### BuildBuildingGoal(allowedTypes = PREFERRED) — priority 35
+`PREFERRED = BARRACKS, FARMS, WORKSHOP, WALLS, MARKET, SCHOOL` (Watchtower never).
+- **Pass 1 (new buildings):** for each city with no current order, the first allowed type it lacks whose tech is researched and cost affordable.
+- **Pass 2 (upgrades):** for each city with no current order, the first allowed type it has below max level with an affordable upgrade cost.
+- Execute `BUILD_CITY_BUILDING`.
+
+### BuildTerritoryGoal — priority 45
+Scans every tile the AI owns that has a deposit; picks the mine with the **highest priority** whose building isn't present or under construction there, whose tech is researched and cost affordable (row-major, first wins ties): Mana Mine 40 > Fire Glass 35 > Gold 32 > Iron 30 > Silver 25 > Copper 20. Executes `BUILD_TERRITORY`. (The scan is memoised per tick.)
+
+### DefendPositionGoal(target, priority) — Defense strategy only
+- Feasible if any idle unit exists. Execute: send **every** idle unit (sorted by distance) toward the threatened city tile and set it to **HOLD**.
 
 ---
 
-## 4. The Advanced strategy state machine
+## 4. Advanced strategies
 
-The Advanced profile swaps between three strategies, each producing its own goal list:
-
-### Expansion (starting strategy)
-- Goals: claim territory, build mines, produce Infantry/Scouts, low-priority attack (won't attack before tick 500).
-- **Switches to Military** when threatened (enemy within 5 tiles of a city) **or** it owns **≥12 tiles**.
+### Expansion (start)
+- Goals: `ClaimTerritoryGoal`, `BuildTerritoryGoal`, `ProduceUnitGoal([INFANTRY, SCOUT])`, `AttackTargetGoal(30, 500)`.
+- Switch to **Military** when *under threat* (any non-allied unit within Manhattan 5 of any of its cities) **or** it owns ≥ 12 tiles.
 
 ### Military
-- Goals: high-priority attack (from tick 250), diversified production (Infantry/Cavalry/Heavy Infantry/Crossbowman/Longbowman), claim territory, build buildings & mines, research.
-- **Switches to Defense** if outnumbered (own units < 60% of the largest enemy) **and** an enemy is within 4 tiles of a city.
-- **Reverts to Expansion** only if at peace and under 12 tiles.
+- Goals: `AttackTargetGoal(70, 250)`, `ProduceUnitGoal([INFANTRY, CAVALRY, HEAVY_INFANTRY, CROSSBOWMAN, LONGBOWMAN])`, `ClaimTerritoryGoal`, `BuildBuildingGoal()`, `BuildTerritoryGoal`, `ResearchTechGoal()`.
+- Switch to **Defense** if *outnumbered* (`ownUnits < 0.6 × max units of any single non-allied nation`) **and** a non-allied unit is within Manhattan 4 of one of its cities.
+- Else revert to **Expansion** if it is at war with nobody **and** owns fewer than 12 tiles.
 
 ### Defense
-- Goals: defensive production (Heavy Infantry/Infantry/Crossbowman), defend the threatened city (priority 80, HOLD), plus a moderate attack goal.
-- **Switches back to Military** once no enemy is within 6 tiles of any city.
+- Goals: `ProduceUnitGoal([HEAVY_INFANTRY, INFANTRY, CROSSBOWMAN])`, `DefendPositionGoal(nearestThreatenedCity, 80)` (the own city with the closest non-allied unit, if any), `AttackTargetGoal(50)` (no time gate).
+- Switch back to **Military** once no non-allied unit is within Manhattan 6 of any of its cities.
 
-**Cycle:** Expansion → (threat or 12 tiles) → Military ↔ Defense (under pressure) → back toward Expansion only when safe and small.
+```
+Expansion ──(threat ≤5 or ≥12 tiles)──► Military ──(outnumbered & threat ≤4)──► Defense
+    ▲                                      │  ▲                                    │
+    └──────(no wars & <12 tiles)───────────┘  └──────────(no threat ≤6)────────────┘
+```
 
 ---
 
-## 5. Difficulty quick numbers
+## 5. Other AI decisions
+- **Peace:** an AI accepts a peace proposal unless its total unit HP exceeds the proposer's by more than 40%. It never proposes peace itself.
+- **Trade:** see [Diplomacy → Trading](Diplomacy.md#ai-evaluation-evaluatetradeforai). The AI never offers trades.
+- **War:** the AI never declares war explicitly; its wars come from auto-war when its units attack or shoot.
+- **Allies:** never targeted.
+
+---
+
+## 6. Quick numbers
 
 | Lever | Noob | Basic | Advanced |
 |---|---|---|---|
-| Think interval | 80t | 30t | 20t |
-| Goals/cycle | 1 | 3 | 4 |
-| Earliest attack | never | 1800t | 250t (Military) |
-| Outmatch caution | — | skip attack if own HP < 55% of enemy | same |
-| Max units dispatched per attack | — | 6 | 6 |
-| AI refuses peace if | — | winning by >40% | winning by >40% |
+| Think interval | 80 t | 30 t | 20 t |
+| Goals / evaluation | 1 | 3 | 4 |
+| Earliest attack | never | tick 1800 (3 min) | tick 500 (Expansion), 250 (Military), any (Defense) |
+| Attack priority | — | 40 | 30 / 70 / 50 |
+| Outmatch threshold | — | own HP < 55% of at-war enemies' HP | same |
+| Max units per attack order | — | 6 | 6 |
+| Refuses peace if | its HP > 1.4 × yours | same | same |
 
-→ Continue to **[Scenarios & Tutorial](Scenarios-and-Tutorial.md)**
+→ Continue to **[Controls & UI](Controls-and-UI.md)**

@@ -4,149 +4,166 @@
 
 ## 1. The grid
 
-- The world is a **square-tile grid** addressed by `{row, col}`. Tile size is **40px**.
-- Grid dimensions are set per game (roughly **22×22 to 30×30** for skirmishes, scaled to nation count), surrounded by an impassable **water border**.
-- **Adjacency is 4-way (orthogonal)** for movement, pathfinding, and vision — **there is no diagonal movement.** (Only [morale radii](Morale.md#7-radii-reference) use 8-way Chebyshev distance.)
-- Two distance metrics are used:
-  - **Manhattan** (`|Δrow| + |Δcol|`) — movement, pathfinding, vision, ranged targeting.
-  - **Chebyshev** (`max(|Δrow|, |Δcol|)`) — morale witness/rally radii.
+- The world is a **square grid of tiles** addressed by `{row, col}`; `(0,0)` is the top-left. One tile is **40 px** (`TILE_SIZE`); tile `(r,c)` occupies world pixels `[c·40, (c+1)·40) × [r·40, (r+1)·40)`.
+- Size: 60×60 for scenarios, 23–26 for skirmishes (see [World Generation](World-Generation.md#2-grid-size)). Water surrounds the playable land.
+- Every tile is a `Territory` record: terrain, owner (`controlledBy`), optional city id, optional resource deposit, territory buildings + levels, an in-progress construction, and HP.
+- **Adjacency is 4-way (N/S/W/E)** for pathfinding, outpost adjacency, impassable-tile claiming and region flood fill. Paths produced by the pathfinder never move diagonally.
+- Distance metrics (`systems/grid/geometry.ts`):
+  - **Manhattan** `|Δr| + |Δc|` — pathfinding heuristic, vision circles, ranged targeting, AI threat radii, peace teleport.
+  - **Chebyshev** `max(|Δr|, |Δc|)` — morale witness/rally radii, spy detection, spawn spacing, retreat rings.
 
 ---
 
 ## 2. Terrain
 
-Six terrain types, each with a movement cost and combat effects:
-
-| Terrain | Move cost | Notes |
-|---|---|---|
-| **Plains** | 50 | Open ground. Yields **Food**. |
-| **Snow-Forest** | 75 | Yields Raw Material. Defensive cover for dug-in troops. |
-| **Desert** | 75 | Yields **Gold**. |
-| **Forest** | 100 | Yields Raw Material. Heavy cover; cripples cavalry. |
-| **Mountain** | ∞ (impassable) | Passable only with **Earth Mana** (then costs 75). |
-| **Water** | ∞ (impassable) | Passable only with **Water Mana** (then costs 75). |
-
-Move cost is fed into the [step-cost formula](#3-movement) — lower is faster.
+| Terrain | Enum | Move cost | `.terrain` char | Minimap colour | Harvest when owned |
+|---|---|---|---|---|---|
+| Plains | `PLAINS` | 50 | `.` | `#6b8f3a` | +1 Food / 50 ticks |
+| Snow-Forest ("Snowy Forest", "hills") | `SNOW_FOREST` | 75 | `H` | `#c2cdd8` | +1 Raw Material / 50 ticks |
+| Desert | `DESERT` | 75 | `D` | `#c9b069` | +1 Gold / 80 ticks |
+| Forest | `FOREST` | 100 | `F` | `#2f5d2f` | +1 Raw Material / 50 ticks |
+| Mountain | `MOUNTAIN` | ∞ (Earth Mana → 75) | `M` | `#6f6f6f` | — |
+| Water | `WATER` | ∞ (Water Mana → 75) | `W` | `#24416b` | — |
 
 ### Terrain combat modifiers
-Terrain doesn't grant a flat "defense %" — its effects depend on **unit type and stance**.
+Terrain effects depend on unit type and stance; they apply in **unit-vs-unit battles only**, using the terrain of the battle tile (the tile both units stand on).
 
-**Offense** (multiplies the attacker's damage):
-- **Forest:** Cavalry **×0.82**; ranged **×0.94**; melee **×1.08**.
-- **Snow-Forest:** ranged **×1.12**; HOLD **×1.05**.
-- **Desert:** Cavalry **×1.06**; Heavy Infantry **×0.95** (plate broils).
-- **Plains:** Cavalry on ADVANCE **×1.12** (signature charge).
+**Offense multiplier** (attacker):
+- **Forest:** Cavalry ×0.82; otherwise ranged attack ×0.94; otherwise (melee) ×1.08.
+- **Snow-Forest:** ranged attack ×1.12; otherwise on HOLD ×1.05; otherwise ×1.
+- **Desert:** Cavalry ×1.06; Heavy Infantry ×0.95.
+- **Plains:** Cavalry on ADVANCE ×1.12.
+- Mountain / Water: ×1.
 
-**Mitigation** (added to the defender's mitigation, before the 0.65 cap):
-- **Forest:** **+0.06** for everyone *except cavalry* ("can't hide a horse").
-- **Snow-Forest:** **+0.08** when defending on HOLD or WITHDRAW (dug in).
-- **Plains:** **−0.04** for cavalry on ADVANCE (momentum cost).
+**Mitigation bonus** (defender, added before the 0.65 cap):
+- **Forest:** +0.06 for every unit type except Cavalry.
+- **Snow-Forest:** +0.08 when the defender's effective stance is HOLD or WITHDRAW.
+- **Plains:** −0.04 for Cavalry on ADVANCE.
 
-> Terrain does **not** affect vision range. Concealment comes from **Shadow Mana**, not terrain.
-
-### Terrain economic yields
-Owned tiles slowly harvest their terrain (see [Production](Production-and-Buildings.md#resource-yields)): plains → Food (every 50 ticks), forest/snow-forest → Raw Material (every 50), desert → Gold (every 80).
+Terrain does **not** affect vision.
 
 ---
 
 ## 3. Movement
 
-Movement is **tick-based**, not point-based. Each step onto a new tile takes a number of ticks:
+Movement is continuous, tick-based, and orthogonal. A unit's order is a **path**: the list of tiles to step through, excluding its current tile.
 
+### Step cost
+```ts
+stepCost(terrain, unitType, stats, activeDeposits?, activeCounts?, speedMultiplier = 1):
+  base = TERRAIN_BASE_COST[terrain]
+  if base is ∞:
+     MOUNTAIN and nation has an active EARTH_MANA mine → base = 75
+     WATER    and nation has an active WATER_MANA mine → base = 75
+  if base is ∞ → ∞ (impassable)
+  effectiveSpeed = (terrain == FOREST && unitType ∈ {HEAVY_INFANTRY, CAVALRY, CATAPULT, TREBUCHET}) ? 1 : stats.speed
+  lightning      = min(3, # active Lightning-Mana mines)          // +1 speed per mine
+  speedMultiplier = nation researched 'the_wheel' ? 1.2 : 1
+  return max(1, ceil(base / ((effectiveSpeed + lightning) * speedMultiplier)))
 ```
-effectiveSpeed = (forest && unit is heavy/cav/siege) ? 1 : unitSpeed
-stepCost       = max(1, ceil(terrainBaseCost / (effectiveSpeed + lightningBonus)))
-```
 
-- A speed-2 unit on plains (cost 50): `ceil(50/2) = 25` ticks per tile. A speed-5 unit: 10 ticks.
-- **Forest penalty:** Heavy Infantry, Cavalry, Catapult, and Trebuchet always move through **forest** at effective speed 1 (so 100 ticks/tile) regardless of their speed stat.
-- **Lightning Mana** adds +1 effective speed per mine (max +3).
-- **The Wheel** tech multiplies effective speed by **1.2** (+20% movement) for all your units — stacks with Lightning Mana.
-- **Earth/Water Mana** make mountain/water passable at cost 75.
+Ticks per tile (no mana):
 
-How a move plays out each tick:
-1. Units that are dead or **engaged in battle** don't move (combat freezes movement).
-2. On entering a new step, the tile's terrain sets the step's tick cost.
-3. The cost counts down; at 0 the unit commits the step.
-4. **Friendly stacking is blocked** — if a friendly unit already holds the target tile, the mover waits and retries.
-5. While moving, if the unit enters an **enemy unit** (→ battle), **enemy city** (→ siege), or **enemy territory at war** (→ territory battle), combat starts and movement halts. **Undercover spies are the exception** — they pass through enemy units, cities, and territory without triggering any of this (and enemy units likewise pass through them), so infiltrating never declares war (see [Units → Spies](Units.md#special-behaviors)).
+| Speed | Plains | Snow-Forest / Desert | Forest | …with The Wheel (Plains / SF-Desert / Forest) |
+|---|---|---|---|---|
+| 1 (Heavy Inf, Crossbow, Catapult, Trebuchet) | 50 | 75 | 100 | 42 / 63 / 84 |
+| 2 (Infantry, Longbowman) | 25 | 38 | 50 | 21 / 32 / 42 |
+| 3 (Scout) | 17 | 25 | 34 | 14 / 21 / 28 |
+| 3 (Cavalry — forest at speed 1) | 17 | 25 | **100** | 14 / 21 / **84** |
 
-**Stance does not change movement speed** — ADVANCE/HOLD/WITHDRAW and the battle pace factor affect combat only. A unit in battle simply stops moving.
+### How a move plays out (`MovementSystem.tickWithBattles`, once per tick, for every unit with an order)
+1. If the unit no longer exists or is dead → drop the order. If it is **engaged in battle** → skip (frozen).
+2. Look up the owner's active deposits/counts and The Wheel.
+3. If `ticksRemainingOnStep ≤ 0` (a freshly issued or resumed order): set it to `stepCost` of `path[0]`; if that tile is now impassable, drop the order.
+4. `ticksRemainingOnStep--`. When it reaches 0:
+   1. Shift `next = path[0]`.
+   2. **Friendly stacking is blocked:** if another living unit of the **same owner** stands on `next`, put it back and retry next tick (`ticksRemainingOnStep = 1`).
+   3. Move the unit (`unit.moveTo(next)`), emit `unit:step-complete`.
+   4. Unless the mover is an undercover **spy**:
+      - Another nation's living, non-spy unit that is **not already in a battle** on `next` → `BattleSystem.startBattle(mover, occupant)` (both now share the tile); stop processing this unit.
+      - Else a city on `next` owned by another nation → `CitySiegeSystem.startSiege`; stop.
+      - Else the tile is owned by another nation, has no city, **and the mover's nation is at WAR with that owner** → `TerritoryBattleSystem.startBattle`; stop.
+   5. If the path is now empty → drop the order, emit `unit:move-complete`. Otherwise pre-compute `stepCost` of the new `path[0]` (0 if impassable, which drops the order next tick).
+
+Consequences worth knowing:
+- A unit with a cost-25 step spends exactly 25 ticks before arriving.
+- Moving onto a **neutral** nation's land never starts a fight; moving onto a neutral nation's **unit** or **city** does (and auto-declares war — see [Diplomacy](Diplomacy.md)).
+- Walking onto an enemy unit that is already fighting someone else just shares its tile; the mover then gets the city/territory checks.
+- Units of different nations can share a tile; same-nation units cannot.
+- Stance never changes movement speed.
+
+### Command validation
+`MOVE_UNIT` is rejected if the path is empty, the unit is dead or in battle, it isn't the player's, or the path isn't contiguous: each entry must be at **Chebyshev distance exactly 1** from the previous one (the validator accepts diagonal steps even though the pathfinder never produces them). Issuing a new order replaces the old one.
 
 ---
 
 ## 4. Pathfinding
 
-- **A\*** over the 4-connected grid.
-- **Edge cost** = the same `stepCost` as movement (so a path's predicted cost equals the ticks actually spent).
-- **Heuristic** = Manhattan distance.
-- **Enemy-territory penalty:** entering another nation's tile adds **+12** to the edge cost, so paths route around enemy land when a reasonable detour exists.
-- Returns the path **excluding the start, including the destination**, or nothing if the goal is impassable or unreachable.
+`Pathfinder.findPath(from, to, unitType, stats, ownerNationId?, gameState?)`:
+- **A\*** over the 4-connected grid with a linear-scan open list (lowest `f`, first found wins ties) and a closed set.
+- Destination check first: if `to` is impassable for this unit → `null`.
+- **Edge cost** = `stepCost` for the neighbour's terrain (with the owner's mana and The Wheel), **+12** if the neighbour is owned by a nation other than the mover's (`ENEMY_TERRITORY_PENALTY`, applies to any foreign tile including allies/neutrals).
+- **Heuristic** = Manhattan distance (in tiles, not ticks — so it is very weak relative to edge costs of 14–100).
+- Neighbours are expanded in N, S, W, E order; a node is re-pushed when a strictly better `g` is found.
+- Returns the path **excluding `from`, including `to`**, or `null`. `from == to` returns `[]`.
 
-When you left-click a destination (or drag a path), this is what plots the route.
+The player's click-move, the drag-painted path (pathfinding between consecutive waypoints), and every AI move use this.
 
 ---
 
 ## 5. Vision & fog of war
 
-Each nation has three visibility tiers (all Manhattan distance):
+`VisionSystem.compute(gameState, nationId)` runs **every frame** for the local nation (and only for it) and returns three sets of tile keys:
 
-- **Visible** — fully revealed (units and terrain shown).
-- **Near-visible** — a 2-tile ring beyond each vision source, showing **unidentified contacts** (you see *something* is there — an orange **"Heavily Armored Contact"** / **"Lightly Armored Contact"** label telling you only the armor class — but not the exact unit).
-- **Discovered** — every tile ever seen (persisted); shown dark when not currently visible.
+- **Visible:**
+  1. Every tile within Manhattan distance 2 of any tile the nation owns.
+  2. For each living unit: tiles within Manhattan distance `vision + airBonus`.
+  3. For each owned city with a **Watchtower** and each owned territory with a **Watchtower**: tiles within Manhattan distance **3**.
+- **Near-visible:** tiles within `radius + 2` of each unit / watchtower circle that are not visible ("unidentified contacts").
+- **Discovered:** visible ∪ near-visible tiles are added to the nation's persistent discovered set (saved with the game).
 
-What reveals the map:
-1. **Your territory + a 2-tile border** around each owned tile.
-2. **Unit vision circles** — radius = the unit's `vision` stat (+ Air Mana). Tiles within the radius are visible; the next 2 tiles are near-visible.
-3. **Watchtowers** (city or territory buildings) — a vision circle of radius **3**.
+`airBonus` = number of active Air-Mana mines (max 3).
 
-Mana effects:
-- **Air Mana:** +1 vision radius per mine (max +3) for all your units.
-- **Shadow Mana** (on the *enemy's* nation): reduces each observer's effective vision by 1 against that unit — concealment. Air Mana on the viewer can cancel it.
+### Seeing enemy units (`unitVisibility`)
+1. An undercover **spy** is `hidden` from every nation except its owner and that owner's allies.
+2. If the unit's nation has **no** active Shadow-Mana mine: `visible` if its tile is visible, `near` if near-visible, else `hidden`.
+3. If it **has** Shadow Mana: only the observer's **units** count (territory borders and watchtowers no longer reveal it). For each living observer unit: `effectiveVision = max(0, vision + airBonus − 1)`; `visible` if Manhattan distance ≤ effectiveVision, else `near` if ≤ effectiveVision + 2.
 
-Fog is **disabled entirely** in Sandbox and Tutorial. The minimap only ever shows **your own** units, never enemies.
+On screen: own units always show; enemy units show only when `visible`; a `near` enemy shows an orange marker reading **"Heavily Armored Contact"** or **"Lightly Armored Contact"** (by armor type) instead of the sprite. Undiscovered tiles are drawn solid black, discovered-but-not-visible tiles at 55% black. Cities are shown once their tile is discovered. Territory-building icons, city HP bars, conquest and construction overlays only show on **visible** tiles. See [Presentation](Presentation.md#4-fog-of-war-drawing).
+
+**Fog is disabled** (everything visible and discovered) in Sandbox and in the Tutorial. The minimap shows only discovered tiles and only your own units.
 
 ---
 
 ## 6. The Tick Engine
 
-The simulation clock. **`TICK_RATE = 10` ticks/sec** (`TICK_INTERVAL_MS = 100ms`). Each tick runs systems in this fixed order:
+`TICK_RATE = 10` ticks/sec, `TICK_INTERVAL_MS = 100`. `TickEngine.advance()` runs, in order:
 
 1. `currentTick++`
-2. **Movement** — advance one step; trigger battles/sieges/territory fights on contact.
-3. **Unit battles**
-4. Promote stranded enemies on city tiles to **sieges**.
-5. **City sieges**
-6. **Territory battles**
-7. **Ranged fire**
-8. **Production** (resource income, build progress, unit spawns, upkeep)
-9. **Territory construction** (outposts/mines/walls; outpost also claims adjacent water/mountain)
-10. Sweep dead units
-11. Check for defeated nations
-12. **Periodic pulses** (`tick % interval == 0`):
-    - Every **10 ticks** (1s): heal units resting in friendly cities (**+5%/sec of max HP**), recover morale, water-mana healing.
-    - City HP regen **+5/50 ticks**, territory HP regen **+5/50 ticks**.
-    - Region domination bonuses **every 50 ticks**.
-13. Morale band-change polling (UI toasts).
-14. Emit `game:tick`.
+2. **Movement** (`tickWithBattles`) — steps, and starts battles / sieges / territory battles on arrival.
+3. **Spy detection** (only on ticks divisible by 10).
+4. **Unit-vs-unit battles.**
+5. **Stranded-unit sieges** — any living, non-engaged, non-spy unit standing on a city tile owned by another nation starts a siege there (e.g. after the city's defender withdrew).
+6. **City sieges** (city HP regen happens inside on ticks divisible by 50).
+7. **Territory battles** (territory HP regen inside on ticks divisible by 50).
+8. **Ranged fire.**
+9. **Production** — passive income, region domination, raze/level-removal decay, city build queues and unit spawns, upkeep, research.
+10. **Territory construction** — every tile's construction counts down; completions apply (outposts claim the tile + adjacent unowned water/mountain).
+11. **Sweep dead units** (HP 0 but not yet removed) → `unit:destroyed` with no killer.
+12. **Defeat check** — any nation with no cities and no living units is defeated.
+13. If `tick % 10 == 0`: heal units resting in own cities, then morale recovery.
+14. If `tick % 10 == 0`: Water-Mana healing.
+15. `MoraleSystem.tick` — emits `morale:band-changed` for band crossings.
+16. Emit `game:tick`.
 
-All systems pull from one **deterministic seeded RNG**, making the whole simulation reproducible (lockstep-ready).
+After each `advance()`, GameScene calls `AISystem.tick(currentTick)`.
+
+When peace is signed (`diplomacy:peace-signed`), TickEngine immediately force-ends every battle, siege and territory battle between the two nations.
 
 ---
 
 ## 7. The `.terrain` map file format
 
-Scenario maps are plain-text grids — one line per row, one character per column:
+Plain text, one line per row, one character per column (see the table in §2). Lines are taken after trimming the whole file and stripping trailing whitespace from each line; the number of lines sets the grid size. Unknown characters leave the tile as PLAINS. Deposits are not in the map file — they come from the scenario definition. All three shipped maps are 60×60; see [Scenario Data](Scenario-Data.md).
 
-| Char | Terrain |
-|---|---|
-| `W` | Water (impassable) |
-| `.` | Plains |
-| `H` | Snow-Forest ("hills/snow") |
-| `F` | Forest |
-| `M` | Mountain (impassable) |
-| `D` | Desert |
-
-Unknown characters leave a tile at its default. The grid is sized by config and the file is overlaid onto it. Resource deposits are placed separately (by scenario definition or procedurally), not in the `.terrain` file.
-
-→ Continue to **[Economy & Resources](Economy-and-Resources.md)**
+→ Continue to **[Units](Units.md)**

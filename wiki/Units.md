@@ -2,133 +2,192 @@
 
 [← Back to Home](README.md)
 
-There are **eight unit types**. Each is a thin subclass that supplies a stat block to the base `Unit` class; all combat behavior lives in the [combat systems](Combat.md). A unit counts as **ranged** when it has `attackRange > 1` **and** `rangedDamage > 0` (Longbowman, Crossbowman, Catapult, Trebuchet). There is no separate "siege" or "cavalry" flag — those behaviors key off the unit's type and armor.
+There are **eight unit types**. Each is a thin subclass that only supplies a stat block to the base `Unit` class; all behaviour lives in the systems. A unit is **ranged** when `attackRange > 1` **and** `rangedDamage > 0` (Longbowman, Crossbowman, Catapult, Trebuchet). "Siege" means Catapult or Trebuchet; matchup rules key off unit type and armor, not separate flags.
 
 ---
 
-## 1. Full stats table
+## 1. Stats
 
-| Unit | HP | Melee | Ranged | Armor | Speed | Range | Vision | Upkeep (Food/RawMat) |
-|------|----|-------|--------|-------|-------|-------|--------|----------------------|
-| **Infantry** | 100 | 10 | — | light | 2 | 1 | 1 | 1 / 1 |
-| **Scout** | 100 | 2 | — | light | 3 | 1 | **2** | 1 / 1 |
-| **Heavy Infantry** | 250 | 20 | — | heavy | 1 | 1 | 1 | 2 / 1 |
-| **Cavalry** | 160 | 32 | — | heavy | 3 | 1 | 1 | 2 / 1 |
-| **Longbowman** | 100 | 10 | 12 | light | 2 | **3** | 1 | 1 / 1 |
-| **Crossbowman** | 150 | 10 | 15 | heavy | 1 | 2 | 1 | 1 / 1 |
-| **Catapult** | 200 | 15 | 25 | heavy | 1 | 2 | 1 | 1 / 2 |
-| **Trebuchet** | 250 | 25 | 50 | heavy | 1 | **3** | 1 | 2 / 3 |
+| Unit (`UnitType`) | Map letter | HP | Melee | Ranged | Armor | Speed | Range | Vision | Upkeep (Food / Raw Mat per 30 ticks) |
+|---|---|---|---|---|---|---|---|---|---|
+| **Infantry** (`INFANTRY`) | I | 100 | 10 | 0 | light | 2 | 1 | 1 | 1 / 1 |
+| **Scout** (`SCOUT`) | S | 100 | 2 | 0 | light | 3 | 1 | **2** | 1 / 1 |
+| **Heavy Infantry** (`HEAVY_INFANTRY`) | H | 250 | 20 | 0 | heavy | 1 | 1 | 1 | 2 / 1 |
+| **Cavalry** (`CAVALRY`) | C | 160 | 32 | 0 | heavy | 3 | 1 | 1 | 2 / 1 |
+| **Longbowman** (`LONGBOWMAN`) | L | 100 | 10 | 12 | light | 2 | **3** | 1 | 1 / 1 |
+| **Crossbowman** (`CROSSBOWMAN`) | X | 150 | 10 | 15 | heavy | 1 | 2 | 1 | 1 / 1 |
+| **Catapult** (`CATAPULT`) | K | 200 | 15 | 25 | heavy | 1 | 2 | 1 | 1 / 2 |
+| **Trebuchet** (`TREBUCHET`) | T | 250 | 25 | 50 | heavy | 1 | **3** | 1 | 2 / 3 |
 
-- **HP** — health pool. Wounded units also hit softer (see [health factor](Combat.md#shared-damage-primitives)).
-- **Melee / Ranged** — base damage. `Ranged = 0` means melee-only. Ranged units fire at range but fall back to melee when forced (e.g. on ADVANCE).
-- **Armor** — `light` or `heavy`. Drives many [matchup bonuses](#2-unit-matchups) (heavy armor resists melee but is vulnerable to bolts and siege).
-- **Speed** — used only by [movement cost](Map-Terrain-Movement.md#3-movement): higher speed = fewer ticks per tile. Also feeds the [WITHDRAW roll](Stances.md#the-withdraw-roll).
-- **Range** — 1 = melee only; 2–3 = can fire from a distance.
-- **Vision** — sight radius (Scout sees farthest).
-- **Upkeep** — Food/RawMaterial drained from the treasury every 30 ticks per living unit.
+- **HP** — wounded units also hit softer (health factor 0.55–1.0).
+- **Speed** — divides terrain cost when moving ([step cost](Map-Terrain-Movement.md#3-movement)) and feeds the [WITHDRAW roll](Stances.md#the-withdraw-roll).
+- **Range** — 1 = melee only. Ranged units fire automatically at targets within this Manhattan distance ([Ranged fire](Combat.md#4-ranged-fire-system)) and use their ranged stat in battles unless on ADVANCE.
+- **Vision** — Manhattan sight radius (+ Air Mana).
+- **Upkeep** — charged every 30 ticks while alive. If the treasury can't cover a unit's full upkeep, **nothing** is charged for that unit (there is no starvation penalty) — see [Economy → Upkeep](Economy-and-Resources.md#upkeep).
+- The HUD unit panel shows `Melee` and `Ranged` **plus** the nation's weapon-tier bonus (+2/+4/+6), and an "Armor" label that is really the weapon tier: Fire Glass (Fire Glass mine), Steel (Iron mine + Steel Working), Iron (Iron mine), Bronze (Copper mine), else Leather.
 
 ---
 
 ## 2. Unit matchups — the rock-paper-scissors triangle
 
-Counters are **not** stored on the units — they're applied in the [BattleSystem](Combat.md) as offense/defense modifiers. The combat roster is a triangle:
+Matchups are applied by the [BattleSystem](Combat.md#1-unit-vs-unit-battle) as offense/mitigation modifiers:
 
 > 🛡 **HEAVY INFANTRY (spears) → 🐎 CAVALRY → 🏹 RANGED (Longbow / Crossbow / Catapult / Trebuchet) → 🛡 HEAVY INFANTRY**
 
-- **Heavy Infantry beats Cavalry** — a planted spear-wall stops the charge.
-- **Cavalry beats Ranged** — fast enough to close before pre-damage piles up, and a ranged/siege unit is near-helpless once a horse is in its face.
-- **Ranged beats Heavy Infantry** — softens the slow shield wall with [pre-damage](Combat.md#4-ranged-fire-system) on the approach plus armor-piercing fire. This is an **army-level** edge — keep your ranged behind a screen — **not** a lone-archer-beats-a-knight 1v1.
+- **Heavy Infantry beats Cavalry** — the planted spear wall.
+- **Cavalry beats Ranged** — it takes half damage from standalone ranged fire while closing, and siege units are nearly helpless once caught in melee.
+- **Ranged beats Heavy Infantry** — through pre-damage at range plus armor-piercing bonuses. This is an army-level edge, not a 1v1 guarantee.
+- **Infantry** is the cheap, no-tech generalist; **Scout** is recon (and, with Ancient Rituals, a spy).
 
-**Infantry** is a cheap, no-tech generalist that loses 1v1 to all the specialists — its value is mass and economy, not a matchup. **Scout** is recon.
+### Offense modifiers (summed into one `matchupFactor`, starting at 1)
+| Condition | Δ |
+|---|---|
+| Attacker uses its ranged attack **and** defender has heavy armor | +0.12 |
+| Attacker uses melee **and** defender has heavy armor | −0.06 |
+| Attacker is siege **and** uses melee (i.e. on ADVANCE) | −0.30 |
+| Defender is siege **and** attacker uses melee | +0.08 |
+| Heavy Infantry attacking Cavalry | +0.35 |
+| Heavy Infantry attacking a light-armored unit | +0.15 |
+| Crossbowman attacking heavy armor | +0.10 (total +0.22 with the ranged rule) |
+| Crossbowman attacking light armor | −0.30 |
+| Attacker is siege **and** uses its ranged attack (pinned in a melee battle, firing point-blank) | −0.80 |
 
-### Armor rules (universal)
-- **Ranged hit vs heavy armor:** **+12%** offense (arrows punch plate).
-- **Melee hit vs heavy armor:** **−6%** offense.
+### Mitigation modifiers (added to the defender's mitigation)
+| Condition (defender's effective stance) | Δ |
+|---|---|
+| Heavy Infantry on HOLD (shield wall) | +0.16 |
+| Crossbowman on WITHDRAW (kiting) | +0.12 |
+| Defender is siege and the attacker is not siege (any stance) | −0.08 |
+| Heavy Infantry being hit by Cavalry | +0.20 |
 
-### Anti-cavalry (the spears → Cavalry leg)
-- **Heavy Infantry vs Cavalry:** **+35%** offense, **and +20% mitigation** when *being hit by* cavalry (any stance). The premier — and only — cavalry-counter unit.
+### Stance-based
+- ADVANCE order factor: **Cavalry ×1.5** ("Charge"), every other unit ×1.25.
+- Cavalry on Plains while advancing: ×1.12 offense, −0.04 mitigation. In Forest: ×0.82 offense and no forest cover.
 
-### Anti-armor (powers the Ranged → shields leg)
-- **Heavy Infantry vs light armor:** **+15%** (crushes skirmishers).
-- **Crossbowman vs heavy armor:** **+10%** (armor-piercing bolts; stacks with the +12% ranged-vs-heavy → **+22%** total vs heavy).
-- **Crossbowman vs light armor:** **−30%** (heavy bolts wasted on cheap skirmishers; a crossbow still beats one Infantry but is left bloodied).
-
-### Siege is helpless in melee (the Cavalry → Ranged leg)
-- A **siege unit forced to melee** (on ADVANCE): **−30%** offense, **−8%** mitigation.
-- A **siege unit pinned in a melee battle** (still trying to fire point-blank): **−80%** offense — caught up close it's near-useless. Its real power is **at-range** fire (it does **not** get an armor bonus there — see [ranged fire](Combat.md#4-ranged-fire-system)), so the way to beat siege is to *reach* it. That's Cavalry's job.
-- **Anyone hitting a siege unit in melee:** **+8%** offense.
-
-### Cavalry is the anti-ranged unit
-- On **ADVANCE**, Cavalry's order bonus is **×1.5** (vs ×1.25 for everyone else) — the "Charge". On **PLAINS** +12% offense, −4% mitigation while charging. In **FOREST** it's crippled (**×0.82** offense, no forest cover).
-- Cavalry takes only **50% of standalone [ranged-fire](Combat.md#4-ranged-fire-system) damage** (`CAVALRY_RANGED_RESIST`) — it shrugs off volleys as it charges, which is what lets it close on and kill ranged/siege units. A lone cavalry charging a waiting Trebuchet across fully open ground still trades hard (it eats volleys closing in); with a screen, in numbers, or with your own ranged focus-firing the pinned siege, it wins cleanly.
-
-→ See [Combat → matchup factors](Combat.md#offense-chain) for the exact code and how these stack into the full formula.
+### Ranged-fire specific
+- **Cavalry takes 50% of standalone ranged-fire damage** (`CAVALRY_RANGED_RESIST = 0.5`, rounded, minimum 1). This applies only in the RangedFireSystem, never inside melee battles.
 
 ---
 
-## 3. Unit roles & notes
+## 3. Unit roles
 
-- **Infantry** — cheap, available from a level-1 Barracks with no tech. A no-tech filler/screen: it loses 1v1 to every specialist but trades on cost and gets you an early army.
-- **Scout** — fast (speed 3), vision 2, almost no combat value (melee 2). Pure reconnaissance and land-grabbing. After researching **Ancient Rituals**, a Scout on your own or neutral territory can **go undercover as a Spy** (see Special behaviors).
-- **Heavy Infantry** — a 250-HP wall and the **anti-cavalry anchor**: **+16% mitigation on HOLD** (shield wall), **+35% offense / +20% mitigation vs Cavalry**. Slow (speed 1) and softened by massed ranged before it can close — its predator is the ranged line.
-- **Cavalry** — the anti-ranged unit: 32 melee + ×1.5 charge, fast, and takes only **half** of incoming ranged fire, so it runs down archers and siege. Hard-countered by Heavy Infantry; crippled in forest.
-- **Longbowman** — range **3** skirmisher; out-ranges shields to soften them before contact. Light armor, fragile — flees from cavalry.
-- **Crossbowman** — range 2, heavy armor, **anti-armor** ranged specialist (no longer anti-cavalry — Cavalry beats it like any ranged unit). **+12% mitigation on WITHDRAW** (kiting tax).
-- **Catapult** — siege ranged (25), strong vs cities and armor at range, weak vs light troops and **helpless once a unit (especially Cavalry) reaches it**.
-- **Trebuchet** — the heaviest hitter (ranged **50**, range 3) and pre-damage king (shreds approaching shields), best siege weapon, but expensive, slow, and **helpless up close — Cavalry is its bane**.
+- **Infantry** — cheap filler and screen; available from a level-1 Barracks with no tech.
+- **Scout** — speed 3, vision 2, melee 2. Recon, land grabbing, and spying (below).
+- **Heavy Infantry** — 250 HP, the anti-cavalry anchor (+0.16 mitigation on HOLD, +0.35 offense / +0.20 mitigation vs Cavalry, +0.15 vs light armor). Slow; softened by ranged fire.
+- **Cavalry** — 32 melee, ×1.5 charge, speed 3, half damage from volleys. Crippled in forest (speed 1 and ×0.82). Countered by Heavy Infantry.
+- **Longbowman** — range 3, light armor, fragile.
+- **Crossbowman** — range 2, heavy armor, anti-armor specialist; poor vs light armor.
+- **Catapult** — ranged 25, range 2; ×1.30 vs cities; helpless when caught in melee.
+- **Trebuchet** — ranged 50, range 3; best siege and pre-damage unit; helpless up close.
 
-### Special behaviors
-- **Ranged vs melee choice:** a ranged unit fires only if `range > 1 && ranged > 0 && order !== ADVANCE`. Choosing ADVANCE forces a shooter into melee. Ranged base damage = `max(rangedDamage, meleeDamage × 0.7)`.
-- **Spies (undercover Scouts):** after **Ancient Rituals**, a Scout can go undercover (toggle on your own/neutral territory, not while in battle). A spy is **invisible to enemy nations** and **infiltrates enemy territory without triggering battles, sieges, or war** — it never starts a fight, and enemy units that move onto it pass through harmlessly (no war is declared either way), giving you vision deep in enemy land. A spy is only at risk **while standing on enemy-controlled territory**: there it is **caught and destroyed** if a non-allied enemy unit is within 2 tiles, with the catch chance higher the closer the enemy is and the more it out-XPs the spy. In **neutral no-man's-land** (and on your own or allied soil) a spy can't be caught, so it can slip through the wilds safely. If your spy is discovered you get an on-screen alert. Drop cover (on own/neutral land) to revert to a normal Scout.
-- **Withdraw & retreat:** units that lose a fight may flee; details in [Stances](Stances.md).
+### Ranged vs melee choice
+In a battle, siege or territory battle a unit uses its ranged attack when `range > 1 && ranged > 0 && effectiveOrder !== 'ADVANCE'`. In unit battles the ranged base damage is `max(rangedDamage, meleeDamage × 0.7)` (always `rangedDamage` for the shipped units). ADVANCE forces a shooter into melee.
+
+### Spies (undercover Scouts)
+- Requires the nation to have researched **Ancient Rituals** (waived in sandbox). Only Scouts.
+- Toggle with the **SPY / DROP** button in the unit panel (command `CONVERT_TO_SPY`). Allowed only when the Scout is **not in battle** and stands on its **own or unowned** territory (applies to both going undercover and dropping cover).
+- While undercover a spy:
+  - is invisible to every nation except its owner and allies (not drawn, no contact marker, no HP bar or path line, cannot be targeted by ranged fire);
+  - never starts battles, sieges or territory battles when moving, and enemy units that move onto its tile ignore it (no war is ever declared because of a spy);
+  - is never promoted to a stranded-unit siege on a city tile;
+  - is drawn with a purple name ("· UNDERCOVER") in its own unit panel.
+- **Detection** (`SpyDetectionSystem`, every 10 ticks): only while the spy stands on a tile **owned by a nation that is not the spy's owner and not allied with it**. For each other living unit (not same owner, not allied — neutral nations count) within **Chebyshev 2**, roll:
+  ```
+  base = 0.50 on the same tile, 0.25 adjacent (distance 1), 0.10 at distance 2
+  chance = clamp(base + (detectorXP − spyXP) × 0.01, 0.02, 0.95)
+  ```
+  The first successful roll destroys the spy (`spy:detected` + `unit:destroyed`, killer = the detector, so morale kill/witness effects apply). The owner gets a toast: "Your spy was discovered and killed at (r, c)."
 
 ---
 
 ## 4. Cost, build time & requirements
 
-All units are trained from a city **Barracks** (built/upgraded in the [City Menu](Production-and-Buildings.md)). `Deposit req` means your nation must control at least one tile with **any** of the listed deposits ([mines built](Cities-Territory-Regions.md#mines)).
+All units are trained in a city with a **Barracks** of at least the listed level. "Deposit" means the nation must have **at least one active mine** on any of the listed deposit types.
 
-| Unit | Gold | Food | RawMat | Build ticks | Tech needed | Barracks lvl | Deposit needed |
-|------|------|------|--------|-------------|-------------|--------------|----------------|
-| **Infantry** | 30 | 400 | 300 | 120 | — | 1 | — |
-| **Scout** | 20 | 300 | 0 | 100 | — | 1 | — |
-| **Longbowman** | 40 | 500 | 350 | 150 | `hunting` | 2 | — |
-| **Cavalry** | 80 | 700 | 500 | 200 | `animal_domestication` | 2 | Copper / Iron / Fire Glass |
-| **Crossbowman** | 50 | 550 | 400 | 180 | `mechanization` | 3 | Copper / Iron / Fire Glass |
-| **Heavy Infantry** | 80 | 700 | 450 | 200 | `iron_working` | 3 | Iron / Fire Glass |
-| **Catapult** | 80 | 350 | 600 | 240 | `physics` + `the_wheel` | 3 | Copper / Iron / Fire Glass |
-| **Trebuchet** | 100 | 400 | 800 | 280 | `mechanization` + `steel_working` | 5 | Iron / Fire Glass |
+| Unit | Gold | Food | Raw Mat | Build ticks (seconds) | Tech | Barracks | Deposit (any of) |
+|---|---|---|---|---|---|---|---|
+| **Infantry** | 30 | 400 | 300 | 240 (24 s) | — | 1 | — |
+| **Scout** | 20 | 300 | 0 | 200 (20 s) | — | 1 | — |
+| **Longbowman** | 40 | 500 | 350 | 300 (30 s) | `hunting` | 2 | — |
+| **Cavalry** | 80 | 700 | 500 | 400 (40 s) | `animal_domestication` | 2 | Copper / Iron / Fire Glass |
+| **Crossbowman** | 50 | 550 | 400 | 360 (36 s) | `mechanization` | 3 | Copper / Iron / Fire Glass |
+| **Heavy Infantry** | 80 | 700 | 450 | 400 (40 s) | `iron_working` | 3 | Iron / Fire Glass |
+| **Catapult** | 80 | 350 | 600 | 480 (48 s) | `physics` + `the_wheel` | 3 | Copper / Iron / Fire Glass |
+| **Trebuchet** | 100 | 400 | 800 | 560 (56 s) | `mechanization` + `steel_working` | 5 | Iron / Fire Glass |
 
-- **Cost is paid upfront** when production starts. **Build ticks** is the time to finish (reduced by higher Barracks levels — **−5% per level above 1**).
-- A finished unit spawns on or next to the city (first passable, unoccupied tile of the 8 neighbors) and remembers its **home city**.
+- Build ticks above already include `UNIT_PRODUCTION_SPEED_MULTIPLIER = 2` (catalog base ticks: 120 / 100 / 150 / 200 / 180 / 200 / 240 / 280).
+- **Barracks mobilization speed-up:** when the order is placed, `ticks = max(1, round(catalogTicks × max(0.5, 1 − 0.05 × (barracksLevel − 1))))` — level 1 ×1.00, 2 ×0.95, 3 ×0.90, 4 ×0.85, 5 ×0.80 (Infantry: 240 / 228 / 216 / 204 / 192).
+- **Cost is paid upfront** when the order is accepted; cancelling refunds nothing.
+- In **sandbox**, cost, tech and deposit checks are skipped and the time becomes `min(10, ticks)`, but the Barracks level is still required.
+- A finished unit spawns on the first free tile in this order: the city tile, E, S, W, N, SE, NW, SW, NE (skipping water, mountain, and any tile with any unit on it). If none is free, the finished order waits and retries every tick. The new unit gets id `unit-city-{N}` (N from a persisted counter starting at 1001), the city as **home city**, and the next serial number.
 
 ---
 
 ## 5. Veterancy & experience
 
-Units earn **XP** from combat and rank up, gaining a permanent damage bonus:
+| Level | Rank | XP needed | Damage × |
+|---|---|---|---|
+| 0 | Recruit | 0 | 1.0 |
+| 1 | Veteran | **5** | 1.1 |
+| 2 | Elite | **15** | 1.2 |
 
-| Level | Rank | XP needed | Damage multiplier |
-|-------|------|-----------|-------------------|
-| 0 | Recruit | 0 | ×1.0 |
-| 1 | Veteran | **5** | ×1.1 |
-| 2 | Elite | **15** | ×1.2 |
+XP awards:
 
-XP awards: **Kill = 3**, **Win (foe survives) = 2**, **Loss (you survive) = 1**, **Landing a ranged hit = 1** (per qualifying combat round). The standalone [ranged-fire system](Combat.md#5-ranged-fire-system) does **not** grant XP.
+| Event | XP |
+|---|---|
+| Win a unit battle where the loser died | +3 (`XP_KILL`) |
+| Win a unit battle where the loser survived (withdraw/rout) | winner +2 (`XP_WIN`), loser +1 (`XP_LOSS`) |
+| Deal >0 damage with the ranged attack in a battle round, siege round, or territory-battle round | +1 (`XP_RANGED_HIT`) |
+| Standalone ranged fire, kills by ranged fire, spy kills | 0 |
 
-Elite units also get an upgraded group name (e.g. Infantry "Battalion" → "Legion").
+The veteran multiplier applies in unit battles, sieges and territory battles — not in standalone ranged fire. Rank never drops.
 
 ---
 
-## 6. The base `Unit` — what every unit tracks
+## 6. Names
 
-State stored per unit: id, type, owner, position, current HP, stats, per-turn move/attack flags, **battle order (stance)**, engaged-in-battle flag, **morale**, battles-fought count, home city, preferred ranged target, **XP**, **veteran level**, unit serial number, **retreat cooldown** tick, and **morale-recovery cooldown** tick. New units start at full HP, **HOLD** stance, **80 morale**, 0 XP / Recruit.
+Each unit has a serial number per (nation, unit type), starting at **101**. Its full name is `"{ordinal} {Type} {Group}"`, e.g. **"101st Infantry Battalion"**. Elite units switch to the elite group name. A serial of 0 shows just the type name.
 
-Key behaviors:
-- `takeDamage` / `heal` / `setHealth` clamp HP to `[0, max]`.
-- `addXP` promotes to Veteran at 5 XP and Elite at 15.
+| Type | Group (Recruit/Veteran) | Group (Elite) |
+|---|---|---|
+| Infantry | Battalion | Legion |
+| Scout | Regiment | Corp |
+| Heavy Infantry | Battalion | Legion |
+| Cavalry | Squadron | Wing |
+| Longbowman | Regiment | Corp |
+| Crossbowman | Regiment | Corp |
+| Catapult | Battery | Train |
+| Trebuchet | Battery | Train |
+
+Ordinal suffix: 11–13 → "th"; else last digit 1 → "st", 2 → "nd", 3 → "rd", else "th".
+
+---
+
+## 7. The base `Unit` — what every unit tracks
+
+```ts
+interface UnitData {
+  id; type: UnitType; ownerId; position: {row, col};
+  currentHealth; stats: UnitStats;              // stats are saved per unit
+  hasMovedThisTurn; hasAttackedThisTurn;         // vestigial
+  battleOrder: 'WITHDRAW' | 'HOLD' | 'ADVANCE';  // default HOLD
+  engagedInBattle: boolean;
+  morale: number;                                // default 80, clamped 0..100
+  battlesEngaged: number;
+  homeCityId: string | null;
+  preferredTargetId: string | null;              // ranged auto-target override (no UI sets it)
+  xp; veteranLevel;                              // 0..2
+  unitSerial;                                    // 0 = none
+  retreatCooldownUntilTick;
+  moraleRecoveryCooldownUntilTick;
+  isSpy: boolean;
+}
+```
+- `takeDamage`, `heal`, `setHealth` clamp HP to `[0, maxHealth]`; `isAlive()` = HP > 0.
+- `addXP` promotes at 5 and 15 XP; `getXPToNextLevel()` = threshold − xp (0 when Elite).
 - `setMorale` clamps to `[0, 100]`.
-- Stance is set via the UI but its **effective** value is gated by morale — see **[Stances](Stances.md)** and **[Morale](Morale.md#6-how-morale-gates-stances)**.
-- After losing a fight, a surviving unit gets a **20-tick retreat cooldown** (can't be re-engaged) and a **30-tick halved-morale-recovery cooldown**.
+- The chosen `battleOrder` is filtered by morale into an *effective* order — see [Stances](Stances.md#how-morale-gates-stances).
+- Losing a battle and surviving sets a 20-tick retreat cooldown (can't be pulled into a new unit battle) and a 30-tick halved-morale-recovery window.
+- Saves restore the type-specific subclass via `createUnitFromData`, then overwrite stats and all mutable fields; the legacy order `FALL_BACK` is converted to `WITHDRAW`, unknown orders to `HOLD`.
 
 → Continue to **[Combat](Combat.md)**

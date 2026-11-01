@@ -2,191 +2,242 @@
 
 [← Back to Home](README.md)
 
-Combat is **automatic and continuous**. You don't click "attack" — you move a unit into an enemy and the simulation resolves the fight round by round over ticks. There are **four** combat systems: unit-vs-unit battles, city sieges, territory battles, and a standalone ranged-fire system. They share a common damage math.
+Combat is **automatic and continuous**. There is no attack command: a unit fights by moving into an enemy unit, an enemy city, or enemy territory, and ranged units fire on their own at anything hostile in range. There are four combat systems sharing a few helper formulas:
 
-> **Related pages:** [Stances](Stances.md) · [Morale](Morale.md) · [Units & matchups](Units.md) · [Terrain](Map-Terrain-Movement.md#2-terrain)
+| System | Trigger | Round length |
+|---|---|---|
+| Unit-vs-unit **battle** | Moving onto another nation's unit | 20 ticks (2 s) |
+| City **siege** | Moving onto (or standing on) another nation's city | 10 ticks (1 s) |
+| **Territory battle** | Moving onto another nation's non-city tile while at war with it | 10 ticks (1 s) |
+| **Ranged fire** | A free ranged unit with a hostile target in range | every 20 ticks per unit |
+
+> Related: [Stances](Stances.md) · [Morale](Morale.md) · [Units & matchups](Units.md#2-unit-matchups--the-rock-paper-scissors-triangle) · [Terrain](Map-Terrain-Movement.md#2-terrain)
 
 ---
 
-## Shared damage primitives
+## Shared helpers (`config/combatBalance.ts`)
 
-Every combat system reuses these helpers (`combatBalance.ts`):
-
-**Health factor** — wounded units hit softer:
+```ts
+healthFactor(cur, max)   = 0.55 + 0.45 × (max > 0 ? cur/max : 0)     // [0.55, 1.0]
+damageVariance(rand)     = 0.9 + rand × 0.2                           // [0.9, 1.1), rand from the game RNG
+veteranDamageMultiplier  = [1.0, 1.1, 1.2][clamp(level, 0, 2)]
+applyCombatMoraleHit(unit, dmg): if dmg > 0: morale -= ceil(dmg / maxHP × 45)
+applyAdvancePenalty(unit):       morale -= 2
+effectiveBattleOrder(unit):      see Stances
 ```
-healthFactor(cur, max) = 0.55 + 0.45 × (cur / max)     → range [0.55, 1.0]
-```
-Full HP = 1.0; near-death = 0.55.
-
-**Damage variance** — per-round random spread:
-```
-damageVariance(rand) = 0.9 + rand × 0.2                → range [0.9, 1.1)
-```
-`rand` comes from the deterministic seeded RNG, so battles replay identically.
-
-**Veteran multiplier** — `[1.0, 1.1, 1.2]` for Recruit / Veteran / Elite.
 
 ---
 
 ## 1. Unit-vs-unit battle
 
-### Cadence & start
-- A round resolves every **`UNIT_BATTLE_ROUND_TICKS = 20` ticks (2 seconds)** — melee is a deliberately drawn-out exchange.
-- `startBattle` fails (returns no battle) if either unit is dead, they share an owner, either is already in a battle, or either is on **retreat cooldown**. On success both are flagged engaged and their movement orders are cancelled.
+*System: `BattleSystem`.*
 
-### Each round — damage is **simultaneous**
-Each side's damage to the other is:
+### Starting
+`startBattle(attacker, defender, attackerOrigin, position)` returns `null` (no battle) if either unit is dead, they share an owner, either is already engaged, or either has `retreatCooldownUntilTick > currentTick`. **Diplomatic status is not checked** — allied or neutral units fight too (neutral contact then triggers auto-war; see [Diplomacy](Diplomacy.md)).
+
+On success: id `battle-{N}`; record `attackerOrigin` (the tile the attacker stepped from) and `defenderOrigin` (the defender's tile = the battle tile); `ticksUntilRound = 20`; both units marked engaged; both units' movement orders cancelled; emit `battle:started`.
+
+### Each tick, per battle
+1. If either unit no longer exists → finish with no winner (`MUTUAL_DESTRUCTION`).
+2. If either is dead → finish (`ELIMINATION` if one survives, else `MUTUAL_DESTRUCTION`).
+3. `ticksUntilRound--`; when it hits 0, reset to 20, `roundsElapsed++` and resolve a round:
+
 ```
-damage = max(1, round( offense × (1 − mitigation) ))
+terrain  = terrain of the battle tile
+orderA   = effectiveBattleOrder(A);  orderB = effectiveBattleOrder(B)
+pace     = (orderA == ADVANCE || orderB == ADVANCE) ? 1.25 : 1
+dmgToA   = calculateDamage(attacker=B, defender=A)      // computed first (consumes 1 RNG draw)
+dmgToB   = calculateDamage(attacker=A, defender=B)      // consumes 1 RNG draw
+A.takeDamage(dmgToA); B.takeDamage(dmgToB)
+if dmgToB > 0 and A used its ranged attack: A +1 XP   (same for B)
+moraleHit(A, dmgToA); moraleHit(B, dmgToB)
+if orderA == ADVANCE: A −2 morale;  if orderB == ADVANCE: B −2 morale
+emit battle:round-resolved
+then check, in order: death → withdraw → rout
 ```
-The `max(1, …)` floor means **every hit chips at least 1 HP**, so battles can't stall. The **attacker's** stance drives its offense; the **defender's** stance drives its mitigation.
 
-#### Offense chain (multiplicative)
+#### Damage
 ```
-offense = baseDamage × hpFactor × orderFactor × matchupFactor
-                     × terrainFactor × fireFactor × moraleFactor
-                     × battlePaceFactor × randomness
+damage = max(1, round(offense × (1 − mitigation)))
 ```
 
-- **useRanged** = `range > 1 && ranged > 0 && order ≠ ADVANCE`. ADVANCE forces shooters into melee.
-- **rawBase** = `useRanged ? max(ranged, melee × 0.7) : melee`.
-- **baseDamage** = `(rawBase + weaponTierBonus) × veteranMultiplier`.
-  - *weaponTierBonus* — best active weapon deposit: Copper +2, Iron +4, Fire Glass +6 (only the best applies). See [Economy](Economy-and-Resources.md#deposit-bonuses).
-- **hpFactor** — `healthFactor` of the attacker, [0.55, 1.0].
-- **orderFactor** — on ADVANCE: Cavalry **×1.5**, everyone else **×1.25**; HOLD/WITHDRAW **×1.0**.
-- **matchupFactor** — the [unit/armor counters](Units.md#2-unit-matchups) (the rock-paper-scissors triangle), summed additively into one factor (e.g. Heavy Infantry vs Cavalry +0.35; a siege unit pinned in melee −0.80).
-- **terrainFactor** — [terrain × unit-type offense modifiers](Map-Terrain-Movement.md#2-terrain).
-- **fireFactor** — Fire Mana deposit bonus (+10% per mine, max +30%).
-- **moraleFactor** — the attacker's [morale-band damage multiplier](Morale.md#1-morale-bands--combat-effects).
-- **battlePaceFactor** — **×1.25 if *either* side is on ADVANCE**, applied to *both* combatants (speeds up the whole exchange). This is separate from the per-unit ADVANCE `orderFactor`.
-- **randomness** — `damageVariance`, ±10%.
-
-#### Mitigation chain (additive, then clamped)
+#### Offense (multiplicative)
 ```
-mitigation = clamp( base + terrainBonus + matchupBonus + earthBonus + moraleBonus, 0, 0.65 )
+useRanged = range > 1 && rangedDamage > 0 && attackerOrder != ADVANCE
+rawBase   = useRanged ? max(rangedDamage, meleeDamage × 0.7) : meleeDamage
+base      = (rawBase + weaponTierBonus(attacker nation)) × veteranMultiplier
+offense   = base × healthFactor(attacker)
+               × orderFactor          // ADVANCE: Cavalry 1.5, others 1.25; else 1
+               × matchupFactor        // Units → matchups table
+               × terrainFactor        // Map → terrain offense table
+               × fireManaFactor       // 1 + 0.10 × min(3, fire mines)
+               × moraleDamageMult     // attacker's morale band
+               × pace
+               × damageVariance(rng())
 ```
-- **base** (defender's effective stance): **HOLD 0.22, WITHDRAW 0.16, ADVANCE 0.04**.
-- **terrainBonus** — e.g. FOREST +0.06 (not cavalry), SNOW_FOREST +0.08 on HOLD/WITHDRAW.
-- **matchupBonus** — e.g. Heavy Infantry on HOLD +0.16, Crossbow on WITHDRAW +0.12, Heavy Infantry vs cavalry +0.20.
-- **earthBonus** — Earth Mana HP/defense bonus (+10%/mine, max +30%).
-- **moraleBonus** — the defender's [morale-band mitigation delta](Morale.md#1-morale-bands--combat-effects).
-- **`MITIGATION_CAP = 0.65`** — a defender can never block more than **65%**; attacks always land.
+`weaponTierBonus`: +6 with any active Fire Glass mine, else +4 with Iron, else +2 with Copper, else 0.
 
-### After damage each round (in order)
-1. Both units `takeDamage`.
-2. **Ranged XP:** a unit that dealt >0 damage *and* used ranged gets **+1 XP**.
-3. **Morale drain:** each unit loses `ceil((damageTaken / maxHP) × 45)` morale.
-4. **Advance penalty:** a unit on ADVANCE loses **2 morale**.
+#### Mitigation (additive, clamped to [0, 0.65])
+```
+mitigation = clamp( stanceBase(defenderOrder)        // HOLD 0.22, WITHDRAW 0.16, ADVANCE 0.04
+                  + terrainMitigation               // forest/snow/plains rules
+                  + matchupMitigation               // HI shield wall, crossbow kiting, siege −0.08, HI vs cav
+                  + 0.10 × min(3, earth mines)      // Earth Mana
+                  + moraleMitigationDelta,          // defender's morale band
+                  0, 0.65 )
+```
+The **attacker's own** effective order drives its offense; the **defender's own** effective order drives its mitigation. `MITIGATION_CAP = 0.65` guarantees at least 35% of offense lands, and the `max(1, …)` floor guarantees at least 1 HP per round.
 
-### Ending a battle (checked in this order)
-1. **Elimination** — a unit died → the survivor wins (or mutual destruction).
-2. **Withdraw** — both roll the [WITHDRAW chance](Stances.md#the-withdraw-roll); the battle ends only if **exactly one** succeeds (that unit is the loser).
-3. **Rout** — morale **≤ 14**; if exactly one routed it's the loser; both routed = mutual destruction.
+#### Ending conditions (after damage)
+1. **Death:** a unit at 0 HP → `ELIMINATION` (survivor wins) or `MUTUAL_DESTRUCTION` (both dead).
+2. **Withdraw:** each unit whose effective order is WITHDRAW rolls (A first, then B); see [the WITHDRAW roll](Stances.md#the-withdraw-roll). The battle ends only if **exactly one** succeeds — that unit is the *loser* (reason `WITHDRAW`).
+3. **Rout:** a unit with morale ≤ 14. Exactly one routed → it loses (`ROUT`). **Both routed → the battle ends with no winner or loser; both units simply disengage where they stand** (reason `MUTUAL_DESTRUCTION`, nobody dies).
 
-### Cleanup (`finishBattle`)
-- Clear engaged flags; increment battles-fought.
-- **XP:** winner +3 if the loser died, else winner +2 / loser +1 and the loser gets a **20-tick retreat cooldown**.
-- **Extra morale hit:** a surviving WITHDRAW/ROUT loser loses **15** more morale.
-- **Loser disposition:** if dead → removed. If alive → it tries to flee to a [retreat tile](#retreat-targeting); **if no valid tile exists, it is killed in place.**
+#### Finishing (`finishBattle`)
+1. Clear both engaged flags, `battlesEngaged++` on both, cancel both movement orders.
+2. XP (only if the winner is alive): loser dead → winner +3; loser alive → winner +2, loser +1, and the loser gets `retreatCooldownUntilTick = tick + 20`.
+3. A surviving loser of `WITHDRAW`/`ROUT` loses **15 morale** (`morale:lost`, source `battle-lost`).
+4. Loser dead → removed, `unit:destroyed` (killer = winner). Loser alive → moved to a [retreat tile](#retreat-targeting) (`unit:step-complete` + `unit:withdrew`); **no retreat tile → the loser is destroyed in place**.
+5. If the winner is somehow dead it is removed too.
+6. Delete the battle and emit `battle:ended {winnerUnitId, loserUnitId, reason}`. ([MoraleSystem](Morale.md) reacts: +20 to the winner on ELIMINATION/WITHDRAW, post-battle recovery cooldown for the loser.)
+
+After a battle the winner stays where it was. If that tile is an enemy city, the stranded-unit check that runs right after battles in the same tick starts a siege there.
 
 ### Retreat targeting
-A fleeing unit looks for a tile, in priority order:
-1. Two tiles back along its incoming direction (and diagonal variants).
-2. A radius-2 ring around the battle, chosen to **maximize distance from the winner**.
-3. Expanding rings (radius 3–6) sorted **toward home**.
+Candidates are tried in order; a tile is **valid** if it exists, is not water or mountain, holds no unit other than the two combatants, and is not the winner's tile. The first valid tile that is unowned or owned by the loser's nation is chosen; failing that, the first valid tile of any owner.
 
-A valid tile must exist, not be water/mountain, not be occupied, and not be the winner's tile. Friendly/neutral tiles are preferred; if none, any valid tile is taken. No tile ⇒ death.
+1. Directional: with `dr = sign(origin.row − battle.row)`, `dc = sign(origin.col − battle.col)` (origin = the loser's origin tile), if not both zero: `(+2dr, +2dc)`, `(+2dr, 0)`, `(0, +2dc)`, `(+2dr, +dc)`, `(+dr, +2dc)` relative to the battle tile.
+2. Ring: `(±2, 0)`, `(0, ±2)`, `(±1, ±1)` — sorted by Manhattan distance from the winner, farthest first.
+3. Every tile on the Chebyshev rings of radius 3, 4, 5, 6 around the battle, sorted by Manhattan distance to the loser's origin, nearest first.
+
+Retreats teleport the unit (no walking).
+
+### Peace
+`endBattlesBetweenNations` deletes any battle between two nations that just signed peace: engaged flags cleared, no XP or morale changes, `battle:ended` with reason `PEACE`.
+
+### RNG draw order
+Per resolved round: offense variance for B→A, then A→B; then, only for units whose effective order is WITHDRAW, one withdraw roll each (A then B). Battles resolve in creation order.
 
 ---
 
 ## 2. City siege
 
-Triggered when a unit steps onto an **enemy city** tile. Rounds resolve every **10 ticks (1s)**.
+*System: `CitySiegeSystem`.*
 
-### City HP & walls
-A city has **base 200 HP** and **base melee 12**. **Walls** add **+60 HP and +3 melee per level** (max level 5). The city heals **+5 HP every 50 ticks** while *not* besieged.
+### Start
+When a unit enters a tile holding a city owned by **any other nation** (no diplomacy check, so allied cities can be besieged), or a non-spy unit is left standing on such a tile. `startSiege` fails if the unit or city is dead or the unit is already engaged. The unit's remaining path is **paused** (saved as `pendingPath`), the unit is marked engaged, id `siege-{N}`, `ticksUntilRound = 10`, emit `city:siege-started`.
 
-### Each round
-1. **WITHDRAW** ends the siege immediately (the unit retreats; always succeeds).
-2. **Unit → city damage:**
+Each siege is one unit vs one city. Because a nation's units can't share a tile, **a nation can have only one besieger on a city at a time**; its other units wait on the path (retrying each tick) or soften the city with ranged fire, which can't take it below 1 HP. Units of different nations can besiege the same city simultaneously.
+
+### City stats
+- `maxHP = 200 + 60 × wallLevel`, `melee = 12 + 3 × wallLevel` (walls max level 5 → 500 HP, 27 melee).
+- **Regen:** on ticks divisible by 50, every city that is not under any siege and is below max heals **+5 HP**.
+
+### Each round (every 10 ticks)
+1. Effective order **WITHDRAW** → the siege ends and the unit always retreats (below).
+2. **Unit → city:**
    ```
-   wallMitigation = min(0.5, wallLevel × 0.06)          // capped at 0.5
-   if ADVANCE: wallMitigation ×= 0.45                   // pressing the assault cuts wall cover
-   siegeBonus = (Catapult/Trebuchet) ? 1.30 : 1.0
-   damage = max(1, round( base × healthFactor × siegeBonus × (1 − wallMitigation) × variance ))
+   useRanged = range > 1 && ranged > 0 && order != ADVANCE
+   base      = (useRanged ? rangedDamage : meleeDamage) × veteranMultiplier      // no weapon-tier, mana, morale, matchup or terrain
+   wallMit   = min(0.5, wallLevel × 0.06);  if order == ADVANCE: wallMit × 0.45
+   siegeBonus = Catapult/Trebuchet ? 1.30 : 1.0
+   dmgToCity = max(1, round(base × healthFactor(unit) × siegeBonus × (1 − wallMit) × variance))
+   ranged attack → +1 XP
    ```
-   (`base` = ranged or melee × veteran multiplier; ranged hit grants +1 XP.)
-3. **City → unit counterattack:** `max(0, round( cityMelee × cityHealthFactor × variance ))`, plus the usual morale drain (and ADVANCE penalty).
-4. **Outcome:** city HP ≤ 0 → **conquered**; unit dies → siege ends.
+3. **City → unit:** `dmgToUnit = max(0, round(cityMelee × healthFactor(city) × variance))` (city health factor uses HP before this round's damage).
+4. Apply both, morale hit on the unit, −2 morale if ADVANCE, emit `city:siege-round` (MoraleSystem gives +1 morale if the city took damage and the unit took none — only possible if the counter-attack rounds to 0).
+5. City HP 0 → **conquered**. Else unit dead → removed (`unit:destroyed`, no killer) and the siege ends.
 
-> City sieges apply the **veteran** multiplier but **not** the morale/matchup/terrain/mana offense factors (those are unit-vs-unit only).
+RNG: two draws per round (unit→city, then city→unit).
+
+### Retreat (WITHDRAW)
+Candidates: the attacker's origin tile, then every tile on Chebyshev rings 1–5 around the city, all sorted by Manhattan distance to the origin. Valid = exists, not water/mountain, no other unit. Prefer unowned or own territory, else any valid. No valid tile → the unit stays put (it is still released from the siege).
 
 ### Conquest
-- Ownership of the city (and its tile) transfers to the victor.
-- **Every building drops one level** (level-1 buildings are destroyed); **City Hall is exempt**.
-- The conqueror keeps **35% of max HP**.
+- Ownership of the city and its tile transfers to the attacker's nation.
+- The city's production queue is cleared and its current order cancelled (no refund).
+- **Every non-City-Hall building loses one level** (level-1 buildings are removed); razing and any pending level removal are cancelled.
+- City HP is set to `ceil(maxHP × 0.35)` (maxHP after the wall downgrade).
+- Events: `city:conquered {byUnitId, byNationId, fromNationId}`, `territory:claimed` (no `fromNationId`), `city:buildings-changed`.
+- The conquering unit stays on the city tile and **resumes its paused path** (or emits `unit:move-complete` if it had none).
+- Morale: conqueror +25, nearby friendlies +10, and **every unit of the previous owner −10** ([Morale](Morale.md)).
 
-### How many attackers do I need?
-Mechanically, **one** unit can solo a city — it just has to grind the city's HP down while surviving the garrison's counterfire. Walls (up to 0.5 mitigation) and the garrison's melee are the limiters. **Siege units (×1.30)** and **ADVANCE (×0.45 wall cover)** speed it up. In practice a single unit often dies first, which is why the tutorial teaches bringing **several** units. **Ranged fire alone cannot conquer** — a unit must occupy the tile.
+**One unit can take a city**; walls, the garrison's melee, and the unit's HP are the limits. Siege weapons (×1.30) and ADVANCE (wall cover × 0.45) speed it up. Ranged fire alone can never take a city.
 
 ---
 
 ## 3. Territory battle
 
-Triggered when a unit enters an **enemy-owned, non-city** tile while at war. Rounds every **10 ticks (1s)**. A territory has **base 30 HP** (more with [walls](Cities-Territory-Regions.md#territory-walls)).
+*System: `TerritoryBattleSystem`.*
 
-### Each round
-1. **WITHDRAW** disengages immediately; the territory regains **10 HP**.
-2. **Unit → territory damage:**
-   ```
-   wallMit = (has Walls && order ≠ ADVANCE) ? 0.20 : 0     // ADVANCE bypasses territory walls
-   damage = max(1, round( base × healthFactor × (1 − wallMit) × variance ))
-   ```
-3. **Territory → unit damage:** `max(0, round( territoryAttack × counterFactor × variance ))`, where ranged attackers take **15% less** counterfire (`counterFactor = 0.85`). Territory attack is 10 unwalled, or 14–29 with walls.
-4. **Outcome:** territory HP ≤ 0 → **conquered**.
+### Start
+A unit enters a tile owned by another nation, without a city, **and its nation is at WAR with that owner**. Only **one territory battle per tile** at a time (another nation's unit arriving later just shares the tile and continues its path). The unit's path is paused into `pendingPath`; id `tbattle-{N}`; `ticksUntilRound = 10`; emit `territory:conquest-started {needed: maxHP}`.
 
-The territory heals **+5 HP every 50 ticks** while not under attack.
+### Territory stats
+- `maxHP = 30 + 50 × wallLevel` (walls max 5 → 280).
+- Counter-attack damage: **10** without walls; with walls `14 + 5 × (level − 1)` → 14 / 19 / 24 / 29 / 34.
+- **Regen:** on ticks divisible by 50, every **owned** tile not under a territory battle and below max heals **+5**.
+
+### Each round (every 10 ticks)
+1. Effective order **WITHDRAW** → disengage: the tile heals **+10 HP**, the unit retreats (same candidate logic as sieges), emit `territory:conquest-cancelled`.
+2. **Unit → territory:**
+   ```
+   base   = (useRanged ? rangedDamage : meleeDamage) × veteranMultiplier
+   wallMit = (tile has Walls && order != ADVANCE) ? 0.20 : 0           // ADVANCE ignores walls
+   dmg    = max(1, round(base × healthFactor(unit) × (1 − wallMit) × variance))
+   ranged attack → +1 XP
+   ```
+3. **Territory → unit:** `max(0, round(attackDamage × (useRanged ? 0.85 : 1.0) × variance))`.
+4. Apply, morale hit, −2 if ADVANCE, emit `territory:conquest-progress {progress: maxHP − HP, needed: maxHP}`.
+5. HP ≤ 0 → **conquered**; unit dead → removed and `territory:conquest-cancelled`.
 
 ### Conquest
-- The tile's controller becomes the victor; existing buildings are replaced by a **free Outpost**.
-- Adjacent **unowned** water/mountain tiles are also claimed.
-- Nearby friendly units gain morale (a [territory rally](Morale.md#3-sources-of-morale-gain)).
+- The tile's owner becomes the attacker's nation and **all its buildings are replaced by a single free Outpost** (HP resets to 30).
+- Emits `territory:claimed {fromNationId}` → nearby units of the conqueror gain +6 morale.
+- Every **unowned** water/mountain tile orthogonally adjacent is claimed too.
+- The unit resumes its paused path.
+
+> The `Territory.getWallsRange()` helper (2 tiles at wall level ≥ 2, 3 at ≥ 4) exists but is **not used by any system** — territory walls only hit the unit standing on the tile.
 
 ---
 
 ## 4. Ranged fire system
 
-Stationary **ranged** units fire automatically at nearby enemies, independent of melee/siege rounds.
+*System: `RangedFireSystem`.*
 
-- **Cadence:** every **20 ticks (2s)** per unit.
-- **Eligible:** a ranged unit (`range > 1 && ranged > 0`) that is alive and **not** already engaged in a melee/siege.
-- **Targeting** (Manhattan distance ≤ range): a player-assigned **preferred target** if valid, otherwise the **closest enemy unit** (preferred over cities).
-- **Damage:** `max(1, round( (ranged + weaponTierBonus) × healthFactor × fireFactor × variance ))`. Note this applies weapon-tier and Fire-Mana bonuses but **not** veteran, morale, matchup, or terrain.
-- **vs Cavalry:** Cavalry takes only **50%** of this damage (`CAVALRY_RANGED_RESIST`) — it shrugs off fire as it charges, the basis of the Cavalry → Ranged matchup. Applies here only, never in melee battles.
-- **vs a city:** chips HP but **never below 1** (can't conquer). If the firer is within 3 tiles, it takes counterfire and can die.
-- **Side effect:** firing on a neutral nation auto-declares war.
-- This system grants **no XP**.
+Every tick, for every unit (in insertion order) that is ranged, alive, **not engaged** in a battle/siege/territory battle, and whose cooldown has expired (`currentTick ≥ nextFireTick`, default 0):
+
+1. **Target** (Manhattan distance ≤ attackRange):
+   - The unit's `preferredTargetId` if it is alive, not a spy, not allied, and in range (otherwise the preference is cleared). No current UI sets a preference.
+   - Else the **closest** unit that is not the shooter's own, not allied, alive, and not a spy — **neutral nations' units are valid targets** — first found wins ties. Units already fighting someone else can be targeted.
+   - Else the closest non-own, non-allied **city**.
+2. **Damage:** `raw = max(1, round((rangedDamage + weaponTierBonus) × healthFactor(shooter) × fireManaFactor × variance))` — no veterancy, morale, matchup or terrain.
+3. **vs unit:** Cavalry takes `max(1, round(raw × 0.5))`; others take `raw`. Apply the morale hit. If it dies → removed, `unit:destroyed` with the shooter as killer.
+4. **vs city:** `city HP = max(1, HP − raw)` — ranged fire can never reduce a city below 1 HP. If the shooter is within Manhattan 3 (always true for ranged units) it takes counterfire `max(1, round(cityMelee × healthFactor(city)))` (no variance) plus the morale hit, and may die.
+5. Emit `ranged:fired` (→ [DiplomacySystem](Diplomacy.md) auto-declares war on a neutral target's nation, subject to the peace cooldown). Set `nextFireTick = currentTick + 20`.
+
+No XP is granted by standalone fire. Cooldowns aren't saved.
 
 ---
 
-## 5. Experience & veterancy recap
+## 5. Experience recap
 
 | Event | XP |
 |---|---|
-| Kill (foe dies) | 3 |
-| Win (foe survives) | 2 |
-| Loss (you survive) | 1 |
-| Land a ranged hit (per round, in melee/siege/territory) | 1 |
+| Win a unit battle, loser died | 3 |
+| Win a unit battle, loser survived | 2 (loser gets 1) |
+| Land ranged damage in a battle/siege/territory round | 1 |
 
-Thresholds: **5 XP → Veteran (×1.1 damage)**, **15 XP → Elite (×1.2 damage)**. See [Units → Veterancy](Units.md#5-veterancy--experience).
+Veteran (5 XP) ×1.1 damage, Elite (15 XP) ×1.2. See [Units → Veterancy](Units.md#5-veterancy--experience).
 
 ---
 
-## Edge cases worth remembering
-- **Mitigation is additive then clamped to [0, 0.65]; offense is purely multiplicative.**
-- **`battlePaceFactor` (×1.25)** applies to *both* sides the moment *either* picks ADVANCE in a unit battle — separate from the per-unit ADVANCE bonus.
-- **Damage floors:** melee/siege/territory damage floors at **1 HP/round**; ranged-fire-vs-city floors at **1 HP remaining** (can't kill a city).
-- **No retreat tile = death** for a unit-vs-unit loser.
-- Unit battles use the **2-second** round; sieges/territory use the **1-second** round.
+## Edge cases
+- Mitigation is additive then clamped to [0, 0.65]; offense is purely multiplicative.
+- `pace` (×1.25) affects both sides once either effective order is ADVANCE, separately from the attacker's own ADVANCE bonus.
+- Damage floors: battle/siege/territory hits floor at 1; counter-attacks from cities and territories can roll 0.
+- A losing unit with nowhere to retreat dies.
+- Sieges and territory battles ignore morale bands, matchups, terrain, weapon tier and mana; they only apply veterancy and the health factor.
+- Allied units can fight if one walks onto the other, and allied cities can be besieged (see [Known Quirks](Known-Quirks.md)).
 
 → Continue to **[Stances](Stances.md)**
